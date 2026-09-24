@@ -1,0 +1,80 @@
+/*
+	Theme Name: Adex360 X Canna Cabana Stationery Child
+	Description: Canna Cabana Stationery is a lightweight and minimalist WordPress theme that was built specifically to work seamlessly with the Elementor site builder plugin. The theme is free, open-source, and designed for users who want a flexible, easy-to-use, and customizable website. The theme, which is optimized for performance, provides a solid foundation for users to build their own unique designs using the Elementor drag-and-drop site builder. Its simplicity and flexibility make it a great choice for both beginners and experienced Web Creators.
+	Author: Adex360
+	Author URI: https://adex360.com/
+	Version: 1.0.1
+	Template: adex360-cannacabana-stationery
+	Requires at least: 6.0
+	Tested up to: 6.8
+	Requires PHP: 7.4
+	License: GNU General Public License v3 or later.
+	License URI: https://www.gnu.org/licenses/gpl-3.0.html
+	Tags: accessibility-ready, flexible-header, custom-colors, custom-menu, custom-logo, featured-images, rtl-language-support, threaded-comments, translation-ready,
+*/
+
+.category-title {
+  text-align: center;
+  font-size: 28px;
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+
+.category-subtitle {
+  text-align: center;
+  margin-bottom: 30px;
+  font-size: 16px;
+  color: #666;
+}
+
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 24px;
+  max-width: 1000px;
+  margin: 0 auto 40px;
+}
+
+.category-box {
+  border: 1px solid #ddd;
+  padding: 15px;
+  border-radius: 8px;
+  background: #fff;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.category-box:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-4px);
+}
+
+.category-box img {
+  width: 100%;
+  max-height: 120px;
+  object-fit: contain;
+  margin-bottom: 10px;
+}
+
+.category-box p {
+  margin: 0;
+  font-weight: 600;
+}
+
+.category-view-more {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.view-more-btn {
+  padding: 10px 20px;
+  background: #000;
+  color: #fff;
+  text-decoration: none;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.view-more-btn:hover {
+  background: #444;
+}

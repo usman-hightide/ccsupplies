@@ -1,0 +1,8 @@
+.woocommerce-shipping-fields {
+  display: none;
+}
+.woocommerce-billing-fields,
+.woocommerce-shipping-fields,
+.woocommerce-account-fields {
+  display: none !important;
+}
