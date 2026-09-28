@@ -132,13 +132,48 @@ jQuery(function($){
           '</tr>';
       });
       itemsHtml += '</tbody></table></div>';
-      if (itemsTotal > 0) {
-        itemsHtml +=
-          '<div class="aov-totals">' +
-            '<span>Amazon items subtotal</span>' +
-            '<strong>' + money(itemsTotal, currency) + '</strong>' +
-          '</div>';
+
+      const shipAmt = (a.shipping_amount !== undefined && a.shipping_amount !== null && a.shipping_amount !== '')
+        ? Number(a.shipping_amount)
+        : NaN;
+      const taxAmt = (a.tax_amount !== undefined && a.tax_amount !== null && a.tax_amount !== '')
+        ? Number(a.tax_amount)
+        : NaN;
+      const orderTotal = (a.order_total !== undefined && a.order_total !== null && a.order_total !== '')
+        ? Number(a.order_total)
+        : NaN;
+
+      let totalsHtml = '';
+      if (itemsTotal > 0 || !isNaN(shipAmt) || !isNaN(taxAmt) || !isNaN(orderTotal)) {
+        totalsHtml += '<div class="aov-totals-stack">';
+        if (itemsTotal > 0) {
+          totalsHtml +=
+            '<div class="aov-totals"><span>Amazon items subtotal</span><strong>' +
+            money(itemsTotal, currency) + '</strong></div>';
+        }
+        if (!isNaN(shipAmt)) {
+          totalsHtml +=
+            '<div class="aov-totals"><span>Shipping</span><strong>' +
+            money(shipAmt, currency) + '</strong></div>';
+        }
+        if (!isNaN(taxAmt)) {
+          totalsHtml +=
+            '<div class="aov-totals"><span>Tax</span><strong>' +
+            money(taxAmt, currency) + '</strong></div>';
+        }
+        if (!isNaN(orderTotal)) {
+          totalsHtml +=
+            '<div class="aov-totals aov-totals-grand"><span>Amazon order total</span><strong>' +
+            money(orderTotal, currency) + '</strong></div>';
+        } else if (itemsTotal > 0 && (!isNaN(shipAmt) || !isNaN(taxAmt))) {
+          const computed = itemsTotal + (isNaN(shipAmt) ? 0 : shipAmt) + (isNaN(taxAmt) ? 0 : taxAmt);
+          totalsHtml +=
+            '<div class="aov-totals aov-totals-grand"><span>Amazon order total</span><strong>' +
+            money(computed, currency) + '</strong></div>';
+        }
+        totalsHtml += '</div>';
       }
+      itemsHtml += totalsHtml;
     }
 
     const shipFields = [
@@ -205,6 +240,9 @@ jQuery(function($){
           '<div class="aov-meta-item"><span>Line items</span><strong>' + items.length + '</strong></div>' +
           '<div class="aov-meta-item"><span>WC total</span><strong>' + esc(wcTotal) + '</strong></div>' +
           '<div class="aov-meta-item"><span>Amazon subtotal</span><strong>' + (itemsTotal > 0 ? money(itemsTotal, currency) : '—') + '</strong></div>' +
+          '<div class="aov-meta-item"><span>Shipping</span><strong>' + ((a.shipping_amount !== undefined && a.shipping_amount !== null && a.shipping_amount !== '') ? money(a.shipping_amount, currency) : '—') + '</strong></div>' +
+          '<div class="aov-meta-item"><span>Tax</span><strong>' + ((a.tax_amount !== undefined && a.tax_amount !== null && a.tax_amount !== '') ? money(a.tax_amount, currency) : '—') + '</strong></div>' +
+          '<div class="aov-meta-item"><span>Amazon total</span><strong>' + ((a.order_total !== undefined && a.order_total !== null && a.order_total !== '') ? money(a.order_total, currency) : '—') + '</strong></div>' +
           '<div class="aov-meta-item"><span>Cart ID</span><strong><code>' + esc(a.cart_id || '—') + '</code></strong></div>' +
           '<div class="aov-meta-item"><span>Region</span><strong>' + esc(a.region || 'CA') + '</strong></div>' +
           '<div class="aov-meta-item"><span>Currency</span><strong>' + esc(currency) + '</strong></div>' +
@@ -477,10 +515,24 @@ jQuery(function($){
   justify-content: flex-end;
   gap: 16px;
   align-items: center;
-  margin-top: 12px;
-  padding-top: 12px;
+  margin-top: 8px;
+  padding-top: 8px;
   border-top: 1px dashed #e5e7eb;
   color: #4b5563;
+}
+.aov-totals-stack {
+  margin-top: 12px;
+}
+.aov-totals-stack .aov-totals:first-child {
+  margin-top: 0;
+}
+.aov-totals-grand {
+  border-top: 1px solid #d1d5db;
+  padding-top: 10px;
+  margin-top: 10px;
+}
+.aov-totals-grand strong {
+  font-size: 17px;
 }
 .aov-totals strong {
   font-size: 16px;

@@ -1156,6 +1156,20 @@ if (
 						$items_subtotal += ( (float) ( $ni['price'] ?? 0 ) ) * ( (int) ( $ni['quantity'] ?? 0 ) );
 					}
 
+					$charge_totals = function_exists( 'wcss_amazon_extract_charge_totals' )
+						? wcss_amazon_extract_charge_totals( $order_result )
+						: array(
+							'subtotal' => $items_subtotal,
+							'shipping' => 0.0,
+							'tax'      => 0.0,
+							'total'    => $items_subtotal,
+							'currency' => 'CAD',
+						);
+
+					if ( empty( $charge_totals['subtotal'] ) && $items_subtotal > 0 ) {
+						$charge_totals['subtotal'] = round( $items_subtotal, 2 );
+					}
+
 					wcss_amazon_save_order_snapshot(
 						$wc_order_id_for_save,
 						array(
@@ -1171,8 +1185,11 @@ if (
 								)
 							),
 							'cart_items'        => $normalized_items,
-							'cart_subtotal'     => round( $items_subtotal, 2 ),
-							'currency'          => 'CAD',
+							'cart_subtotal'     => round( (float) $charge_totals['subtotal'], 2 ),
+							'shipping_amount'   => round( (float) $charge_totals['shipping'], 2 ),
+							'tax_amount'        => round( (float) $charge_totals['tax'], 2 ),
+							'order_total'       => round( (float) ( $charge_totals['total'] ?: ( $charge_totals['subtotal'] + $charge_totals['shipping'] + $charge_totals['tax'] ) ), 2 ),
+							'currency'          => $charge_totals['currency'] ?? 'CAD',
 							'order_payload'     => $order_payload,
 							'amazon_response'   => $order_result,
 							'amazon_request_id' => $order_result['request_id'] ?? '',
@@ -1644,6 +1661,33 @@ if (
 		if ( 'TAX' === $type ) {
 			$tax += $amount;
 		}
+	}
+
+	$wc_order_id_for_totals = function_exists( 'wcss_amazon_get_request_order_id' )
+		? wcss_amazon_get_request_order_id()
+		: 0;
+
+	if (
+		$wc_order_id_for_totals
+		&& function_exists( 'wcss_amazon_save_order_snapshot' )
+	) {
+		wcss_amazon_save_order_snapshot(
+			$wc_order_id_for_totals,
+			array(
+				'source'          => 'amazon_shipping_calculation',
+				'cart_subtotal'   => round( $subtotal, 2 ),
+				'shipping_amount' => round( $shipping, 2 ),
+				'tax_amount'      => round( $tax, 2 ),
+				'order_total'     => round( $total, 2 ),
+				'currency'        => $currency,
+				'shipping'        => array_merge(
+					$form_data,
+					array(
+						'country' => 'CA',
+					)
+				),
+			)
+		);
 	}
 
 	wp_send_json(

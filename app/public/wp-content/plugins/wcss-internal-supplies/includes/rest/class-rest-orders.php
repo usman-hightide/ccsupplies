@@ -534,6 +534,10 @@ class WCSS_REST_Orders {
             ]);
         }
 
+        if ( function_exists( 'wcss_amazon_enrich_snapshot' ) ) {
+            $data = wcss_amazon_enrich_snapshot( $data );
+        }
+
         return rest_ensure_response([
             'ok'     => true,
             'found'  => true,

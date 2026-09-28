@@ -342,6 +342,10 @@ function wp_amazon_add_item_to_cart_ajax() {
 
     update_post_meta($woo_product_id, "amazon_asin", $asin, true );
 
+    if ( $title && function_exists( 'wcss_amazon_remember_asin_title' ) ) {
+        wcss_amazon_remember_asin_title( $asin, $title );
+    }
+
     wp_send_json_success(
         array(
             'message' => $title
