@@ -109,10 +109,20 @@ jQuery(function($){
     const shipAmt = (a.shipping_amount !== undefined && a.shipping_amount !== null && a.shipping_amount !== '')
       ? Number(a.shipping_amount)
       : 0;
+    const shipDisc = (a.shipping_discount !== undefined && a.shipping_discount !== null && a.shipping_discount !== '')
+      ? Number(a.shipping_discount)
+      : 0;
+    const otherDisc = (a.discount_amount !== undefined && a.discount_amount !== null && a.discount_amount !== '')
+      ? Number(a.discount_amount)
+      : 0;
     const taxAmt = (a.tax_amount !== undefined && a.tax_amount !== null && a.tax_amount !== '')
       ? Number(a.tax_amount)
       : 0;
-    const orderTotal = (itemsTotal || 0) + (isNaN(shipAmt) ? 0 : shipAmt) + (isNaN(taxAmt) ? 0 : taxAmt);
+    const orderTotal = (itemsTotal || 0)
+      + (isNaN(shipAmt) ? 0 : shipAmt)
+      + (isNaN(shipDisc) ? 0 : shipDisc)
+      + (isNaN(otherDisc) ? 0 : otherDisc)
+      + (isNaN(taxAmt) ? 0 : taxAmt);
 
     let itemsHtml = '';
     if (!items.length) {
@@ -142,7 +152,7 @@ jQuery(function($){
       itemsHtml += '</tbody></table></div>';
 
       let totalsHtml = '';
-      if (itemsTotal > 0 || shipAmt || taxAmt || orderTotal) {
+      if (itemsTotal > 0 || shipAmt || shipDisc || otherDisc || taxAmt || orderTotal) {
         totalsHtml += '<div class="aov-totals-stack">';
         if (itemsTotal > 0) {
           totalsHtml +=
@@ -152,6 +162,16 @@ jQuery(function($){
         totalsHtml +=
           '<div class="aov-totals"><span>Shipping</span><strong>' +
           money(isNaN(shipAmt) ? 0 : shipAmt, currency) + '</strong></div>';
+        if (!isNaN(shipDisc) && shipDisc !== 0) {
+          totalsHtml +=
+            '<div class="aov-totals"><span>Shipping discount</span><strong>' +
+            money(shipDisc, currency) + '</strong></div>';
+        }
+        if (!isNaN(otherDisc) && otherDisc !== 0) {
+          totalsHtml +=
+            '<div class="aov-totals"><span>Discount</span><strong>' +
+            money(otherDisc, currency) + '</strong></div>';
+        }
         totalsHtml +=
           '<div class="aov-totals"><span>Tax</span><strong>' +
           money(isNaN(taxAmt) ? 0 : taxAmt, currency) + '</strong></div>';
@@ -228,6 +248,9 @@ jQuery(function($){
           '<div class="aov-meta-item"><span>WC total</span><strong>' + esc(wcTotal) + '</strong></div>' +
           '<div class="aov-meta-item"><span>Amazon subtotal</span><strong>' + (itemsTotal > 0 ? money(itemsTotal, currency) : '—') + '</strong></div>' +
           '<div class="aov-meta-item"><span>Shipping</span><strong>' + money(isNaN(shipAmt) ? 0 : shipAmt, currency) + '</strong></div>' +
+          ((!isNaN(shipDisc) && shipDisc !== 0)
+            ? '<div class="aov-meta-item"><span>Shipping discount</span><strong>' + money(shipDisc, currency) + '</strong></div>'
+            : '') +
           '<div class="aov-meta-item"><span>Tax</span><strong>' + money(isNaN(taxAmt) ? 0 : taxAmt, currency) + '</strong></div>' +
           '<div class="aov-meta-item"><span>Amazon total</span><strong>' + money(orderTotal, currency) + '</strong></div>' +
           '<div class="aov-meta-item"><span>Cart ID</span><strong><code>' + esc(a.cart_id || '—') + '</code></strong></div>' +

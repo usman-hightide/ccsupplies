@@ -1159,16 +1159,28 @@ if (
 					$charge_totals = function_exists( 'wcss_amazon_extract_charge_totals' )
 						? wcss_amazon_extract_charge_totals( $order_result )
 						: array(
-							'subtotal' => $items_subtotal,
-							'shipping' => 0.0,
-							'tax'      => 0.0,
-							'total'    => $items_subtotal,
-							'currency' => 'CAD',
+							'subtotal'          => $items_subtotal,
+							'shipping'          => 0.0,
+							'shipping_discount' => 0.0,
+							'discount'          => 0.0,
+							'tax'               => 0.0,
+							'total'             => $items_subtotal,
+							'currency'          => 'CAD',
 						);
 
 					if ( empty( $charge_totals['subtotal'] ) && $items_subtotal > 0 ) {
 						$charge_totals['subtotal'] = round( $items_subtotal, 2 );
 					}
+
+					$shipping_discount = (float) ( $charge_totals['shipping_discount'] ?? 0 );
+					$other_discount    = (float) ( $charge_totals['discount'] ?? 0 );
+					$computed_total    = (float) (
+						$charge_totals['subtotal']
+						+ $charge_totals['shipping']
+						+ $shipping_discount
+						+ $other_discount
+						+ $charge_totals['tax']
+					);
 
 					wcss_amazon_save_order_snapshot(
 						$wc_order_id_for_save,
@@ -1187,8 +1199,10 @@ if (
 							'cart_items'        => $normalized_items,
 							'cart_subtotal'     => round( (float) $charge_totals['subtotal'], 2 ),
 							'shipping_amount'   => round( (float) $charge_totals['shipping'], 2 ),
+							'shipping_discount' => round( $shipping_discount, 2 ),
+							'discount_amount'   => round( $other_discount, 2 ),
 							'tax_amount'        => round( (float) $charge_totals['tax'], 2 ),
-							'order_total'       => round( (float) ( $charge_totals['total'] ?: ( $charge_totals['subtotal'] + $charge_totals['shipping'] + $charge_totals['tax'] ) ), 2 ),
+							'order_total'       => round( (float) ( $charge_totals['total'] ?: $computed_total ), 2 ),
 							'currency'          => $charge_totals['currency'] ?? 'CAD',
 							'order_payload'     => $order_payload,
 							'amazon_response'   => $order_result,
@@ -1588,80 +1602,25 @@ if (
 		);
 	}
 
-	/*
-	 * Build the display totals from Amazon's charge breakdown.
-	 *
-	 * PRINCIPAL + SUBTOTAL = subtotal
-	 * PRINCIPAL + SHIPPING = shipping
-	 * TAX charges           = tax
-	 *
-	 * Total is the sum of all returned charges, so additional Amazon
-	 * charge categories are also included.
-	 */
-	$subtotal = 0.0;
-	$shipping = 0.0;
-	$tax      = 0.0;
-	$total    = 0.0;
-	$currency = 'CAD';
+	$charge_totals = function_exists( 'wcss_amazon_sum_classified_charges' )
+		? wcss_amazon_sum_classified_charges( $charges )
+		: array(
+			'subtotal'          => 0.0,
+			'shipping'          => 0.0,
+			'shipping_discount' => 0.0,
+			'discount'          => 0.0,
+			'tax'               => 0.0,
+			'total'             => 0.0,
+			'currency'          => 'CAD',
+		);
 
-	foreach ( $charges as $charge ) {
-
-		$amount = 0.0;
-
-		if (
-			isset(
-				$charge['amount']['amount']
-			)
-		) {
-			$amount =
-				(float) $charge['amount']['amount'];
-		}
-
-		if (
-			! empty(
-				$charge['amount']['currencyCode']
-			)
-		) {
-			$currency =
-				$charge['amount']['currencyCode'];
-		}
-
-		$category =
-			strtoupper(
-				(string) (
-					$charge['category']
-					?? ''
-				)
-			);
-
-		$type =
-			strtoupper(
-				(string) (
-					$charge['type']
-					?? ''
-				)
-			);
-
-		$total += $amount;
-
-		if (
-			'PRINCIPAL' === $type
-			&& 'SUBTOTAL' === $category
-		) {
-			$subtotal += $amount;
-		}
-
-		if (
-			'PRINCIPAL' === $type
-			&& 'SHIPPING' === $category
-		) {
-			$shipping += $amount;
-		}
-
-		if ( 'TAX' === $type ) {
-			$tax += $amount;
-		}
-	}
+	$subtotal          = (float) $charge_totals['subtotal'];
+	$shipping          = (float) $charge_totals['shipping'];
+	$shipping_discount = (float) ( $charge_totals['shipping_discount'] ?? 0 );
+	$other_discount    = (float) ( $charge_totals['discount'] ?? 0 );
+	$tax               = (float) $charge_totals['tax'];
+	$total             = (float) $charge_totals['total'];
+	$currency          = (string) ( $charge_totals['currency'] ?? 'CAD' );
 
 	$wc_order_id_for_totals = function_exists( 'wcss_amazon_get_request_order_id' )
 		? wcss_amazon_get_request_order_id()
@@ -1674,12 +1633,14 @@ if (
 		wcss_amazon_save_order_snapshot(
 			$wc_order_id_for_totals,
 			array(
-				'source'          => 'amazon_shipping_calculation',
-				'cart_subtotal'   => round( $subtotal, 2 ),
-				'shipping_amount' => round( $shipping, 2 ),
-				'tax_amount'      => round( $tax, 2 ),
-				'order_total'     => round( $total, 2 ),
-				'currency'        => $currency,
+				'source'            => 'amazon_shipping_calculation',
+				'cart_subtotal'     => round( $subtotal, 2 ),
+				'shipping_amount'   => round( $shipping, 2 ),
+				'shipping_discount' => round( $shipping_discount, 2 ),
+				'discount_amount'   => round( $other_discount, 2 ),
+				'tax_amount'        => round( $tax, 2 ),
+				'order_total'       => round( $total, 2 ),
+				'currency'          => $currency,
 				'shipping'        => array_merge(
 					$form_data,
 					array(
@@ -1705,6 +1666,18 @@ if (
 				),
 				'shipping' => number_format(
 					$shipping,
+					2,
+					'.',
+					''
+				),
+				'shipping_discount' => number_format(
+					$shipping_discount,
+					2,
+					'.',
+					''
+				),
+				'discount' => number_format(
+					$other_discount,
 					2,
 					'.',
 					''
@@ -2744,6 +2717,23 @@ get_header();
 						</div>
 
 
+						<div
+							class="amazon-checkout-total-row"
+							id="amazon-checkout-shipping-discount-row"
+							style="display: none;"
+						>
+
+							<span>
+								Shipping discount
+							</span>
+
+							<strong id="amazon-checkout-shipping-discount">
+								—
+							</strong>
+
+						</div>
+
+
 						<div class="amazon-checkout-total-row">
 
 							<span>
@@ -2862,6 +2852,14 @@ document.addEventListener('DOMContentLoaded', function () {
 		'amazon-checkout-shipping'
 	);
 
+	const shippingDiscountRow = document.getElementById(
+		'amazon-checkout-shipping-discount-row'
+	);
+
+	const shippingDiscountElement = document.getElementById(
+		'amazon-checkout-shipping-discount'
+	);
+
 	const taxElement = document.getElementById(
 		'amazon-checkout-tax'
 	);
@@ -2944,6 +2942,14 @@ document.addEventListener('DOMContentLoaded', function () {
 
 		if (shippingElement) {
 			shippingElement.textContent = '—';
+		}
+
+		if (shippingDiscountElement) {
+			shippingDiscountElement.textContent = '—';
+		}
+
+		if (shippingDiscountRow) {
+			shippingDiscountRow.style.display = 'none';
 		}
 
 		if (taxElement) {
@@ -3155,6 +3161,21 @@ document.addEventListener('DOMContentLoaded', function () {
 						totals.shipping,
 						currency
 					);
+			}
+
+			const shippingDiscount = Number(totals.shipping_discount || 0);
+			if (shippingDiscountRow && shippingDiscountElement) {
+				if (shippingDiscount !== 0) {
+					shippingDiscountRow.style.display = 'flex';
+					shippingDiscountElement.textContent =
+						formatMoney(
+							shippingDiscount,
+							currency
+						);
+				} else {
+					shippingDiscountRow.style.display = 'none';
+					shippingDiscountElement.textContent = '—';
+				}
 			}
 
 			if (taxElement) {

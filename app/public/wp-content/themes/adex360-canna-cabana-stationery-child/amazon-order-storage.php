@@ -185,10 +185,29 @@ function wcss_amazon_normalize_cart_items( array $items ): array {
 }
 
 /**
- * Classify a single Amazon charge row into subtotal / shipping / tax.
+ * Empty charge-totals structure.
+ *
+ * @return array{subtotal:float,shipping:float,shipping_discount:float,discount:float,tax:float,total:float,currency:string}
+ */
+function wcss_amazon_empty_charge_totals(): array {
+	return array(
+		'subtotal'          => 0.0,
+		'shipping'          => 0.0,
+		'shipping_discount' => 0.0,
+		'discount'          => 0.0,
+		'tax'               => 0.0,
+		'total'             => 0.0,
+		'currency'          => 'CAD',
+	);
+}
+
+/**
+ * Classify a single Amazon charge row into subtotal / shipping / discount / tax.
  *
  * Cost estimation API uses type + category.
  * Ordering API Charge artifacts often use category only (PRINCIPAL / TAX / SHIPPING).
+ * Shipping promotions arrive as category=SHIPPING type=DISCOUNT (negative) and must
+ * not be folded into the shipping line, or shipping displays as 0.00.
  *
  * @param array $charge Charge row.
  * @return array{role:string,amount:float,currency:string}|null
@@ -207,7 +226,7 @@ function wcss_amazon_classify_charge( array $charge ): ?array {
 	$type     = strtoupper( (string) ( $charge['type'] ?? '' ) );
 	$category = strtoupper( (string) ( $charge['category'] ?? '' ) );
 
-	// Tax: match checkout estimator (type=TAX) and Ordering Charge (category=TAX).
+	// Tax: estimator type=TAX; Ordering often category=SUBTOTAL type=TAX.
 	if ( 'TAX' === $type || 'TAX' === $category ) {
 		return array(
 			'role'     => 'tax',
@@ -216,7 +235,14 @@ function wcss_amazon_classify_charge( array $charge ): ?array {
 		);
 	}
 
-	// Shipping.
+	if ( 'DISCOUNT' === $type ) {
+		return array(
+			'role'     => ( 'SHIPPING' === $category ) ? 'shipping_discount' : 'discount',
+			'amount'   => $amount,
+			'currency' => $currency,
+		);
+	}
+
 	if (
 		( 'PRINCIPAL' === $type && 'SHIPPING' === $category )
 		|| 'SHIPPING' === $type
@@ -229,22 +255,13 @@ function wcss_amazon_classify_charge( array $charge ): ?array {
 		);
 	}
 
-	// Subtotal / principal merchandise.
 	if (
 		( 'PRINCIPAL' === $type && 'SUBTOTAL' === $category )
 		|| ( 'PRINCIPAL' === $type && '' === $category )
 		|| ( 'PRINCIPAL' === $category && '' === $type )
 		|| ( 'SUBTOTAL' === $type && 'TAX' !== $category )
+		|| ( 'SUBTOTAL' === $category && '' === $type )
 	) {
-		return array(
-			'role'     => 'subtotal',
-			'amount'   => $amount,
-			'currency' => $currency,
-		);
-	}
-
-	// Ordering API sometimes returns category=SUBTOTAL without type for merchandise.
-	if ( 'SUBTOTAL' === $category && '' === $type ) {
 		return array(
 			'role'     => 'subtotal',
 			'amount'   => $amount,
@@ -258,18 +275,16 @@ function wcss_amazon_classify_charge( array $charge ): ?array {
 /**
  * Sum classified charges with per-role amount dedupe (stops mirrored payload double-count).
  *
+ * shipping = principal freight (e.g. 6.99).
+ * shipping_discount = Amazon shipping promo (e.g. -6.99).
+ * total = subtotal + shipping + shipping_discount + discount + tax.
+ *
  * @param array $charges Charge rows.
- * @return array{subtotal:float,shipping:float,tax:float,total:float,currency:string}
+ * @return array{subtotal:float,shipping:float,shipping_discount:float,discount:float,tax:float,total:float,currency:string}
  */
 function wcss_amazon_sum_classified_charges( array $charges ): array {
-	$totals = array(
-		'subtotal' => 0.0,
-		'shipping' => 0.0,
-		'tax'      => 0.0,
-		'total'    => 0.0,
-		'currency' => 'CAD',
-	);
-	$seen = array();
+	$totals = wcss_amazon_empty_charge_totals();
+	$seen   = array();
 
 	foreach ( $charges as $charge ) {
 		if ( ! is_array( $charge ) ) {
@@ -280,9 +295,9 @@ function wcss_amazon_sum_classified_charges( array $charges ): array {
 			continue;
 		}
 
-		$role       = $classified['role'];
-		$amount     = round( (float) $classified['amount'], 2 );
-		$currency   = $classified['currency'];
+		$role        = $classified['role'];
+		$amount      = round( (float) $classified['amount'], 2 );
+		$currency    = $classified['currency'];
 		$fingerprint = $role . '|' . number_format( $amount, 2, '.', '' ) . '|' . $currency;
 
 		if ( isset( $seen[ $fingerprint ] ) ) {
@@ -290,14 +305,27 @@ function wcss_amazon_sum_classified_charges( array $charges ): array {
 		}
 		$seen[ $fingerprint ] = true;
 
+		if ( ! isset( $totals[ $role ] ) ) {
+			continue;
+		}
+
 		$totals[ $role ]   += $amount;
 		$totals['currency'] = $currency;
 	}
 
-	$totals['subtotal'] = round( $totals['subtotal'], 2 );
-	$totals['shipping'] = round( $totals['shipping'], 2 );
-	$totals['tax']      = round( $totals['tax'], 2 );
-	$totals['total']    = round( $totals['subtotal'] + $totals['shipping'] + $totals['tax'], 2 );
+	$totals['subtotal']          = round( $totals['subtotal'], 2 );
+	$totals['shipping']          = round( $totals['shipping'], 2 );
+	$totals['shipping_discount'] = round( $totals['shipping_discount'], 2 );
+	$totals['discount']          = round( $totals['discount'], 2 );
+	$totals['tax']               = round( $totals['tax'], 2 );
+	$totals['total']             = round(
+		$totals['subtotal']
+		+ $totals['shipping']
+		+ $totals['shipping_discount']
+		+ $totals['discount']
+		+ $totals['tax'],
+		2
+	);
 
 	return $totals;
 }
@@ -342,6 +370,27 @@ function wcss_amazon_collect_order_charge_artifacts( $node ): array {
 		}
 	}
 
+	if ( $charges ) {
+		return $charges;
+	}
+
+	$acceptance = array();
+	if ( ! empty( $node['data']['acceptanceArtifacts'] ) && is_array( $node['data']['acceptanceArtifacts'] ) ) {
+		$acceptance = $node['data']['acceptanceArtifacts'];
+	} elseif ( ! empty( $node['acceptanceArtifacts'] ) && is_array( $node['acceptanceArtifacts'] ) ) {
+		$acceptance = $node['acceptanceArtifacts'];
+	}
+
+	foreach ( $acceptance as $artifact ) {
+		if ( ! is_array( $artifact ) ) {
+			continue;
+		}
+		$artifact_type = strtoupper( (string) ( $artifact['acceptanceArtifactType'] ?? '' ) );
+		if ( 'CHARGE' === $artifact_type ) {
+			$charges[] = $artifact;
+		}
+	}
+
 	return $charges;
 }
 
@@ -352,16 +401,10 @@ function wcss_amazon_collect_order_charge_artifacts( $node ): array {
  * API Charge artifacts under lineItems. Does not recurse mirrored raw_body.
  *
  * @param mixed $node Response fragment.
- * @return array{subtotal:float,shipping:float,tax:float,total:float,currency:string}
+ * @return array{subtotal:float,shipping:float,shipping_discount:float,discount:float,tax:float,total:float,currency:string}
  */
 function wcss_amazon_extract_charge_totals( $node ): array {
-	$empty = array(
-		'subtotal' => 0.0,
-		'shipping' => 0.0,
-		'tax'      => 0.0,
-		'total'    => 0.0,
-		'currency' => 'CAD',
-	);
+	$empty = wcss_amazon_empty_charge_totals();
 
 	if ( ! is_array( $node ) ) {
 		return $empty;
@@ -435,8 +478,10 @@ function wcss_amazon_enrich_snapshot( array $data ): array {
 		$extracted = wcss_amazon_extract_charge_totals( $data['amazon_response'] );
 
 		// Always refresh from Amazon response so duplicated charge walks can't stick.
-		$data['shipping_amount'] = $extracted['shipping'];
-		$data['tax_amount']      = $extracted['tax'];
+		$data['shipping_amount']   = $extracted['shipping'];
+		$data['shipping_discount'] = $extracted['shipping_discount'];
+		$data['discount_amount']   = $extracted['discount'];
+		$data['tax_amount']        = $extracted['tax'];
 
 		if ( empty( $data['cart_subtotal'] ) && $extracted['subtotal'] > 0 ) {
 			$data['cart_subtotal'] = $extracted['subtotal'];
@@ -450,10 +495,12 @@ function wcss_amazon_enrich_snapshot( array $data ): array {
 		$data['tax_amount'] = 0;
 	}
 
-	$subtotal = isset( $data['cart_subtotal'] ) ? (float) $data['cart_subtotal'] : 0.0;
-	$shipping = isset( $data['shipping_amount'] ) ? (float) $data['shipping_amount'] : 0.0;
-	$tax      = isset( $data['tax_amount'] ) ? (float) $data['tax_amount'] : 0.0;
-	$data['order_total'] = round( $subtotal + $shipping + $tax, 2 );
+	$subtotal          = isset( $data['cart_subtotal'] ) ? (float) $data['cart_subtotal'] : 0.0;
+	$shipping          = isset( $data['shipping_amount'] ) ? (float) $data['shipping_amount'] : 0.0;
+	$shipping_discount = isset( $data['shipping_discount'] ) ? (float) $data['shipping_discount'] : 0.0;
+	$discount          = isset( $data['discount_amount'] ) ? (float) $data['discount_amount'] : 0.0;
+	$tax               = isset( $data['tax_amount'] ) ? (float) $data['tax_amount'] : 0.0;
+	$data['order_total'] = round( $subtotal + $shipping + $shipping_discount + $discount + $tax, 2 );
 
 	return $data;
 }
