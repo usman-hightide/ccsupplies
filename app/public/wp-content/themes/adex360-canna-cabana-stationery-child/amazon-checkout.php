@@ -764,6 +764,47 @@ return array(
 
 }
 
+/**
+ * Block the Amazon Ordering API until the linked store order is approved.
+ *
+ * Search, cart, and shipping calculation are allowed before approval.
+ * Only placing the order requires status "approved".
+ *
+ * @param int $wc_order_id WooCommerce order ID.
+ * @return array{success:bool,message:string}|null Null when placement is allowed.
+ */
+function wcss_amazon_checkout_approval_block( $wc_order_id ) {
+	$wc_order_id = (int) $wc_order_id;
+
+	if ( ! $wc_order_id || ! function_exists( 'wc_get_order' ) ) {
+		return array(
+			'success' => false,
+			'message' => 'This Amazon checkout is not linked to a store order, so the order cannot be placed.',
+		);
+	}
+
+	$order = wc_get_order( $wc_order_id );
+	if ( ! $order ) {
+		return array(
+			'success' => false,
+			'message' => 'The store order could not be found, so the Amazon order cannot be placed.',
+		);
+	}
+
+	if ( 'approved' === $order->get_status() ) {
+		return null;
+	}
+
+	$status_label = function_exists( 'wc_get_order_status_name' )
+		? wc_get_order_status_name( $order->get_status() )
+		: $order->get_status();
+
+	return array(
+		'success' => false,
+		'message' => 'This order must be approved before it can be placed on Amazon. Current status: ' . $status_label . '.',
+	);
+}
+
 /*                                                                       
 --------------------------------------------------------------------------
 Handle Checkout POST                                                      
@@ -772,6 +813,8 @@ Handle Checkout POST
 
 $order_result  = null;
 $wc_order_id   = function_exists( 'wcss_amazon_get_request_order_id' ) ? wcss_amazon_get_request_order_id() : 0;
+$amazon_approval_block   = wcss_amazon_checkout_approval_block( $wc_order_id );
+$amazon_order_is_approved = ( null === $amazon_approval_block );
 
 $order_payload = null;
 
@@ -1128,7 +1171,16 @@ if (
 
 				/*
 				 * Place Order
+				 * Approval gates this Ordering API call only.
 				 */
+
+				$approval_block = wcss_amazon_checkout_approval_block( $wc_order_id );
+
+				if ( $approval_block ) {
+
+					$order_result = $approval_block;
+
+				} else {
 
 				$order_result =
 					wp_amazon_ordering_request(
@@ -1210,6 +1262,7 @@ if (
 							'placed_at'         => current_time( 'mysql' ),
 						)
 					);
+				}
 				}
 			}
 		}
@@ -2794,6 +2847,7 @@ get_header();
 							type="submit"
 							form="amazon-order-form"
 							class="amazon-place-order-button"
+							data-requires-approval="<?php echo $amazon_order_is_approved ? '0' : '1'; ?>"
 							disabled
 						>
 
@@ -2802,6 +2856,15 @@ get_header();
 						</button>
 
 
+						<?php if ( ! $amazon_order_is_approved ) : ?>
+						<p class="amazon-checkout-note">
+
+							<?php echo esc_html( $amazon_approval_block['message'] ); ?>
+							Search, cart, and shipping can still be used.
+							Place Amazon Order stays off until this order is approved.
+
+						</p>
+						<?php else : ?>
 						<p class="amazon-checkout-note">
 
 							Your order will be submitted through the
@@ -2809,6 +2872,7 @@ get_header();
 							Amazon Business payment method.
 
 						</p>
+						<?php endif; ?>
 
 					</div>
 
@@ -3195,14 +3259,18 @@ document.addEventListener('DOMContentLoaded', function () {
 			}
 
 			shippingCalculated.value = '1';
-			placeOrderButton.disabled = false;
+
+			const needsApproval = placeOrderButton.getAttribute('data-requires-approval') === '1';
+			placeOrderButton.disabled = needsApproval;
 
 			setRequestId(
 				result.request_id || ''
 			);
 
 			setStatus(
-				'Shipping, tax, and total calculated successfully. You can now place the order.',
+				needsApproval
+					? 'Shipping, tax, and total calculated. This order still needs approval before it can be placed on Amazon.'
+					: 'Shipping, tax, and total calculated successfully. You can now place the order.',
 				'success'
 			);
 
