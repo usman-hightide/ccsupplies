@@ -357,15 +357,181 @@ function wp_amazon_add_item_to_cart_ajax() {
     );
 }
 
+/**
+ * Published store products that belong in Amazon search.
+ *
+ * Drafts stay out, including the test product. The empty "Product 1"
+ * placeholder is not a real catalog item.
+ *
+ * @return array<int,array{id:int,name:string,sku:string}>
+ */
+function wcss_amazon_catalog_store_products() {
+
+    $product_ids = get_posts(
+        array(
+            'post_type'              => 'product',
+            'post_status'            => 'publish',
+            'posts_per_page'         => -1,
+            'orderby'                => 'title',
+            'order'                  => 'ASC',
+            'fields'                 => 'ids',
+            'no_found_rows'          => true,
+            'update_post_meta_cache' => false,
+            'update_post_term_cache' => false,
+        )
+    );
+
+    $products = array();
+
+    foreach ( $product_ids as $product_id ) {
+
+        $product = wc_get_product( $product_id );
+
+        if ( ! $product || 'publish' !== $product->get_status() ) {
+            continue;
+        }
+
+        $name = $product->get_name();
+        $sku  = (string) $product->get_sku();
+
+        if ( wcss_amazon_catalog_is_placeholder( $name, $sku ) ) {
+            continue;
+        }
+
+        $products[] = array(
+            'id'   => $product->get_id(),
+            'name' => $name,
+            'sku'  => $sku,
+        );
+    }
+
+    return $products;
+}
+
+/**
+ * @param string $name Product name.
+ * @param string $sku  Product SKU.
+ */
+function wcss_amazon_catalog_is_placeholder( $name, $sku ) {
+
+    $name = strtolower( trim( (string) $name ) );
+    $sku  = strtolower( trim( (string) $sku ) );
+
+    if ( in_array( $name, array( 'test product', 'product 1' ), true ) ) {
+        return true;
+    }
+
+    return in_array( $sku, array( 'sku-111', '12345' ), true );
+}
+
+/**
+ * Search Amazon for one published store product.
+ */
+function wp_amazon_search_store_product_ajax() {
+
+    if (
+        ! is_user_logged_in()
+        || ( ! current_user_can( 'manage_woocommerce' ) && ! current_user_can( 'manage_options' ) )
+    ) {
+        wp_send_json_error(
+            array( 'message' => 'You do not have permission to search the Amazon catalog.' ),
+            403
+        );
+    }
+
+    check_ajax_referer( 'amazon_search_store_product', 'nonce' );
+
+    $product_id = isset( $_POST['product_id'] ) ? absint( $_POST['product_id'] ) : 0;
+    $product    = $product_id ? wc_get_product( $product_id ) : false;
+
+    if (
+        ! $product
+        || 'publish' !== $product->get_status()
+        || wcss_amazon_catalog_is_placeholder( $product->get_name(), (string) $product->get_sku() )
+    ) {
+        wp_send_json_error(
+            array( 'message' => 'That product is not in the store catalog.' ),
+            404
+        );
+    }
+
+    $amazon_result = wp_amazon_business_search_products( $product->get_name(), 1 );
+
+    if ( is_wp_error( $amazon_result ) ) {
+        wp_send_json_error(
+            array( 'message' => $amazon_result->get_error_message() ),
+            502
+        );
+    }
+
+    if ( empty( $amazon_result['products'][0] ) || ! is_array( $amazon_result['products'][0] ) ) {
+        wp_send_json_error(
+            array( 'message' => 'No Amazon product found for ' . $product->get_name() . '.' ),
+            404
+        );
+    }
+
+    $amazon_product = $amazon_result['products'][0];
+    $offer          = array();
+
+    if ( ! empty( $amazon_product['includedDataTypes']['OFFERS'][0] ) && is_array( $amazon_product['includedDataTypes']['OFFERS'][0] ) ) {
+        $offer = $amazon_product['includedDataTypes']['OFFERS'][0];
+    }
+
+    $image = '';
+
+    if ( ! empty( $amazon_product['includedDataTypes']['IMAGES'][0]['medium']['url'] ) ) {
+        $image = $amazon_product['includedDataTypes']['IMAGES'][0]['medium']['url'];
+    } elseif ( ! empty( $amazon_product['includedDataTypes']['IMAGES'][0]['large']['url'] ) ) {
+        $image = $amazon_product['includedDataTypes']['IMAGES'][0]['large']['url'];
+    }
+
+    $offer_id         = isset( $offer['offerId'] ) ? (string) $offer['offerId'] : '';
+    $buying_option_id = wp_amazon_find_nested_value( $amazon_product, 'buyingOptionIdentifier' );
+
+    if ( ! $buying_option_id ) {
+        $buying_option_id = $offer_id;
+    }
+
+    $price = '';
+
+    if ( isset( $offer['price']['value']['amount'] ) ) {
+        $price = $offer['price']['value']['amount'];
+    }
+
+    wp_send_json_success(
+        array(
+            'woo_product_id'   => $product->get_id(),
+            'woo_product_name' => $product->get_name(),
+            'asin'             => isset( $amazon_product['asin'] ) ? (string) $amazon_product['asin'] : '',
+            'title'            => isset( $amazon_product['title'] ) ? (string) $amazon_product['title'] : '',
+            'image'            => $image,
+            'url'              => isset( $amazon_product['url'] ) ? (string) $amazon_product['url'] : '',
+            'price'            => $price,
+            'currency'         => isset( $offer['price']['value']['currencyCode'] ) ? (string) $offer['price']['value']['currencyCode'] : 'CAD',
+            'availability'     => isset( $offer['availability'] ) ? (string) $offer['availability'] : '',
+            'offer_id'         => $offer_id,
+            'buying_option_id' => $buying_option_id,
+        )
+    );
+}
+
 // The template handles its own AJAX request. A page template is not loaded
 // during /wp-admin/admin-ajax.php, so registering wp_ajax hooks here would
 // result in WordPress returning 400/0 before this template is executed.
-if (
-    isset( $_POST['amazon_catalog_action'] )
-    && 'amazon_add_to_cart' === sanitize_key( wp_unslash( $_POST['amazon_catalog_action'] ) )
-) {
-    wp_amazon_add_item_to_cart_ajax();
-    exit;
+if ( isset( $_POST['amazon_catalog_action'] ) ) {
+
+    $amazon_catalog_action = sanitize_key( wp_unslash( $_POST['amazon_catalog_action'] ) );
+
+    if ( 'amazon_add_to_cart' === $amazon_catalog_action ) {
+        wp_amazon_add_item_to_cart_ajax();
+        exit;
+    }
+
+    if ( 'amazon_search_store_product' === $amazon_catalog_action ) {
+        wp_amazon_search_store_product_ajax();
+        exit;
+    }
 }
 
 // ======================================
@@ -373,17 +539,15 @@ if (
 // ======================================
 $order_id = isset( $_GET['order-id'] ) ? absint( $_GET['order-id'] ) : 0;
 
-$products = array();
-$order = false;
+$products       = array();
+$order          = false;
+$results        = null;
+$store_products = function_exists( 'wc_get_product' ) ? wcss_amazon_catalog_store_products() : array();
+$cart_url       = $order_id
+    ? add_query_arg( 'order-id', $order_id, home_url( '/amazon-cart/' ) )
+    : home_url( '/amazon-cart/' );
 
-if ( ! $order_id ) {
-
-    $results = new WP_Error(
-        'missing_order_id',
-        'Order ID is missing from the URL.'
-    );
-
-} else {
+if ( $order_id ) {
 
     $order = wc_get_order( $order_id );
 
@@ -714,6 +878,107 @@ get_header();
     font-size: 14px;
 }
 
+.amazon-catalog-page .ac-store-search {
+    margin-bottom: 36px;
+    padding: 18px;
+    border: 1px solid #dedede;
+    border-radius: 12px;
+    background: #fff;
+}
+
+.amazon-catalog-page .ac-store-search h2 {
+    margin: 0 0 8px !important;
+    font-size: 22px !important;
+    line-height: 1.3 !important;
+}
+
+.amazon-catalog-page .ac-store-search > p {
+    margin: 0 0 14px !important;
+    color: #666;
+    font-size: 14px;
+}
+
+.amazon-catalog-page .ac-store-input {
+    width: 100%;
+    max-width: 520px;
+    min-height: 44px;
+    padding: 10px 12px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    font-size: 15px;
+}
+
+.amazon-catalog-page .ac-store-count {
+    margin: 10px 0 0 !important;
+    color: #666;
+    font-size: 13px;
+}
+
+.amazon-catalog-page .ac-store-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.amazon-catalog-page .ac-store-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 16px;
+    align-items: center;
+    padding: 12px;
+    border: 1px solid #eee;
+    border-radius: 8px;
+    background: #fafafa;
+}
+
+.amazon-catalog-page .ac-store-item[hidden] {
+    display: none !important;
+}
+
+.amazon-catalog-page .ac-store-name {
+    display: block;
+    font-size: 15px;
+}
+
+.amazon-catalog-page .ac-store-sku {
+    display: block;
+    margin-top: 3px;
+    color: #777;
+    font-size: 12px;
+}
+
+.amazon-catalog-page .ac-store-result {
+    grid-column: 1 / -1;
+    margin-top: 4px;
+    padding: 12px;
+    border: 1px solid #f0e2c4;
+    border-radius: 8px;
+    background: #fff;
+}
+
+.amazon-catalog-page .ac-store-result-grid {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+}
+
+.amazon-catalog-page .ac-store-result img {
+    width: 72px;
+    height: 72px;
+    object-fit: contain;
+    border: 1px solid #eee;
+    border-radius: 6px;
+    background: #fff;
+}
+
+.amazon-catalog-page .ac-store-empty {
+    margin-top: 14px;
+    color: #777;
+    font-size: 14px;
+}
+
 
 /* =========================================================
    QUICK VIEW MODAL
@@ -895,13 +1160,68 @@ get_header();
 
     <div class="ac-header">
         <h1>
-            Order #<?php echo esc_html( $order_id ); ?> — Amazon Product Matching
+            <?php if ( $order_id ) : ?>
+                Order #<?php echo esc_html( $order_id ); ?> — Amazon Product Matching
+            <?php else : ?>
+                Amazon Product Search
+            <?php endif; ?>
         </h1>
 
         <p>
-            Each WooCommerce order item is shown beside the single top Amazon result found using the WooCommerce product title. <a href="<?php echo esc_url( add_query_arg( 'order-id', $order_id, home_url( '/amazon-cart/' ) ) ); ?>">View Cart</a>
+            Search the published store catalog, then look up the top Amazon match for a product.
+            <?php if ( $order ) : ?>
+                Order items are still matched below.
+            <?php endif; ?>
+            <a href="<?php echo esc_url( $cart_url ); ?>">View Cart</a>
         </p>
     </div>
+
+    <section class="ac-store-search">
+        <h2>Store catalog</h2>
+        <p>
+            <?php echo esc_html( count( $store_products ) ); ?> published products. Type a name or SKU, then search Amazon for that product.
+        </p>
+
+        <input
+            id="ac-store-search-input"
+            class="ac-store-input"
+            type="search"
+            placeholder="Search by product name or SKU"
+            autocomplete="off"
+        >
+
+        <p class="ac-store-count" id="ac-store-count">Type at least 2 letters to search the catalog.</p>
+
+        <div class="ac-store-list" id="ac-store-list">
+            <?php foreach ( $store_products as $store_product ) : ?>
+                <?php
+                $store_search = strtolower( $store_product['name'] . ' ' . $store_product['sku'] );
+                ?>
+                <article
+                    class="ac-store-item"
+                    hidden
+                    data-search="<?php echo esc_attr( $store_search ); ?>"
+                >
+                    <div>
+                        <strong class="ac-store-name"><?php echo esc_html( $store_product['name'] ); ?></strong>
+                        <?php if ( $store_product['sku'] !== '' ) : ?>
+                            <span class="ac-store-sku">SKU <?php echo esc_html( $store_product['sku'] ); ?></span>
+                        <?php endif; ?>
+                    </div>
+
+                    <button
+                        type="button"
+                        class="ac-button ac-search-amazon"
+                        data-product-id="<?php echo esc_attr( $store_product['id'] ); ?>"
+                    >
+                        Search Amazon
+                    </button>
+
+                    <div class="ac-store-result" hidden></div>
+                </article>
+            <?php endforeach; ?>
+        </div>
+    </section>
 
     <?php if ( is_wp_error( $results ) ) : ?>
 
@@ -909,13 +1229,13 @@ get_header();
             <strong><?php echo esc_html( $results->get_error_message() ); ?></strong>
         </div>
 
-    <?php elseif ( empty( $products ) ) : ?>
+    <?php elseif ( $order && empty( $products ) ) : ?>
 
         <div class="ac-empty">
             No products were found in this WooCommerce order.
         </div>
 
-    <?php else : ?>
+    <?php elseif ( $order ) : ?>
 
         <div class="ac-list">
 
@@ -1448,16 +1768,152 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     /* ==========================================
-       AMAZON CART
+       STORE CATALOG SEARCH
        ========================================== */
     var amazonCartAjaxUrl = <?php echo wp_json_encode( get_permalink() ); ?>;
     var amazonCartNonce  = <?php echo wp_json_encode( wp_create_nonce( 'amazon_add_to_cart' ) ); ?>;
+    var amazonSearchNonce = <?php echo wp_json_encode( wp_create_nonce( 'amazon_search_store_product' ) ); ?>;
+    var storeSearchInput = document.getElementById('ac-store-search-input');
+    var storeCount = document.getElementById('ac-store-count');
+    var storeItems = document.querySelectorAll('.amazon-catalog-page .ac-store-item');
 
-    document.querySelectorAll('.amazon-catalog-page .ac-add-to-cart').forEach(function (button) {
+    function filterStoreCatalog() {
+        var query = storeSearchInput ? storeSearchInput.value.trim().toLowerCase() : '';
+        var visible = 0;
 
+        storeItems.forEach(function (item) {
+            var haystack = item.getAttribute('data-search') || '';
+            var show = query.length >= 2 && haystack.indexOf(query) !== -1;
+            item.hidden = !show;
+            if (show) {
+                visible += 1;
+            }
+        });
+
+        if (!storeCount) {
+            return;
+        }
+
+        if (query.length < 2) {
+            storeCount.textContent = 'Type at least 2 letters to search the catalog.';
+            return;
+        }
+
+        storeCount.textContent = visible
+            ? visible + ' product' + (visible === 1 ? '' : 's') + ' match.'
+            : 'No store products match that search.';
+    }
+
+    if (storeSearchInput) {
+        storeSearchInput.addEventListener('input', filterStoreCatalog);
+    }
+
+    function escapeHtml(value) {
+        return String(value == null ? '' : value).replace(/[&<>"']/g, function (character) {
+            return {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[character];
+        });
+    }
+
+    function renderAmazonMatch(result) {
+        var price = result.price === '' || result.price == null
+            ? ''
+            : escapeHtml(result.currency || 'CAD') + ' ' + Number(result.price).toFixed(2);
+        var image = result.image
+            ? '<img src="' + escapeHtml(result.image) + '" alt="">'
+            : '';
+
+        return ''
+            + '<div class="ac-store-result-grid">'
+            + image
+            + '<div>'
+            + '<strong class="ac-store-name">' + escapeHtml(result.title || 'Amazon product') + '</strong>'
+            + '<dl class="ac-meta">'
+            + (result.asin ? '<dt>ASIN</dt><dd>' + escapeHtml(result.asin) + '</dd>' : '')
+            + (price ? '<dt>Price</dt><dd>' + price + '</dd>' : '')
+            + (result.availability ? '<dt>Availability</dt><dd>' + escapeHtml(result.availability) + '</dd>' : '')
+            + '</dl>'
+            + '<div class="ac-amazon-actions">'
+            + '<button type="button" class="ac-button ac-add-to-cart"'
+            + ' data-asin="' + escapeHtml(result.asin) + '"'
+            + ' data-offer-id="' + escapeHtml(result.offer_id) + '"'
+            + ' data-buying-option-id="' + escapeHtml(result.buying_option_id) + '"'
+            + ' data-title="' + escapeHtml(result.title) + '"'
+            + ' data-quantity="1"'
+            + ' data-woo_product_id="' + escapeHtml(result.woo_product_id) + '">'
+            + 'Add to Amazon Cart</button>'
+            + '<div class="ac-cart-message" aria-live="polite"></div>'
+            + '</div>'
+            + '</div>'
+            + '</div>';
+    }
+
+    document.querySelectorAll('.amazon-catalog-page .ac-search-amazon').forEach(function (button) {
         button.addEventListener('click', function () {
+            var item = button.closest('.ac-store-item');
+            var resultBox = item ? item.querySelector('.ac-store-result') : null;
+            var productId = button.getAttribute('data-product-id') || '';
 
-            var button = this;
+            if (!resultBox || !productId) {
+                return;
+            }
+
+            button.disabled = true;
+            resultBox.hidden = false;
+            resultBox.textContent = 'Searching Amazon...';
+
+            var formData = new FormData();
+            formData.append('amazon_catalog_action', 'amazon_search_store_product');
+            formData.append('nonce', amazonSearchNonce);
+            formData.append('product_id', productId);
+
+            fetch(amazonCartAjaxUrl, {
+                method: 'POST',
+                credentials: 'same-origin',
+                body: formData
+            })
+            .then(function (response) {
+                return response.json().then(function (data) {
+                    return { ok: response.ok, data: data };
+                });
+            })
+            .then(function (response) {
+                if (response.data && response.data.success && response.data.data) {
+                    resultBox.innerHTML = renderAmazonMatch(response.data.data);
+                    return;
+                }
+
+                var message = 'No Amazon product found.';
+                if (response.data && response.data.data && response.data.data.message) {
+                    message = response.data.data.message;
+                }
+                resultBox.textContent = message;
+            })
+            .catch(function () {
+                resultBox.textContent = 'Unable to connect to Amazon search.';
+            })
+            .finally(function () {
+                button.disabled = false;
+            });
+        });
+    });
+
+    /* ==========================================
+       AMAZON CART
+       ========================================== */
+    document.querySelector('.amazon-catalog-page').addEventListener('click', function (event) {
+
+        var button = event.target.closest('.ac-add-to-cart');
+
+        if (!button || button.disabled) {
+            return;
+        }
+
             var container = button.closest('.ac-amazon-actions, .ac-modal-actions');
             var message = container ? container.querySelector('.ac-cart-message') : null;
 
@@ -1533,8 +1989,6 @@ document.addEventListener('DOMContentLoaded', function () {
             .finally(function () {
                 button.disabled = false;
             });
-
-        });
 
     });
 
