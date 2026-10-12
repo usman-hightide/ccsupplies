@@ -805,6 +805,315 @@ function wcss_amazon_checkout_approval_block( $wc_order_id ) {
 	);
 }
 
+/**
+ * Flat monthly store cap for Amazon placement.
+ *
+ * Ink is not split out. Search, cart, and shipping stay available.
+ */
+function wcss_amazon_checkout_monthly_cap_amount() {
+	return 120.0;
+}
+
+/**
+ * Goods total used for the cap. Tax and shipping are not included.
+ *
+ * @param WC_Order $order Store order.
+ */
+function wcss_amazon_checkout_order_goods_total( $order ) {
+	$total = 0.0;
+
+	foreach ( $order->get_items( 'line_item' ) as $item ) {
+		$total += (float) $item->get_total();
+	}
+
+	return round( $total, 2 );
+}
+
+/**
+ * Month-to-date cap position for the store on this order.
+ *
+ * Other approved, processing, and completed orders created this month
+ * are counted. This order is added once, so placing it is what can cross $120.
+ *
+ * @param int $wc_order_id WooCommerce order ID.
+ * @return array{applies:bool,blocked:bool,cap:float,spent_before:float,this_amount:float,projected:float,message:string}
+ */
+function wcss_amazon_checkout_cap_status( $wc_order_id ) {
+	$empty = array(
+		'applies'      => false,
+		'blocked'      => false,
+		'cap'          => wcss_amazon_checkout_monthly_cap_amount(),
+		'spent_before' => 0.0,
+		'this_amount'  => 0.0,
+		'projected'    => 0.0,
+		'message'      => '',
+	);
+
+	$wc_order_id = (int) $wc_order_id;
+
+	if ( ! $wc_order_id || ! function_exists( 'wc_get_order' ) || ! function_exists( 'wc_get_orders' ) ) {
+		return $empty;
+	}
+
+	$order = wc_get_order( $wc_order_id );
+
+	if ( ! $order ) {
+		return $empty;
+	}
+
+	$store_id = (int) $order->get_meta( '_wcss_store_id' );
+
+	if ( ! $store_id ) {
+		return $empty;
+	}
+
+	$this_amount = wcss_amazon_checkout_order_goods_total( $order );
+	$cap         = wcss_amazon_checkout_monthly_cap_amount();
+	$timezone    = function_exists( 'wp_timezone' ) ? wp_timezone() : new DateTimeZone( 'UTC' );
+	$now         = new DateTimeImmutable( 'now', $timezone );
+	$start       = $now->modify( 'first day of this month' )->setTime( 0, 0, 0 );
+	$end         = $now->modify( 'last day of this month' )->setTime( 23, 59, 59 );
+
+	$other_ids = wc_get_orders(
+		array(
+			'status'       => array( 'approved', 'processing', 'completed' ),
+			'limit'        => -1,
+			'return'       => 'ids',
+			'exclude'      => array( $wc_order_id ),
+			'meta_key'     => '_wcss_store_id',
+			'meta_value'   => (string) $store_id,
+			'date_created' => $start->format( 'Y-m-d H:i:s' ) . '...' . $end->format( 'Y-m-d H:i:s' ),
+		)
+	);
+
+	$spent_before = 0.0;
+
+	if ( is_array( $other_ids ) ) {
+		foreach ( $other_ids as $other_id ) {
+			if ( (int) $other_id === $wc_order_id ) {
+				continue;
+			}
+
+			$other = wc_get_order( $other_id );
+
+			if ( $other ) {
+				$spent_before += wcss_amazon_checkout_order_goods_total( $other );
+			}
+		}
+	}
+
+	$spent_before = round( $spent_before, 2 );
+	$projected    = round( $spent_before + $this_amount, 2 );
+	$blocked      = $projected > $cap;
+	$store_name   = get_the_title( $store_id );
+	$store_label  = $store_name ? $store_name : ( 'Store ' . $store_id );
+	$message      = '';
+
+	if ( $blocked ) {
+		$message = sprintf(
+			'This store is over the CAD %s monthly cap. %s has CAD %s in other orders this month, and this order is CAD %s (CAD %s total).',
+			number_format( $cap, 2 ),
+			$store_label,
+			number_format( $spent_before, 2 ),
+			number_format( $this_amount, 2 ),
+			number_format( $projected, 2 )
+		);
+	}
+
+	return array(
+		'applies'      => true,
+		'blocked'      => $blocked,
+		'cap'          => $cap,
+		'spent_before' => $spent_before,
+		'this_amount'  => $this_amount,
+		'projected'    => $projected,
+		'message'      => $message,
+	);
+}
+
+/**
+ * Block Amazon placement when this order would put the store over the monthly cap.
+ *
+ * @param int $wc_order_id WooCommerce order ID.
+ * @return array{success:bool,message:string}|null Null when placement is allowed.
+ */
+function wcss_amazon_checkout_cap_block( $wc_order_id ) {
+	$status = wcss_amazon_checkout_cap_status( $wc_order_id );
+
+	if ( empty( $status['blocked'] ) ) {
+		return null;
+	}
+
+	return array(
+		'success' => false,
+		'message' => $status['message'],
+	);
+}
+
+/**
+ * Amazon unit price may be at most this percent above the store price.
+ */
+function wcss_amazon_checkout_price_tolerance_percent() {
+	return 5.0;
+}
+
+/**
+ * @param array<string,mixed> $item Amazon cart line.
+ */
+function wcss_amazon_checkout_cart_item_asin( $item ) {
+	if ( ! empty( $item['productIdentifier'] ) && is_string( $item['productIdentifier'] ) ) {
+		return $item['productIdentifier'];
+	}
+
+	if ( ! empty( $item['asin'] ) && is_string( $item['asin'] ) ) {
+		return $item['asin'];
+	}
+
+	return '';
+}
+
+/**
+ * Store product last linked to this Amazon ASIN.
+ *
+ * @param string $asin Amazon ASIN.
+ * @return WC_Product|null
+ */
+function wcss_amazon_checkout_store_product_for_asin( $asin ) {
+	$asin = trim( (string) $asin );
+
+	if ( $asin === '' || ! function_exists( 'wc_get_product' ) ) {
+		return null;
+	}
+
+	$ids = get_posts(
+		array(
+			'post_type'      => 'product',
+			'post_status'    => 'publish',
+			'meta_key'       => 'amazon_asin',
+			'meta_value'     => $asin,
+			'posts_per_page' => 1,
+			'fields'         => 'ids',
+			'no_found_rows'  => true,
+		)
+	);
+
+	$product_id = ( is_array( $ids ) && ! empty( $ids[0] ) ) ? (int) $ids[0] : 0;
+
+	if ( ! $product_id ) {
+		return null;
+	}
+
+	$product = wc_get_product( $product_id );
+
+	return $product ? $product : null;
+}
+
+/**
+ * Compare each Amazon cart unit price with the linked store price.
+ *
+ * Search, cart, and shipping stay available. Only placement is blocked.
+ *
+ * @param array<int,mixed> $cart_items Amazon cart lines.
+ * @return array{applies:bool,blocked:bool,message:string}
+ */
+function wcss_amazon_checkout_price_tolerance_status( $cart_items ) {
+	$empty = array(
+		'applies' => false,
+		'blocked' => false,
+		'message' => '',
+	);
+
+	if ( ! is_array( $cart_items ) || ! $cart_items ) {
+		return $empty;
+	}
+
+	$percent    = wcss_amazon_checkout_price_tolerance_percent();
+	$problems   = array();
+	$over_price = false;
+
+	foreach ( $cart_items as $item ) {
+		if ( ! is_array( $item ) ) {
+			continue;
+		}
+
+		$asin  = wcss_amazon_checkout_cart_item_asin( $item );
+		$title = ( ! empty( $item['title'] ) && is_string( $item['title'] ) ) ? $item['title'] : '';
+		$label = $title ? $title : ( $asin ? $asin : 'An Amazon cart item' );
+
+		$amount_missing = ! isset( $item['price']['amount'] ) || $item['price']['amount'] === '';
+		$amazon_price   = $amount_missing ? 0.0 : round( (float) $item['price']['amount'], 2 );
+		$currency       = isset( $item['price']['currencyCode'] ) ? strtoupper( (string) $item['price']['currencyCode'] ) : '';
+
+		if ( $amount_missing ) {
+			$problems[] = $label . ' has no Amazon price, so the 5% check cannot be completed.';
+			continue;
+		}
+
+		if ( $currency !== '' && 'CAD' !== $currency ) {
+			$problems[] = $label . ' is priced in ' . $currency . ', not CAD, so the 5% check cannot be completed.';
+			continue;
+		}
+
+		$product = wcss_amazon_checkout_store_product_for_asin( $asin );
+
+		if ( ! $product ) {
+			$problems[] = $label . ' is not linked to a store product, so the 5% check cannot be completed.';
+			continue;
+		}
+
+		$store_price = round( (float) $product->get_price(), 2 );
+		$limit       = round( $store_price * ( 1 + ( $percent / 100 ) ), 2 );
+
+		if ( $amazon_price > $limit ) {
+			$over_price = true;
+			$problems[] = sprintf(
+				'%s is CAD %s on Amazon and CAD %s in the store. The 5%% limit is CAD %s.',
+				$product->get_name(),
+				number_format( $amazon_price, 2 ),
+				number_format( $store_price, 2 ),
+				number_format( $limit, 2 )
+			);
+		}
+	}
+
+	if ( ! $problems ) {
+		return array(
+			'applies' => true,
+			'blocked' => false,
+			'message' => '',
+		);
+	}
+
+	$lead = $over_price
+		? 'Amazon price is more than 5% above the store price. '
+		: 'The 5% price check could not be completed. ';
+
+	return array(
+		'applies' => true,
+		'blocked' => true,
+		'message' => $lead . implode( ' ', $problems ),
+	);
+}
+
+/**
+ * Block Amazon placement when a cart price is over the store price tolerance.
+ *
+ * @param array<int,mixed> $cart_items Amazon cart lines.
+ * @return array{success:bool,message:string}|null Null when placement is allowed.
+ */
+function wcss_amazon_checkout_price_block( $cart_items ) {
+	$status = wcss_amazon_checkout_price_tolerance_status( $cart_items );
+
+	if ( empty( $status['blocked'] ) ) {
+		return null;
+	}
+
+	return array(
+		'success' => false,
+		'message' => $status['message'],
+	);
+}
+
 /*                                                                       
 --------------------------------------------------------------------------
 Handle Checkout POST                                                      
@@ -813,8 +1122,10 @@ Handle Checkout POST
 
 $order_result  = null;
 $wc_order_id   = function_exists( 'wcss_amazon_get_request_order_id' ) ? wcss_amazon_get_request_order_id() : 0;
-$amazon_approval_block   = wcss_amazon_checkout_approval_block( $wc_order_id );
+$amazon_approval_block    = wcss_amazon_checkout_approval_block( $wc_order_id );
 $amazon_order_is_approved = ( null === $amazon_approval_block );
+$amazon_cap_status        = wcss_amazon_checkout_cap_status( $wc_order_id );
+$amazon_cap_block         = wcss_amazon_checkout_cap_block( $wc_order_id );
 
 $order_payload = null;
 
@@ -1171,14 +1482,24 @@ if (
 
 				/*
 				 * Place Order
-				 * Approval gates this Ordering API call only.
+				 * Approval, the monthly cap, and the 5% price check gate this Ordering API call only.
 				 */
 
 				$approval_block = wcss_amazon_checkout_approval_block( $wc_order_id );
+				$cap_block      = wcss_amazon_checkout_cap_block( $wc_order_id );
+				$price_block    = wcss_amazon_checkout_price_block( $cart_result['items'] );
 
 				if ( $approval_block ) {
 
 					$order_result = $approval_block;
+
+				} elseif ( $cap_block ) {
+
+					$order_result = $cap_block;
+
+				} elseif ( $price_block ) {
+
+					$order_result = $price_block;
 
 				} else {
 
@@ -1784,6 +2105,9 @@ $display_cart_items =
 	$display_cart_result['items'];
 
 }
+
+$amazon_price_status = wcss_amazon_checkout_price_tolerance_status( $display_cart_items );
+$amazon_price_block  = wcss_amazon_checkout_price_block( $display_cart_items );
 
 // Keep a checkout-page cart snapshot linked to the WC order.
 if (
@@ -2508,10 +2832,9 @@ get_header();
 								$woo_product_ids[0] ?? 0;
 
 
-							$product_title =
-								get_the_title(
-									$woo_product_id
-								);
+							$product_title = $woo_product_id
+								? get_the_title( $woo_product_id )
+								: $asin;
 
 
 							$quantity = 1;
@@ -2848,6 +3171,10 @@ get_header();
 							form="amazon-order-form"
 							class="amazon-place-order-button"
 							data-requires-approval="<?php echo $amazon_order_is_approved ? '0' : '1'; ?>"
+							data-over-cap="<?php echo $amazon_cap_block ? '1' : '0'; ?>"
+							data-cap-message="<?php echo esc_attr( $amazon_cap_block['message'] ?? '' ); ?>"
+							data-over-price="<?php echo $amazon_price_block ? '1' : '0'; ?>"
+							data-price-message="<?php echo esc_attr( $amazon_price_block['message'] ?? '' ); ?>"
 							disabled
 						>
 
@@ -2864,12 +3191,50 @@ get_header();
 							Place Amazon Order stays off until this order is approved.
 
 						</p>
+						<?php elseif ( $amazon_cap_block ) : ?>
+						<p class="amazon-checkout-note">
+
+							<?php echo esc_html( $amazon_cap_block['message'] ); ?>
+							Search, cart, and shipping can still be used.
+							Place Amazon Order stays off until this order fits the monthly cap.
+
+						</p>
 						<?php else : ?>
 						<p class="amazon-checkout-note">
 
 							Your order will be submitted through the
 							Amazon Business Ordering API using the stored
 							Amazon Business payment method.
+
+						</p>
+						<?php if ( ! empty( $amazon_cap_status['applies'] ) ) : ?>
+						<p class="amazon-checkout-note">
+
+							<?php
+							echo esc_html(
+								sprintf(
+									'This store is at CAD %s of the CAD %s monthly cap with this order.',
+									number_format( (float) $amazon_cap_status['projected'], 2 ),
+									number_format( (float) $amazon_cap_status['cap'], 2 )
+								)
+							);
+							?>
+
+						</p>
+						<?php endif; ?>
+						<?php endif; ?>
+						<?php if ( ! empty( $amazon_price_block ) ) : ?>
+						<p class="amazon-checkout-note">
+
+							<?php echo esc_html( $amazon_price_block['message'] ); ?>
+							Search, cart, and shipping can still be used.
+							Place Amazon Order stays off until the Amazon price is within 5% of the store price.
+
+						</p>
+						<?php elseif ( ! empty( $amazon_price_status['applies'] ) ) : ?>
+						<p class="amazon-checkout-note">
+
+							Amazon prices are within 5% of the store prices.
 
 						</p>
 						<?php endif; ?>
@@ -3261,7 +3626,11 @@ document.addEventListener('DOMContentLoaded', function () {
 			shippingCalculated.value = '1';
 
 			const needsApproval = placeOrderButton.getAttribute('data-requires-approval') === '1';
-			placeOrderButton.disabled = needsApproval;
+			const overCap = placeOrderButton.getAttribute('data-over-cap') === '1';
+			const overPrice = placeOrderButton.getAttribute('data-over-price') === '1';
+			const capMessage = placeOrderButton.getAttribute('data-cap-message') || 'This order is over the monthly cap.';
+			const priceMessage = placeOrderButton.getAttribute('data-price-message') || 'Amazon price is more than 5% above the store price.';
+			placeOrderButton.disabled = needsApproval || overCap || overPrice;
 
 			setRequestId(
 				result.request_id || ''
@@ -3270,7 +3639,11 @@ document.addEventListener('DOMContentLoaded', function () {
 			setStatus(
 				needsApproval
 					? 'Shipping, tax, and total calculated. This order still needs approval before it can be placed on Amazon.'
-					: 'Shipping, tax, and total calculated successfully. You can now place the order.',
+					: overCap
+						? 'Shipping, tax, and total calculated. ' + capMessage
+						: overPrice
+							? 'Shipping, tax, and total calculated. ' + priceMessage
+							: 'Shipping, tax, and total calculated successfully. You can now place the order.',
 				'success'
 			);
 

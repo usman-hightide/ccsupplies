@@ -340,7 +340,9 @@ function wp_amazon_add_item_to_cart_ajax() {
         );
     }
 
-    update_post_meta($woo_product_id, "amazon_asin", $asin, true );
+    if ( $woo_product_id ) {
+        update_post_meta( (int) $woo_product_id, 'amazon_asin', $asin );
+    }
 
     if ( $title && function_exists( 'wcss_amazon_remember_asin_title' ) ) {
         wcss_amazon_remember_asin_title( $asin, $title );
