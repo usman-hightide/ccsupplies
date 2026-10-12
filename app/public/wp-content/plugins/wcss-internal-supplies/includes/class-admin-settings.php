@@ -39,6 +39,7 @@ class WCSS_Admin_Settings {
         add_settings_field( 'exempt_product_ids', __( 'Exempt Product IDs (comma-separated)', 'wcss' ), [ $this, 'field_exempt' ], 'wcss-settings', 'wcss_main' );
         add_settings_field( 'bypass_method', __( 'Bypass Method', 'wcss' ), [ $this, 'field_bypass' ], 'wcss-settings', 'wcss_main' );
         add_settings_field( 'count_statuses', __( 'Statuses Counted Toward Monthly Limit', 'wcss' ), [ $this, 'field_statuses' ], 'wcss-settings', 'wcss_main' );
+        add_settings_field( 'operations_email', __( 'Operations email', 'wcss' ), [ $this, 'field_operations_email' ], 'wcss-settings', 'wcss_main' );
     }
 
     public function sanitize( $input ) {
@@ -62,6 +63,17 @@ class WCSS_Admin_Settings {
         $sel = isset( $input['count_statuses'] ) && is_array( $input['count_statuses'] ) ? array_values( array_intersect( $allowed_statuses, $input['count_statuses'] ) ) : ['wc-awaiting-approval','wc-approved'];
         $out['count_statuses'] = $sel;
 
+        $operations = isset( $input['operations_email'] ) ? sanitize_text_field( $input['operations_email'] ) : '';
+        $emails     = array();
+        $parts      = preg_split( '/[,\s]+/', $operations );
+        foreach ( is_array( $parts ) ? $parts : array() as $email ) {
+            $email = sanitize_email( $email );
+            if ( is_email( $email ) ) {
+                $emails[] = $email;
+            }
+        }
+        $out['operations_email'] = implode( ', ', array_values( array_unique( $emails ) ) );
+
         return $out;
     }
 
@@ -73,6 +85,7 @@ class WCSS_Admin_Settings {
             'exempt_product_ids' => '',
             'bypass_method' => 'internal_requisition',
             'count_statuses' => ['wc-awaiting-approval','wc-approved'],
+            'operations_email' => '',
         ];
         return wp_parse_args( get_option( $this->option_key, [] ), $defaults );
     }
@@ -157,5 +170,13 @@ class WCSS_Admin_Settings {
             );
         }
         echo '<p class="description">' . esc_html__( 'Statuses that are counted toward the monthly one-order limit. Custom statuses will be added in a later phase.', 'wcss' ) . '</p>';
+    }
+
+    public function field_operations_email() {
+        $opts = $this->get_opts();
+        ?>
+        <input type="text" name="wcss_settings[operations_email]" value="<?php echo esc_attr( $opts['operations_email'] ); ?>" placeholder="ops@example.com" size="40" />
+        <p class="description"><?php esc_html_e( 'Receives a notice when an order is rejected. Separate more than one address with a comma. Leave blank until the Operations address is confirmed.', 'wcss' ); ?></p>
+        <?php
     }
 }

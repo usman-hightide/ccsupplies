@@ -126,11 +126,16 @@ class WCSS_Notifications {
         // 1) Store employee
         $store_employee_email = $this->get_store_employee_email_for_order( $order );
         if ( $store_employee_email ) {
-            $subject = sprintf(
-                '[Internal Supply] Order #%s status updated for your store: %s',
-                $order_number,
-                $new_label
-            );
+            $subject = ( 'rejected' === $new_status )
+                ? sprintf(
+                    '[Internal Supply] Order #%s was rejected',
+                    $order_number
+                )
+                : sprintf(
+                    '[Internal Supply] Order #%s status updated for your store: %s',
+                    $order_number,
+                    $new_label
+                );
 
             $message = $this->build_status_change_email_body( $order, $old_status, $new_status, 'store_employee' );
             $headers = [
@@ -142,6 +147,33 @@ class WCSS_Notifications {
                 wc_mail( $store_employee_email, $subject, $message, $headers );
             } else {
                 wp_mail( $store_employee_email, $subject, $message, $headers );
+            }
+        }
+
+        // Operations receives a rejection notice only. No address is invented.
+        if ( 'rejected' === $new_status ) {
+            $operations_emails = $this->get_operations_emails();
+            if ( ! empty( $operations_emails ) ) {
+                $subject = sprintf(
+                    '[Internal Supply] Order #%s was rejected',
+                    $order_number
+                );
+                $message = $this->build_status_change_email_body( $order, $old_status, $new_status, 'operations' );
+                $headers = [
+                    'Content-Type: text/html; charset=UTF-8',
+                    'X-WCSS-Context: wcss_status_operations',
+                ];
+
+                foreach ( $operations_emails as $email ) {
+                    if ( $store_employee_email && strcasecmp( $email, $store_employee_email ) === 0 ) {
+                        continue;
+                    }
+                    if ( function_exists( 'wc_mail' ) ) {
+                        wc_mail( $email, $subject, $message, $headers );
+                    } else {
+                        wp_mail( $email, $subject, $message, $headers );
+                    }
+                }
             }
         }
 
@@ -295,6 +327,55 @@ class WCSS_Notifications {
     }
 
     /**
+     * Operations addresses for rejection notices.
+     *
+     * Read from Internal Supplies settings. Blank means Operations is not emailed.
+     *
+     * @return string[]
+     */
+    private function get_operations_emails(): array {
+        $opts  = get_option( 'wcss_settings', array() );
+        $raw   = is_array( $opts ) && isset( $opts['operations_email'] ) ? (string) $opts['operations_email'] : '';
+        $parts = preg_split( '/[,\s]+/', $raw );
+        $emails = array();
+
+        if ( is_array( $parts ) ) {
+            foreach ( $parts as $email ) {
+                $email = sanitize_email( trim( (string) $email ) );
+                if ( is_email( $email ) ) {
+                    $emails[] = $email;
+                }
+            }
+        }
+
+        return array_values( array_unique( $emails ) );
+    }
+
+    /**
+     * Latest order note, used as the rejection reason when one was entered.
+     */
+    private function get_latest_order_note( WC_Order $order ): string {
+        if ( ! function_exists( 'wc_get_order_notes' ) ) {
+            return '';
+        }
+
+        $notes = wc_get_order_notes(
+            array(
+                'order_id' => $order->get_id(),
+                'limit'    => 1,
+                'orderby'  => 'date_created',
+                'order'    => 'DESC',
+            )
+        );
+
+        if ( empty( $notes[0]->content ) ) {
+            return '';
+        }
+
+        return wp_strip_all_tags( (string) $notes[0]->content );
+    }
+
+    /**
      * Simple HTML email for NEW order.
      *
      * @param WC_Order $order
@@ -423,7 +504,15 @@ class WCSS_Notifications {
             $order->get_order_number()
         );
 
-        if ( 'store_employee' === $audience ) {
+        $rejection_note = ( 'rejected' === $new_status ) ? $this->get_latest_order_note( $order ) : '';
+
+        if ( 'rejected' === $new_status && 'store_employee' === $audience ) {
+            $heading = sprintf( 'Order #%s was rejected', $order->get_order_number() );
+            $intro   = __( 'Your store order was rejected.', 'wcss' );
+        } elseif ( 'rejected' === $new_status && 'operations' === $audience ) {
+            $heading = sprintf( 'Order #%s was rejected', $order->get_order_number() );
+            $intro   = __( 'A store order was rejected.', 'wcss' );
+        } elseif ( 'store_employee' === $audience ) {
             $intro = __( 'The status of an order for your store has been updated in the Internal Supply portal.', 'wcss' );
         } elseif ( 'shop_manager' === $audience ) {
             $intro = __( 'The status of an order has been updated in the Internal Supply portal.', 'wcss' );
@@ -459,6 +548,12 @@ class WCSS_Notifications {
                                     <strong><?php esc_html_e( 'Updated at:', 'wcss' ); ?></strong>
                                     <?php echo esc_html( current_time( 'Y-m-d H:i' ) ); ?>
                                 </p>
+                                <?php if ( $rejection_note !== '' ) : ?>
+                                <p style="margin:12px 0 0 0;">
+                                    <strong><?php esc_html_e( 'Rejection note:', 'wcss' ); ?></strong>
+                                    <?php echo esc_html( $rejection_note ); ?>
+                                </p>
+                                <?php endif; ?>
                             </td>
                         </tr>
 
