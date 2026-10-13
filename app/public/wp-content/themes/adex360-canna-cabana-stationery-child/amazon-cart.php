@@ -163,6 +163,43 @@ function wp_amazon_get_cart_items() {
 |--------------------------------------------------------------------------
 */
 
+function wp_amazon_cart_item_rejection_message( $data, $item_id ) {
+
+	if ( empty( $data['rejectedItems'] ) || ! is_array( $data['rejectedItems'] ) ) {
+		return '';
+	}
+
+	foreach ( $data['rejectedItems'] as $rejected ) {
+
+		$rejected_id = '';
+
+		if ( isset( $rejected['id'] ) ) {
+			$rejected_id = (string) $rejected['id'];
+		} elseif ( isset( $rejected['itemId'] ) ) {
+			$rejected_id = (string) $rejected['itemId'];
+		}
+
+		if ( $rejected_id && $rejected_id !== (string) $item_id ) {
+			continue;
+		}
+
+		$type = '';
+
+		if ( ! empty( $rejected['rejectionArtifacts'][0]['rejectionArtifactType'] ) ) {
+			$type = (string) $rejected['rejectionArtifacts'][0]['rejectionArtifactType'];
+		}
+
+		if ( 'UnavailableQuantity' === $type ) {
+			return 'Amazon does not have that quantity available.';
+		}
+
+		return 'Amazon could not update this quantity.';
+	}
+
+	return '';
+}
+
+
 function wp_amazon_modify_cart_item( $item_id, $quantity ) {
 
 	$item_id  = sanitize_text_field( $item_id );
@@ -264,6 +301,18 @@ function wp_amazon_modify_cart_item( $item_id, $quantity ) {
 			'request_id'  => $request_id,
 			'message'     => $message,
 			'response'    => $data,
+		);
+	}
+
+	$rejection_message = wp_amazon_cart_item_rejection_message( $data, $item_id );
+
+	if ( $rejection_message ) {
+		return array(
+			'success'     => false,
+			'status_code' => $status_code,
+			'request_id'  => $request_id,
+			'message'     => $rejection_message,
+			'data'        => $data,
 		);
 	}
 
@@ -391,6 +440,62 @@ if ( ! empty( $cart_response['success'] ) ) {
 
 		$cart_items = $cart_data['items'];
 	}
+}
+
+if (
+	isset( $_POST['amazon_cart_ajax'] )
+	&& '1' === $_POST['amazon_cart_ajax']
+	&& null !== $cart_action_result
+) {
+
+	if ( empty( $cart_action_result['success'] ) ) {
+		wp_send_json_error(
+			array(
+				'message' => isset( $cart_action_result['message'] )
+					? $cart_action_result['message']
+					: 'Unable to update the Amazon cart.',
+			)
+		);
+	}
+
+	$ajax_total = 0;
+
+	foreach ( $cart_items as $ajax_item ) {
+		$ajax_qty = isset( $ajax_item['quantity'] ) ? (int) $ajax_item['quantity'] : 1;
+
+		if ( isset( $ajax_item['price']['amount'] ) ) {
+			$ajax_total += (float) $ajax_item['price']['amount'] * $ajax_qty;
+		}
+	}
+
+	$returned_quantity = isset( $quantity ) ? (int) $quantity : 1;
+
+	if ( ! empty( $cart_action_result['data']['items'] ) && is_array( $cart_action_result['data']['items'] ) ) {
+		$ajax_total = 0;
+
+		foreach ( $cart_action_result['data']['items'] as $ajax_item ) {
+			$ajax_qty = isset( $ajax_item['quantity'] ) ? (int) $ajax_item['quantity'] : 1;
+
+			if ( isset( $ajax_item['itemId'] ) && (string) $ajax_item['itemId'] === (string) $item_id ) {
+				$returned_quantity = $ajax_qty;
+			}
+
+			if ( isset( $ajax_item['price']['amount'] ) ) {
+				$ajax_total += (float) $ajax_item['price']['amount'] * $ajax_qty;
+			}
+		}
+	}
+
+	wp_send_json_success(
+		array(
+			'message'    => isset( $cart_action_result['message'] )
+				? $cart_action_result['message']
+				: 'Cart quantity updated.',
+			'quantity'   => $returned_quantity,
+			'item_id'    => isset( $item_id ) ? $item_id : '',
+			'cart_total' => $ajax_total,
+		)
+	);
 }
 
 
@@ -770,6 +875,7 @@ get_header();
 													name="quantity"
 													class="amazon-quantity-input"
 													value="<?php echo esc_attr( $quantity ); ?>"
+													data-saved="<?php echo esc_attr( $quantity ); ?>"
 													min="1"
 													step="1"
 												/>
@@ -785,13 +891,7 @@ get_header();
 
 											</div>
 
-
-											<button
-												type="submit"
-												class="amazon-update-button"
-											>
-												Update
-											</button>
+											<span class="amazon-qty-status" aria-live="polite"></span>
 
 										</div>
 
@@ -957,8 +1057,9 @@ get_header();
 					<?php endforeach; ?>
 
 				</div>
-                <div class="amazon-cart-item">
-                    <h4> <strong>Cart Total: CAD</strong> <?php echo $cart_total; ?> </h4>
+                <div class="amazon-cart-total">
+                    <span>Cart total</span>
+                    <strong id="amazon-cart-total-amount">CAD <?php echo esc_html( number_format( (float) $cart_total, 2 ) ); ?></strong>
                 </div>
 
 
@@ -1303,60 +1404,79 @@ get_header();
 .amazon-quantity-wrapper {
 	display: flex;
 	align-items: center;
-	gap: 12px;
+	flex-wrap: wrap;
+	gap: 14px;
 }
 
 .amazon-action-label {
 	font-size: 13px;
 	font-weight: 700;
-	color: #444;
+	color: #222;
+	letter-spacing: .02em;
 }
 
-.amazon-quantity-control {
+.amazon-cart-page .amazon-quantity-control {
 	display: inline-flex;
 	align-items: center;
+	width: auto;
 
-	border: 1px solid #d7d7d7;
-	border-radius: 7px;
+	border: 1px solid #111;
+	border-radius: 10px;
 
 	background: #fff;
 	overflow: hidden;
 }
 
-.amazon-qty-button {
-	width: 38px;
-	height: 38px;
-
-	border: 0;
-	background: #fff;
-
-	font-size: 20px;
-	font-weight: 600;
-
-	cursor: pointer;
-	padding: unset !important;
+.amazon-quantity-control.is-updating {
+	opacity: .55;
+	pointer-events: none;
 }
 
-.amazon-qty-button:hover {
-	background: #eee;
-}
-
-.amazon-quantity-input {
-	width: 55px;
-	height: 38px;
+.amazon-cart-page .amazon-qty-button {
+	width: 42px !important;
+	min-width: 42px;
+	height: 42px !important;
+	margin: 0 !important;
 
 	border: 0 !important;
-	border-left: 1px solid #ddd !important;
-	border-right: 1px solid #ddd !important;
+	border-radius: 0 !important;
+	background: #000 !important;
+	color: #fff !important;
+
+	font-size: 22px;
+	font-weight: 600;
+	line-height: 1;
+
+	cursor: pointer;
+	padding: 0 !important;
+}
+
+.amazon-cart-page .amazon-qty-button:hover {
+	background: #e1251c !important;
+	color: #fff !important;
+}
+
+.amazon-cart-page .amazon-quantity-input {
+	width: 58px !important;
+	max-width: 58px;
+	flex: 0 0 58px;
+	height: 42px !important;
+
+	border: 0 !important;
+	border-left: 1px solid #111 !important;
+	border-right: 1px solid #111 !important;
 
 	text-align: center;
 
-	font-size: 15px;
+	font-size: 16px;
+	font-weight: 700;
+	color: #111;
 
 	padding: 0 !important;
 	margin: 0 !important;
 
 	background: #fff !important;
+	box-shadow: none !important;
 }
 
 .amazon-quantity-input::-webkit-outer-spin-button,
@@ -1369,23 +1489,50 @@ get_header();
 	-moz-appearance: textfield;
 }
 
-.amazon-update-button {
-	border: 0;
-	border-radius: 7px;
-
-	padding: 10px 16px;
-
-	background: #111;
-	color: #fff;
-
-	font-size: 14px;
+.amazon-qty-status {
+	flex-basis: 100%;
+	min-height: 18px;
+	font-size: 13px;
 	font-weight: 700;
-
-	cursor: pointer;
+	color: #16803c;
 }
 
-.amazon-update-button:hover {
-	background: #333;
+.amazon-qty-status:empty {
+	display: none;
+}
+
+.amazon-qty-status.is-error {
+	color: #c62828;
+}
+
+.amazon-cart-total {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+
+	margin-top: 6px;
+	padding: 18px 24px;
+
+	border-radius: 12px;
+	background: #000;
+	color: #fff;
+}
+
+.amazon-cart-total span {
+	font-size: 16px;
+	font-weight: 700;
+}
+
+.amazon-cart-total strong {
+	padding: 8px 14px;
+	border-radius: 8px;
+
+	background: #fff;
+	color: #e1251c;
+
+	font-size: 22px;
+	line-height: 1;
 }
 
 .amazon-remove-form {
@@ -1587,11 +1734,98 @@ document.addEventListener('DOMContentLoaded', function () {
 	|--------------------------------------------------------------------------
 	*/
 
+	function saveAmazonQuantity(item, nextQuantity) {
+
+		const input = item.querySelector('.amazon-quantity-input');
+		const form = item.querySelector('.amazon-update-form');
+		const control = item.querySelector('.amazon-quantity-control');
+		const status = item.querySelector('.amazon-qty-status');
+
+		if (!input || !form || !control) {
+			return;
+		}
+
+		nextQuantity = parseInt(nextQuantity, 10) || 1;
+
+		if (nextQuantity < 1) {
+			nextQuantity = 1;
+		}
+
+		const saved = parseInt(input.getAttribute('data-saved') || input.value, 10) || 1;
+
+		if (nextQuantity === saved || control.classList.contains('is-updating')) {
+			input.value = saved;
+			return;
+		}
+
+		control.classList.add('is-updating');
+		input.value = nextQuantity;
+
+		if (status) {
+			status.classList.remove('is-error');
+			status.textContent = 'Updating...';
+		}
+
+		const body = new FormData(form);
+		body.set('quantity', String(nextQuantity));
+		body.set('amazon_cart_ajax', '1');
+
+		fetch(window.location.href, {
+			method: 'POST',
+			credentials: 'same-origin',
+			body: body
+		})
+		.then(function (response) {
+			return response.json();
+		})
+		.then(function (response) {
+
+			if (!response.success) {
+				const message = response.data && response.data.message
+					? response.data.message
+					: 'Unable to update the quantity.';
+				throw new Error(message);
+			}
+
+			const quantity = parseInt(response.data.quantity, 10) || nextQuantity;
+
+			input.value = quantity;
+			input.setAttribute('data-saved', String(quantity));
+
+			const total = document.getElementById('amazon-cart-total-amount');
+
+			if (total && response.data.cart_total != null) {
+				total.textContent = 'CAD ' + Number(response.data.cart_total).toFixed(2);
+			}
+
+			if (status) {
+				status.classList.remove('is-error');
+				status.textContent = 'Updated';
+			}
+
+		})
+		.catch(function (error) {
+
+			input.value = saved;
+
+			if (status) {
+				status.classList.add('is-error');
+				status.textContent = error.message || 'Could not update.';
+			}
+
+		})
+		.finally(function () {
+			control.classList.remove('is-updating');
+		});
+
+	}
+
 	document.querySelectorAll('.amazon-cart-item').forEach(function (item) {
 
 		const input = item.querySelector('.amazon-quantity-input');
 		const minus = item.querySelector('.amazon-qty-minus');
 		const plus = item.querySelector('.amazon-qty-plus');
+		const form = item.querySelector('.amazon-update-form');
 
 		if (!input) {
 			return;
@@ -1609,7 +1843,7 @@ document.addEventListener('DOMContentLoaded', function () {
 					quantity = 1;
 				}
 
-				input.value = quantity;
+				saveAmazonQuantity(item, quantity);
 
 			});
 
@@ -1624,7 +1858,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
 				quantity++;
 
-				input.value = quantity;
+				saveAmazonQuantity(item, quantity);
 
 			});
 
@@ -1639,9 +1873,18 @@ document.addEventListener('DOMContentLoaded', function () {
 				quantity = 1;
 			}
 
-			input.value = quantity;
+			saveAmazonQuantity(item, quantity);
 
 		});
+
+		if (form) {
+
+			form.addEventListener('submit', function (event) {
+				event.preventDefault();
+				saveAmazonQuantity(item, input.value);
+			});
+
+		}
 
 	});
 
@@ -1653,7 +1896,7 @@ document.addEventListener('DOMContentLoaded', function () {
 	*/
 
 	document.querySelectorAll(
-		'.amazon-update-form, .amazon-remove-form'
+		'.amazon-remove-form'
 	).forEach(function (form) {
 
 		form.addEventListener('submit', function () {

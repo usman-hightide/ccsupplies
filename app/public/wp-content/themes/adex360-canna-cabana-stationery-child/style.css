@@ -3,7 +3,7 @@
 	Description: Canna Cabana Stationery is a lightweight and minimalist WordPress theme that was built specifically to work seamlessly with the Elementor site builder plugin. The theme is free, open-source, and designed for users who want a flexible, easy-to-use, and customizable website. The theme, which is optimized for performance, provides a solid foundation for users to build their own unique designs using the Elementor drag-and-drop site builder. Its simplicity and flexibility make it a great choice for both beginners and experienced Web Creators.
 	Author: Adex360
 	Author URI: https://adex360.com/
-	Version: 1.0.1
+	Version: 1.0.6
 	Template: adex360-cannacabana-stationery
 	Requires at least: 6.0
 	Tested up to: 6.8
@@ -77,4 +77,219 @@
 
 .view-more-btn:hover {
   background: #444;
+}
+
+.woocommerce ul.products li.product a.added_to_cart {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 37px;
+  margin: 0 0 0 10px;
+  padding: 0 16px;
+  border: 1px solid #000;
+  border-radius: 100px;
+  background: #000;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.woocommerce ul.products li.product a.added_to_cart:hover,
+.woocommerce ul.products li.product a.added_to_cart:focus {
+  background: #e1251c;
+  border-color: #e1251c;
+  color: #fff;
+  text-decoration: none;
+}
+
+.woocommerce-order .woocommerce-thankyou-order-received {
+  margin: 0 0 20px;
+  padding: 14px 18px;
+  border: 1px solid #d7eadc;
+  border-left: 4px solid #16803c;
+  border-radius: 10px;
+  background: #f4faf6;
+  color: #14532d;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.woocommerce-order ul.woocommerce-order-overview {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  list-style: none;
+  margin: 0 0 28px;
+  padding: 0;
+  border: 0;
+}
+
+.woocommerce-order ul.woocommerce-order-overview::before,
+.woocommerce-order ul.woocommerce-order-overview::after {
+  content: none;
+  display: none;
+}
+
+.woocommerce-order ul.woocommerce-order-overview li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid #ececec;
+  border-radius: 12px;
+  background: #fff;
+  color: #666;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.woocommerce-order ul.woocommerce-order-overview li strong {
+  color: #111;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.35;
+  text-transform: none;
+  word-break: break-word;
+}
+
+.woocommerce-order .woocommerce-customer-details {
+  margin-top: 28px;
+}
+
+.woocommerce-order .woocommerce-customer-details .woocommerce-column__title {
+  margin: 0 0 12px;
+  color: #111;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.woocommerce-order .woocommerce-customer-details address,
+.woocommerce-order .woocommerce-customer-details .cc-order-address {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-width: 560px;
+  margin: 0;
+  padding: 4px 0;
+  border: 1px solid #ececec;
+  border-left: 4px solid #111;
+  border-radius: 12px;
+  background: #fff;
+  color: #222;
+  font-style: normal;
+  font-size: 15px;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+.woocommerce-order .woocommerce-customer-details .cc-addr-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 12px 18px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.woocommerce-order .woocommerce-customer-details .cc-addr-row:last-child {
+  border-bottom: 0;
+}
+
+.woocommerce-order .woocommerce-customer-details .cc-addr-label {
+  color: #777;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.woocommerce-order .woocommerce-customer-details .cc-addr-value {
+  color: #111;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.woocommerce-order .woocommerce-customer-details .cc-addr-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-weight: 500;
+  color: #333;
+}
+
+.woocommerce-order .woocommerce-customer-details address p,
+.woocommerce-order .woocommerce-customer-details .cc-order-address p {
+  margin: 0;
+}
+
+.woocommerce-order .woocommerce-customer-details .woocommerce-customer-details--phone,
+.woocommerce-order .woocommerce-customer-details .woocommerce-customer-details--email {
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.woocommerce-order .woocommerce-customer-details .woocommerce-customer-details--phone::before,
+.woocommerce-order .woocommerce-customer-details .woocommerce-customer-details--email::before {
+  content: none;
+  display: none;
+}
+
+.woocommerce-order .woocommerce-customer-details .col2-set {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.woocommerce-order .woocommerce-customer-details .col2-set::before,
+.woocommerce-order .woocommerce-customer-details .col2-set::after {
+  content: none;
+  display: none;
+}
+
+.woocommerce-order .woocommerce-customer-details .col2-set .col-1,
+.woocommerce-order .woocommerce-customer-details .col2-set .col-2 {
+  float: none;
+  width: auto;
+}
+
+.woocommerce-order .woocommerce-customer-details .col2-set address {
+  max-width: none;
+}
+
+@media (max-width: 900px) {
+  .woocommerce-order ul.woocommerce-order-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .woocommerce-order ul.woocommerce-order-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .woocommerce-order .woocommerce-customer-details .col2-set {
+    grid-template-columns: 1fr;
+  }
+
+  .woocommerce-order .woocommerce-customer-details address {
+    max-width: none;
+  }
 }

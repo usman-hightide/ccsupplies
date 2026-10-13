@@ -1029,6 +1029,8 @@ function wcss_amazon_checkout_price_tolerance_status( $cart_items ) {
 
 	$percent    = wcss_amazon_checkout_price_tolerance_percent();
 	$problems   = array();
+	$details    = array();
+	$issues     = array();
 	$over_price = false;
 
 	foreach ( $cart_items as $item ) {
@@ -1045,19 +1047,19 @@ function wcss_amazon_checkout_price_tolerance_status( $cart_items ) {
 		$currency       = isset( $item['price']['currencyCode'] ) ? strtoupper( (string) $item['price']['currencyCode'] ) : '';
 
 		if ( $amount_missing ) {
-			$problems[] = $label . ' has no Amazon price, so the 5% check cannot be completed.';
+			$issues[] = $label . ' has no Amazon price, so the 5% check cannot be completed.';
 			continue;
 		}
 
 		if ( $currency !== '' && 'CAD' !== $currency ) {
-			$problems[] = $label . ' is priced in ' . $currency . ', not CAD, so the 5% check cannot be completed.';
+			$issues[] = $label . ' is priced in ' . $currency . ', not CAD, so the 5% check cannot be completed.';
 			continue;
 		}
 
 		$product = wcss_amazon_checkout_store_product_for_asin( $asin );
 
 		if ( ! $product ) {
-			$problems[] = $label . ' is not linked to a store product, so the 5% check cannot be completed.';
+			$issues[] = $label . ' is not linked to a store product, so the 5% check cannot be completed.';
 			continue;
 		}
 
@@ -1066,15 +1068,28 @@ function wcss_amazon_checkout_price_tolerance_status( $cart_items ) {
 
 		if ( $amazon_price > $limit ) {
 			$over_price = true;
-			$problems[] = sprintf(
-				'%s is CAD %s on Amazon and CAD %s in the store. The 5%% limit is CAD %s.',
-				$product->get_name(),
-				number_format( $amazon_price, 2 ),
-				number_format( $store_price, 2 ),
-				number_format( $limit, 2 )
-			);
+			$detail_key = $product->get_name() . '|' . number_format( $amazon_price, 2 ) . '|' . number_format( $store_price, 2 );
+
+			if ( ! isset( $details[ $detail_key ] ) ) {
+				$details[ $detail_key ] = array(
+					'name'   => $product->get_name(),
+					'amazon' => number_format( $amazon_price, 2 ),
+					'store'  => number_format( $store_price, 2 ),
+					'limit'  => number_format( $limit, 2 ),
+				);
+				$problems[] = sprintf(
+					'%s is CAD %s on Amazon and CAD %s in the store. The 5%% limit is CAD %s.',
+					$product->get_name(),
+					number_format( $amazon_price, 2 ),
+					number_format( $store_price, 2 ),
+					number_format( $limit, 2 )
+				);
+			}
 		}
 	}
+
+	$issues = array_values( array_unique( $issues ) );
+	$problems = array_merge( $problems, $issues );
 
 	if ( ! $problems ) {
 		return array(
@@ -1092,6 +1107,8 @@ function wcss_amazon_checkout_price_tolerance_status( $cart_items ) {
 		'applies' => true,
 		'blocked' => true,
 		'message' => $lead . implode( ' ', $problems ),
+		'details' => array_values( $details ),
+		'issues'  => $issues,
 	);
 }
 
@@ -3183,61 +3200,110 @@ get_header();
 						</button>
 
 
+						<div class="amazon-checkout-notes">
+
 						<?php if ( ! $amazon_order_is_approved ) : ?>
-						<p class="amazon-checkout-note">
+						<div class="amazon-checkout-note is-alert">
 
-							<?php echo esc_html( $amazon_approval_block['message'] ); ?>
-							Search, cart, and shipping can still be used.
-							Place Amazon Order stays off until this order is approved.
+							<span class="amazon-checkout-note-label">Approval</span>
+							<p><?php echo esc_html( $amazon_approval_block['message'] ); ?> Place Amazon Order stays off until this order is approved.</p>
 
-						</p>
+						</div>
 						<?php elseif ( $amazon_cap_block ) : ?>
-						<p class="amazon-checkout-note">
+						<div class="amazon-checkout-note is-alert">
 
-							<?php echo esc_html( $amazon_cap_block['message'] ); ?>
-							Search, cart, and shipping can still be used.
-							Place Amazon Order stays off until this order fits the monthly cap.
+							<span class="amazon-checkout-note-label">Monthly cap</span>
+							<p><?php echo esc_html( $amazon_cap_block['message'] ); ?> Place Amazon Order stays off until this order fits the monthly cap.</p>
 
-						</p>
+						</div>
 						<?php else : ?>
-						<p class="amazon-checkout-note">
+						<div class="amazon-checkout-note">
 
-							Your order will be submitted through the
-							Amazon Business Ordering API using the stored
-							Amazon Business payment method.
+							<span class="amazon-checkout-note-label">Payment</span>
+							<p>This order is charged to the Amazon Business payment method saved on the account.</p>
 
-						</p>
+						</div>
 						<?php if ( ! empty( $amazon_cap_status['applies'] ) ) : ?>
-						<p class="amazon-checkout-note">
-
-							<?php
-							echo esc_html(
-								sprintf(
-									'This store is at CAD %s of the CAD %s monthly cap with this order.',
-									number_format( (float) $amazon_cap_status['projected'], 2 ),
-									number_format( (float) $amazon_cap_status['cap'], 2 )
-								)
+						<?php
+						$amazon_cap_percent = 0;
+						if ( (float) $amazon_cap_status['cap'] > 0 ) {
+							$amazon_cap_percent = (int) min(
+								100,
+								round( ( (float) $amazon_cap_status['projected'] / (float) $amazon_cap_status['cap'] ) * 100 )
 							);
-							?>
+						}
+						?>
+						<div class="amazon-checkout-note">
 
-						</p>
+							<span class="amazon-checkout-note-label">Monthly cap</span>
+							<p>
+								<?php
+								echo esc_html(
+									sprintf(
+										'CAD %s of CAD %s is used this month, including this order.',
+										number_format( (float) $amazon_cap_status['projected'], 2 ),
+										number_format( (float) $amazon_cap_status['cap'], 2 )
+									)
+								);
+								?>
+							</p>
+							<div class="amazon-checkout-cap-track" aria-hidden="true">
+								<span style="width: <?php echo esc_attr( (string) $amazon_cap_percent ); ?>%;"></span>
+							</div>
+
+						</div>
 						<?php endif; ?>
 						<?php endif; ?>
 						<?php if ( ! empty( $amazon_price_block ) ) : ?>
-						<p class="amazon-checkout-note">
+						<div class="amazon-checkout-note is-alert">
 
-							<?php echo esc_html( $amazon_price_block['message'] ); ?>
-							Search, cart, and shipping can still be used.
-							Place Amazon Order stays off until the Amazon price is within 5% of the store price.
+							<span class="amazon-checkout-note-label">Price check</span>
+							<p>
+								<?php if ( ! empty( $amazon_price_status['details'] ) ) : ?>
+									Amazon is above the 5% store price limit, so this order cannot be placed.
+								<?php else : ?>
+									The 5% price check could not be completed, so this order cannot be placed.
+								<?php endif; ?>
+							</p>
+							<?php if ( ! empty( $amazon_price_status['details'] ) ) : ?>
+							<ul class="amazon-checkout-price-list">
+								<?php foreach ( $amazon_price_status['details'] as $amazon_price_detail ) : ?>
+								<li>
+									<strong><?php echo esc_html( $amazon_price_detail['name'] ); ?></strong>
+									<span>
+										<?php
+										echo esc_html(
+											sprintf(
+												'Amazon CAD %s · Store CAD %s · Limit CAD %s',
+												$amazon_price_detail['amazon'],
+												$amazon_price_detail['store'],
+												$amazon_price_detail['limit']
+											)
+										);
+										?>
+									</span>
+								</li>
+								<?php endforeach; ?>
+							</ul>
+							<?php elseif ( ! empty( $amazon_price_status['issues'] ) ) : ?>
+							<ul class="amazon-checkout-price-list">
+								<?php foreach ( $amazon_price_status['issues'] as $amazon_price_issue ) : ?>
+								<li><span><?php echo esc_html( $amazon_price_issue ); ?></span></li>
+								<?php endforeach; ?>
+							</ul>
+							<?php endif; ?>
 
-						</p>
+						</div>
 						<?php elseif ( ! empty( $amazon_price_status['applies'] ) ) : ?>
-						<p class="amazon-checkout-note">
+						<div class="amazon-checkout-note is-ok">
 
-							Amazon prices are within 5% of the store prices.
+							<span class="amazon-checkout-note-label">Price check</span>
+							<p>Amazon prices are within 5% of the store prices.</p>
 
-						</p>
+						</div>
 						<?php endif; ?>
+
+						</div>
 
 					</div>
 
@@ -4041,16 +4107,97 @@ opacity: .9;
 
 }
 
-.amazon-checkout-note {
+.amazon-checkout-page .amazon-checkout-notes {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin-top: 14px;
+}
 
-margin: 12px 0 0;
+.amazon-checkout-page .amazon-checkout-note {
+	margin: 0;
+	padding: 12px 14px;
+	border: 1px solid #ececec;
+	border-left: 3px solid #111;
+	border-radius: 10px;
+	background: #f7f7f7;
+	color: #222;
+	font-size: 13px;
+	line-height: 1.45;
+}
 
-color: #777;
+.amazon-checkout-page .amazon-checkout-note.is-alert {
+	background: #fff6f5;
+	border-color: #f3d2cf;
+	border-left-color: #e1251c;
+}
 
-font-size: 12px;
+.amazon-checkout-page .amazon-checkout-note.is-ok {
+	background: #f4faf6;
+	border-color: #d7eadc;
+	border-left-color: #16803c;
+}
 
-line-height: 1.5;
+.amazon-checkout-page .amazon-checkout-note-label {
+	display: block;
+	margin-bottom: 4px;
+	color: #111;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: .06em;
+	text-transform: uppercase;
+}
 
+.amazon-checkout-page .amazon-checkout-note.is-alert .amazon-checkout-note-label {
+	color: #e1251c;
+}
+
+.amazon-checkout-page .amazon-checkout-note.is-ok .amazon-checkout-note-label {
+	color: #16803c;
+}
+
+.amazon-checkout-page .amazon-checkout-note p {
+	margin: 0;
+}
+
+.amazon-checkout-page .amazon-checkout-price-list {
+	list-style: none;
+	margin: 10px 0 0;
+	padding: 0;
+}
+
+.amazon-checkout-page .amazon-checkout-price-list li {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin-top: 8px;
+	padding-top: 8px;
+	border-top: 1px solid #f0d5d2;
+}
+
+.amazon-checkout-page .amazon-checkout-price-list strong {
+	font-size: 13px;
+	color: #111;
+}
+
+.amazon-checkout-page .amazon-checkout-price-list span {
+	font-size: 12px;
+	color: #444;
+}
+
+.amazon-checkout-page .amazon-checkout-cap-track {
+	height: 6px;
+	margin-top: 10px;
+	border-radius: 99px;
+	background: #e4e4e4;
+	overflow: hidden;
+}
+
+.amazon-checkout-page .amazon-checkout-cap-track span {
+	display: block;
+	height: 100%;
+	border-radius: 99px;
+	background: #111;
 }
 
 /*                                                                       

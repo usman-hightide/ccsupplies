@@ -1,5 +1,5 @@
 <?php if ( ! defined('ABSPATH') ) exit; ?>
-<div class="wcssm-wrap">
+<div class="wcssm-wrap wcssm-products">
   <?php include WCSS_DIR . 'frontend/pages/partials/manager-nav.php'; ?>
 
 
@@ -25,7 +25,7 @@
     <a href="<?php echo esc_url( home_url('/manager/products/create') ); ?>" class="btn btn-primary">+ Create Product</a>
   </div>
 
-  <div id="wcssm-products-grid" class="tablelike" style="margin-top:12px"></div>
+  <div id="wcssm-products-grid" class="tablelike"></div>
 </div>
 
 

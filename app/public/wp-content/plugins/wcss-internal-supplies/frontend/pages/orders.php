@@ -1,5 +1,5 @@
 <?php if ( ! defined('ABSPATH') ) exit; ?>
-<div class="wcssm-wrap">
+<div class="wcssm-wrap wcssm-orders">
   <?php include WCSS_DIR . 'frontend/pages/partials/manager-nav.php'; ?>
 
   <div class="wcssm-header">

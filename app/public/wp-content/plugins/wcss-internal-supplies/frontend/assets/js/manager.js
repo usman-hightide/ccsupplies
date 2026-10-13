@@ -1860,8 +1860,13 @@
           .map(function (x) {
             var orders = +x.orders || 0;
             var pct = max > 0 ? Math.round((orders / max) * 100) : 0;
+            var tone = orders <= 1 ? "is-low" : "is-high";
             return (
-              "<div class='bar'>" +
+              "<div class='bar " +
+              tone +
+              "' data-orders='" +
+              orders +
+              "'>" +
               "<i class='val'>Orders: " +
               orders +
               "</i>" +

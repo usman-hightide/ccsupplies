@@ -348,12 +348,20 @@ function wp_amazon_add_item_to_cart_ajax() {
         wcss_amazon_remember_asin_title( $asin, $title );
     }
 
+    $cart_items = array();
+    if ( isset( $result['items'] ) && is_array( $result['items'] ) ) {
+        $cart_items = $result['items'];
+    } elseif ( isset( $result['cart']['items'] ) && is_array( $result['cart']['items'] ) ) {
+        $cart_items = $result['cart']['items'];
+    }
+
     wp_send_json_success(
         array(
             'message' => $title
                 ? $title . ' was added to the Amazon cart.'
                 : 'Item was added to the Amazon cart.',
             'cart_id' => $cart_id,
+            'item_count' => count( $cart_items ),
             'cart'    => $result,
         )
     );
@@ -641,25 +649,99 @@ get_header();
     max-width: 1280px;
     margin: 40px auto;
     padding: 0 20px 60px;
-    font-family: Arial, Helvetica, sans-serif;
-    color: #222;
+    font-family: inherit;
+    color: #161616;
 }
 
 .amazon-catalog-page .ac-header {
-    margin-bottom: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 22px;
+    padding: 22px 26px;
+    border-radius: 14px;
+    background: #000;
+    color: #fff;
+}
+
+.amazon-catalog-page .ac-header-copy {
+    min-width: 0;
 }
 
 .amazon-catalog-page .ac-header h1 {
     margin: 0 0 8px !important;
     padding: 0 !important;
+    color: #fff !important;
     font-size: 30px !important;
     line-height: 1.25 !important;
 }
 
 .amazon-catalog-page .ac-header p {
     margin: 0 !important;
-    color: #666;
-    font-size: 14px;
+    max-width: 640px;
+    color: #f0f0f0;
+    font-size: 15px;
+    line-height: 1.45;
+}
+
+.amazon-catalog-page .ac-header-cart {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    flex: 0 0 auto;
+}
+
+.amazon-catalog-page .ac-view-cart {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 10px;
+    min-height: 48px;
+    padding: 12px 18px !important;
+    border-radius: 8px;
+    background: #e1251c !important;
+    color: #fff !important;
+    text-decoration: none !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+    box-shadow: 0 8px 18px rgba(225, 37, 28, .28);
+}
+
+.amazon-catalog-page .ac-view-cart:hover {
+    background: #c61d16 !important;
+    color: #fff !important;
+}
+
+.amazon-catalog-page .ac-view-cart-count {
+    display: none;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: #fff;
+    color: #e1251c;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.amazon-catalog-page .ac-view-cart-count.is-visible {
+    display: inline-flex;
+}
+
+.amazon-catalog-page .ac-view-cart.is-updated {
+    transform: translateY(-1px);
+}
+
+.amazon-catalog-page .ac-cart-note {
+    margin: 0 !important;
+    color: #fff !important;
+    font-size: 13px !important;
+    font-weight: 600;
+    text-align: right;
 }
 
 .amazon-catalog-page .ac-error {
@@ -882,45 +964,79 @@ get_header();
 
 .amazon-catalog-page .ac-store-search {
     margin-bottom: 36px;
-    padding: 18px;
-    border: 1px solid #dedede;
-    border-radius: 12px;
+    padding: 0 0 22px;
+    border: 1px solid #ececec;
+    border-radius: 14px;
     background: #fff;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .06);
+    overflow: hidden;
+}
+
+.amazon-catalog-page .ac-store-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 22px;
+    background: #000;
 }
 
 .amazon-catalog-page .ac-store-search h2 {
-    margin: 0 0 8px !important;
-    font-size: 22px !important;
+    margin: 0 !important;
+    color: #fff !important;
+    font-size: 20px !important;
     line-height: 1.3 !important;
 }
 
-.amazon-catalog-page .ac-store-search > p {
-    margin: 0 0 14px !important;
-    color: #666;
-    font-size: 14px;
+.amazon-catalog-page .ac-store-total {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #e1251c;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
 }
 
-.amazon-catalog-page .ac-store-input {
-    width: 100%;
-    max-width: 520px;
-    min-height: 44px;
-    padding: 10px 12px;
-    border: 1px solid #ccc;
-    border-radius: 8px;
+.amazon-catalog-page .ac-store-search > p {
+    margin: 18px 22px 14px !important;
+    color: #3a3a3a;
     font-size: 15px;
 }
 
+.amazon-catalog-page .ac-store-input {
+    display: block;
+    width: calc(100% - 44px);
+    max-width: none;
+    min-height: 48px;
+    margin: 0 22px;
+    padding: 12px 14px;
+    border: 1px solid #d5d5d5;
+    border-radius: 8px;
+    background: #fff;
+    font-size: 15px;
+}
+
+.amazon-catalog-page .ac-store-input:focus {
+    outline: 2px solid #e1251c;
+    border-color: #e1251c;
+}
+
 .amazon-catalog-page .ac-store-count {
-    margin: 10px 0 0 !important;
-    color: #666;
+    margin: 10px 22px 0 !important;
+    color: #555;
     font-size: 13px;
+    font-weight: 600;
 }
 
 .amazon-catalog-page .ac-store-list {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    margin-top: 14px;
+    margin: 14px 22px 0;
 }
 
 .amazon-catalog-page .ac-store-item {
@@ -976,9 +1092,23 @@ get_header();
 }
 
 .amazon-catalog-page .ac-store-empty {
-    margin-top: 14px;
+    margin: 14px 22px 0;
     color: #777;
     font-size: 14px;
+}
+
+@media (max-width: 720px) {
+    .amazon-catalog-page .ac-header,
+    .amazon-catalog-page .ac-store-head {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .amazon-catalog-page .ac-header-cart,
+    .amazon-catalog-page .ac-cart-note {
+        align-items: flex-start;
+        text-align: left;
+    }
 }
 
 
@@ -1161,28 +1291,38 @@ get_header();
 <div class="amazon-catalog-page">
 
     <div class="ac-header">
-        <h1>
-            <?php if ( $order_id ) : ?>
-                Order #<?php echo esc_html( $order_id ); ?> — Amazon Product Matching
-            <?php else : ?>
-                Amazon Product Search
-            <?php endif; ?>
-        </h1>
+        <div class="ac-header-copy">
+            <h1>
+                <?php if ( $order_id ) : ?>
+                    Order #<?php echo esc_html( $order_id ); ?> — Amazon Product Matching
+                <?php else : ?>
+                    Amazon Product Search
+                <?php endif; ?>
+            </h1>
 
-        <p>
-            Search the published store catalog, then look up the top Amazon match for a product.
-            <?php if ( $order ) : ?>
-                Order items are still matched below.
-            <?php endif; ?>
-            <a href="<?php echo esc_url( $cart_url ); ?>">View Cart</a>
-        </p>
+            <p>
+                Search the published store catalog, then look up the top Amazon match for a product.
+                <?php if ( $order ) : ?>
+                    Order items are still matched below.
+                <?php endif; ?>
+            </p>
+        </div>
+
+        <div class="ac-header-cart">
+            <a class="ac-view-cart" id="ac-view-cart" href="<?php echo esc_url( $cart_url ); ?>">
+                <span>View Cart</span>
+                <span class="ac-view-cart-count" id="ac-view-cart-count" hidden>0</span>
+            </a>
+            <p class="ac-cart-note" id="ac-cart-note" hidden></p>
+        </div>
     </div>
 
     <section class="ac-store-search">
-        <h2>Store catalog</h2>
-        <p>
-            <?php echo esc_html( count( $store_products ) ); ?> published products. Type a name or SKU, then search Amazon for that product.
-        </p>
+        <div class="ac-store-head">
+            <h2>Store catalog</h2>
+            <span class="ac-store-total"><?php echo esc_html( count( $store_products ) ); ?> published products</span>
+        </div>
+        <p>Type a name or SKU, then search Amazon for that product.</p>
 
         <input
             id="ac-store-search-input"
@@ -1908,6 +2048,36 @@ document.addEventListener('DOMContentLoaded', function () {
     /* ==========================================
        AMAZON CART
        ========================================== */
+    function showAmazonCartCount(count) {
+        var badge = document.getElementById('ac-view-cart-count');
+        var note = document.getElementById('ac-cart-note');
+        var link = document.getElementById('ac-view-cart');
+        var total = parseInt(count, 10);
+
+        if (!badge) {
+            return;
+        }
+
+        if (!total || total < 1) {
+            total = (parseInt(badge.textContent || '0', 10) || 0) + 1;
+        }
+
+        badge.hidden = false;
+        badge.classList.add('is-visible');
+        badge.textContent = String(total);
+
+        if (link) {
+            link.classList.add('is-updated');
+        }
+
+        if (note) {
+            note.hidden = false;
+            note.textContent = total === 1
+                ? '1 product is in the Amazon cart.'
+                : total + ' products are in the Amazon cart.';
+        }
+    }
+
     document.querySelector('.amazon-catalog-page').addEventListener('click', function (event) {
 
         var button = event.target.closest('.ac-add-to-cart');
@@ -1966,6 +2136,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
 
                     button.textContent = 'Added to Amazon Cart';
+                    showAmazonCartCount(response.data && response.data.item_count);
 
                 } else {
 
