@@ -4,7 +4,9 @@ Log in on ccsupplies.ca as someone who can manage orders. Leave Trial Mode on. S
 
 There is one Amazon cart for the whole site. The dollar amount on the right of checkout is that cart. The monthly cap uses the store order total instead. Those two numbers are different on purpose.
 
-Checked on 13 October 2026.
+Checked on 13 October 2026 (gates re-checked live 15 October 2026). Screenshots below match the live black and red manager UI, the restyled Amazon cart and checkout notes, and the labeled order received address.
+
+Meeting summary (roles, API list, security monitoring, short flows): [AMAZON_MEETING_DEMO_NOTES.md](AMAZON_MEETING_DEMO_NOTES.md).
 
 ## What was asked, and what we did
 
@@ -40,19 +42,27 @@ Done: Reject on the manager orders page sets the order to Rejected and sends the
 
 ## Where the orders are
 
-Open the manager dashboard, then Orders.
+Open the manager dashboard first. The cards show Pending, Approved, Rejected, and Orders cost for the month. Logout is red on every manager page.
+
+![Manager dashboard](manager_dashboard.png)
+
+Then open Orders. Black table headers, black Approve and Amazon Test Order buttons, red Reject text, red Logout.
 
 ![Manager orders, with the orders used in this test](manager_orders.png)
 
-8208 is Awaiting Approval. Use it for the approval block. Leave it there unless you mean to send the approval email.
+Products uses the same manager look: black table header, black Create Product, red Delete text.
 
-8209 is Rejected. It was the rejection email test.
+![Manager products](manager_products.png)
 
-8196 is Approved, Westbrook, CAD 99.98. Use it for the under cap check.
+**Test orders on the live site**
 
-8202 is Approved, Shawnessy, CAD 133.51. Use it for the over cap check.
-
-8207 is Approved, no store, about CAD 188.99. The cap does not run. It already has a trial Amazon order. Do not place it again.
+| Order | Status | Store | Use for |
+| --- | --- | --- | --- |
+| 8208 | Awaiting Approval | — | Approval block. Leave it there unless you mean to send the approval email. |
+| 8209 | Rejected | — | Rejection email test. Also shows the labeled order received address. |
+| 8196 | Approved | Westbrook, CAD 99.98 | Under cap check. |
+| 8202 | Approved | Shawnessy, CAD 133.51 | Over cap check. |
+| 8207 | Approved | No store, about CAD 188.99 | Cap does not run. Already has a trial Amazon order. Do not place it again. |
 
 A newer Approved order for the same store in October changes the cap figure. The cap itself stays CAD 120.00.
 
@@ -74,15 +84,19 @@ Answer: no. Approve only marks the store order Approved. Amazon is a later step,
 
 ## 2. Catalog search
 
-Open the Amazon catalog page on ccsupplies.ca.
+Open the Amazon catalog page on ccsupplies.ca, or open it from an order with Amazon Test Order.
 
 Type one letter, for example n. The product list stays hidden.
 
-Type ni. Store products whose name contains those letters appear.
+Type ni. Store products whose name contains those letters appear. The header shows View Cart in red.
+
+![Amazon catalog, filtered with ni](amazon_catalog.png)
 
 Click Search Amazon on one row. One result comes back, with an ASIN, a CAD price, and Add to Amazon Cart. The Amazon title can differ from our title. That is the top match, not a bug.
 
-Click Add to Amazon Cart. Then open the Amazon cart page. The same item is there.
+Click Add to Amazon Cart. Then open the Amazon cart page. The same item is there. Quantity uses plus and minus. The total updates at once. There is no separate Update button.
+
+![Amazon cart with quantity controls and cart total](amazon_cart.png)
 
 Question: are shoppers browsing Amazon’s catalog?
 
@@ -92,15 +106,21 @@ Answer: no. We start from our published products and send the top Amazon match i
 
 Open Amazon checkout for order 8196. Leave the status Approved.
 
-The note says this store is at CAD 99.98 of the CAD 120.00 monthly cap with this order. It must say “at”, not “over”. If October spend for Westbrook has changed, the first amount can differ. It must still name CAD 120.00.
+On the right, three note cards sit under the summary:
 
-The right side can show a small cart total, such as CAD 28.50. Ignore that number for the cap.
+Payment says the order is charged to the Amazon Business payment method saved on the account.
+
+Monthly cap shows how much of CAD 120.00 is used this month, including this order, with a progress bar. For Westbrook it should be under the cap, for example CAD 99.98 of CAD 120.00. If October spend for Westbrook has changed, the first amount can differ. It must still name CAD 120.00.
+
+Price check lists each cart line when Amazon is above the store price limit.
+
+The right side can show a cart total such as CAD 85.50 when quantity is three at CAD 28.50. Ignore that number for the cap.
 
 Place Amazon Order is off before shipping is calculated. That is normal.
 
-If the 5 percent note is also on the page, Place stays off because of the price, even though this order is under the cap. Read the two notes separately. The screenshot below is that case: Westbrook is under the cap, and Neenah Cardstock is over the price limit, so the button stays off.
+If the Price check card is also on the page, Place stays off because of the price, even though this order is under the cap. Read the cards separately. The screenshot below is that case: Westbrook is under the cap, and Neenah Cardstock is over the price limit, so the button stays off.
 
-![Checkout for order 8196, cap note and price note together](checkout_notes.png)
+![Checkout for order 8196, Payment, Monthly cap, and Price check cards](checkout_notes.png)
 
 To see the button turn on, three things have to be true at once. The order is Approved. The store is at or under CAD 120. Every cart line is within 5 percent of the store price. Then fill the address, click Calculate Shipping, and wait for the line that says you can now place the order. The button turns dark. Stop there.
 
@@ -112,7 +132,7 @@ Two cart items add up to more than CAD 120, while the store order is under CAD 1
 
 The right side is under CAD 120 while the note says the store order is over the cap. The button stays off. The right side is the Amazon cart.
 
-Question: why can a CAD 28.50 cart sit next to a CAD 99.98 cap note?
+Question: why can a CAD 85.50 cart sit next to a CAD 99.98 cap note?
 
 Answer: the cart is what would be sent to Amazon. The cap is the store’s own order total for the month.
 
@@ -120,7 +140,7 @@ Answer: the cart is what would be sent to Amazon. The cap is the store’s own o
 
 Open Amazon checkout for order 8202. Leave the status Approved. Use the same cart as the previous check.
 
-The note names Shawnessy, says the store is over the CAD 120.00 monthly cap, and says this order is CAD 133.51. It also says search, the cart, and shipping can still be used, and Place stays off until the order fits the cap.
+The Monthly cap card names Shawnessy, says the store is over the CAD 120.00 monthly cap, and says this order is CAD 133.51. It also says search, the cart, and shipping can still be used, and Place stays off until the order fits the cap.
 
 Fill the same address. Click Calculate Shipping. The green line repeats the over cap sentence. Place Amazon Order stays off.
 
@@ -132,13 +152,13 @@ Answer: this check uses the Shawnessy order total of CAD 133.51, not the cart on
 
 Open Amazon checkout for order 8207.
 
-There is no sentence about the CAD 120.00 monthly cap, even though the store order is about CAD 188.99. The cap only runs when a store is attached.
+There is no Monthly cap card about CAD 120.00, even though the store order is about CAD 188.99. The cap only runs when a store is attached.
 
 This order already has a trial Amazon order from 9 October 2026. Amazon identifier 701 7666983 5405030. Do not place it again.
 
 ## 6. Price check of 5 percent
 
-On 13 October 2026 the shared cart held Neenah Cardstock. Amazon price CAD 28.50. Store price CAD 15.81. The 5 percent limit is CAD 16.60. Checkout says the Amazon price is more than 5 percent above the store price, and Place Amazon Order stays off. That is the screenshot in section 3.
+On 13 October 2026 the shared cart held Neenah Cardstock. Amazon price CAD 28.50. Store price CAD 15.81. The 5 percent limit is CAD 16.60. The Price check card says Amazon is above the 5 percent store price limit, and Place Amazon Order stays off. That is the screenshot in section 3.
 
 The link is created by Add to Amazon Cart. If a cart line was never added that way, the note says the 5 percent check could not be completed, and the button stays off.
 
@@ -181,6 +201,12 @@ Answer: they already get “status updated: Rejected” on every rejection. The 
 Question: does Reject place or cancel anything on Amazon?
 
 Answer: no. It only rejects the store order and sends the notices.
+
+## 8. Order received address
+
+After a store checkout, the thank you page shows an order overview row (order number, date, email, total, payment method). Billing address uses labeled rows: Name, Address, Phone, Email.
+
+![Order received page with labeled billing address](order_received.png)
 
 ## Still not in this build
 

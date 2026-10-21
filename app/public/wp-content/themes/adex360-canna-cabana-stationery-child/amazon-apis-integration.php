@@ -810,6 +810,11 @@ get_header();
     align-items: start;
 }
 
+.amazon-catalog-page .ac-product > div {
+    min-width: 0;
+    max-width: 100%;
+}
+
 .amazon-catalog-page .ac-image {
     width: 150px;
     height: 150px;
@@ -901,17 +906,48 @@ get_header();
 
 .amazon-catalog-page .ac-amazon-actions {
     margin-top: 18px;
-    display: flex;
-    gap: 10px;
+    display: flex !important;
     flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+}
+
+/* Row 1: Quick View + View on Amazon (auto width, no stretch) */
+.amazon-catalog-page .ac-amazon-actions > .ac-button {
+    flex: 0 1 auto !important;
+    width: auto !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+}
+
+/* Row 2: Add to Amazon Cart */
+.amazon-catalog-page .ac-amazon-actions > .ac-add-to-cart {
+    flex: 1 0 100% !important;
+    width: auto !important;
+    max-width: max-content !important;
+}
+
+.amazon-catalog-page .ac-amazon-actions > .ac-cart-message {
+    flex: 1 0 100%;
+    width: 100%;
+    margin-top: 0;
 }
 
 .amazon-catalog-page .ac-button {
     display: inline-flex !important;
     align-items: center;
     justify-content: center;
-    min-height: 42px;
-    padding: 10px 16px !important;
+    box-sizing: border-box !important;
+    width: auto !important;
+    height: 42px !important;
+    min-height: 42px !important;
+    max-height: 42px !important;
+    padding: 0 16px !important;
     border: 0 !important;
     border-radius: 6px !important;
     background: #ff9900 !important;
@@ -920,7 +956,8 @@ get_header();
     cursor: pointer;
     font-size: 14px !important;
     font-weight: 700 !important;
-    line-height: 1.2 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
 }
 
 .amazon-catalog-page .ac-button:hover {
@@ -1598,19 +1635,6 @@ get_header();
                                                 Quick View
                                             </button>
 
-                                            <button
-                                                type="button"
-                                                class="ac-button ac-add-to-cart"
-                                                data-asin="<?php echo esc_attr( $asin ); ?>"
-                                                data-offer-id="<?php echo esc_attr( $offer_id ); ?>"
-                                                data-buying-option-id="<?php echo esc_attr( $buying_option_id ); ?>"
-                                                data-title="<?php echo esc_attr( $title ); ?>"
-                                                data-quantity="<?php echo esc_attr( $woo_quantity ); ?>"
-                                                data-woo_product_id="<?php echo esc_attr( $woo_product_id ); ?>"
-                                            >
-                                                Add to Amazon Cart
-                                            </button>
-
                                             <?php if ( ! empty( $product['url'] ) ) : ?>
 
                                                 <a
@@ -1623,6 +1647,19 @@ get_header();
                                                 </a>
 
                                             <?php endif; ?>
+
+                                            <button
+                                                type="button"
+                                                class="ac-button ac-add-to-cart"
+                                                data-asin="<?php echo esc_attr( $asin ); ?>"
+                                                data-offer-id="<?php echo esc_attr( $offer_id ); ?>"
+                                                data-buying-option-id="<?php echo esc_attr( $buying_option_id ); ?>"
+                                                data-title="<?php echo esc_attr( $title ); ?>"
+                                                data-quantity="<?php echo esc_attr( $woo_quantity ); ?>"
+                                                data-woo_product_id="<?php echo esc_attr( $woo_product_id ); ?>"
+                                            >
+                                                Add to Amazon Cart
+                                            </button>
 
                                             <div class="ac-cart-message" aria-live="polite"></div>
 
@@ -1915,6 +1952,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var amazonCartAjaxUrl = <?php echo wp_json_encode( get_permalink() ); ?>;
     var amazonCartNonce  = <?php echo wp_json_encode( wp_create_nonce( 'amazon_add_to_cart' ) ); ?>;
     var amazonSearchNonce = <?php echo wp_json_encode( wp_create_nonce( 'amazon_search_store_product' ) ); ?>;
+    var catalogOrderId = <?php echo wp_json_encode( $order_id ? (string) $order_id : '' ); ?>;
     var storeSearchInput = document.getElementById('ac-store-search-input');
     var storeCount = document.getElementById('ac-store-count');
     var storeItems = document.querySelectorAll('.amazon-catalog-page .ac-store-item');
@@ -1969,6 +2007,21 @@ document.addEventListener('DOMContentLoaded', function () {
         var image = result.image
             ? '<img src="' + escapeHtml(result.image) + '" alt="">'
             : '';
+        // Only allow Add when this catalog page is opened for a store order.
+        // Without order-id, checkout blocks placement as "not linked to a store order".
+        var actions = catalogOrderId
+            ? (
+                '<button type="button" class="ac-button ac-add-to-cart"'
+                + ' data-asin="' + escapeHtml(result.asin) + '"'
+                + ' data-offer-id="' + escapeHtml(result.offer_id) + '"'
+                + ' data-buying-option-id="' + escapeHtml(result.buying_option_id) + '"'
+                + ' data-title="' + escapeHtml(result.title) + '"'
+                + ' data-quantity="1"'
+                + ' data-woo_product_id="' + escapeHtml(result.woo_product_id) + '">'
+                + 'Add to Amazon Cart</button>'
+                + '<div class="ac-cart-message" aria-live="polite"></div>'
+            )
+            : '<p class="ac-cart-note">Open this catalog from a store order to add items to the Amazon cart.</p>';
 
         return ''
             + '<div class="ac-store-result-grid">'
@@ -1981,15 +2034,7 @@ document.addEventListener('DOMContentLoaded', function () {
             + (result.availability ? '<dt>Availability</dt><dd>' + escapeHtml(result.availability) + '</dd>' : '')
             + '</dl>'
             + '<div class="ac-amazon-actions">'
-            + '<button type="button" class="ac-button ac-add-to-cart"'
-            + ' data-asin="' + escapeHtml(result.asin) + '"'
-            + ' data-offer-id="' + escapeHtml(result.offer_id) + '"'
-            + ' data-buying-option-id="' + escapeHtml(result.buying_option_id) + '"'
-            + ' data-title="' + escapeHtml(result.title) + '"'
-            + ' data-quantity="1"'
-            + ' data-woo_product_id="' + escapeHtml(result.woo_product_id) + '">'
-            + 'Add to Amazon Cart</button>'
-            + '<div class="ac-cart-message" aria-live="polite"></div>'
+            + actions
             + '</div>'
             + '</div>'
             + '</div>';
