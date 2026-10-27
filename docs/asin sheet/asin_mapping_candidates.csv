@@ -1,0 +1,121 @@
+status,woo_id,woo_title,woo_sku,current_asin,proposed_asin,tomas_description,match_method
+SAFE_AUTO,7571,Brother P-Touch Label Tape,MK231,,B09M724GGT,"Ptouch M-K231 M-K231s Label Tape Compatible for Brother P-Touch M Tape 12mm 0.47 inch MK231 MK 231 Black on White for Brother Ptouch PT-M95 PT-70BM PT-65 PT-90 PT-70 PT-80 PT-85 Label Maker,5-Pack",code_unique
+SAFE_AUTO,7585,Epson 502 - Ink Tank - Magenta,SY5984928,,B074RG7WB9,"Epson 502 EcoTank Auto-Stop Ink Bottle, Magenta (T502320)",code+color
+SAFE_AUTO,7586,Epson 502 - Ink Tank - Magenta,SY5984929,,B074RG7WB9,"Epson 502 EcoTank Auto-Stop Ink Bottle, Magenta (T502320)",code+color
+SAFE_AUTO,7584,Epson 502 - Ink Tank -Cyan,SY5984916,,B074RFMST7,"Epson 502 EcoTank Auto-Stop Ink Bottle, Cyan (T502220)",code+color
+SAFE_AUTO,7583,Epson 502 - Ink Tank -Yellow,SY5984917,,B074RFS8V3,"Epson 502 EcoTank Auto-Stop Ink Bottle, Yellow (T502420)",code+color
+SAFE_AUTO,7582,Epson T6716 Maintenance Box,SY6084226,,B07NY5PT6G,T6715(T67150) T6716 Ink Maintenance Box Tank for Pro WF-4730 WF-4720 WF-4740 WF-4734 WF-C529R WF-C579R WF-C5790a WF-C5290a WF-C5710 WF-C5210 WF-M5299 WF-M5799 Printer,code_unique
+SAFE_AUTO,7579,Epson T902XL - Cyan,SY6061333,,B07BBXT67H,Epson DURABrite Ultra T902XL220 Ink Pack - High capacity Cyan,code+color
+SAFE_AUTO,7578,Epson T902XL - Yellow,SY6061335,,B07BBX12DG,Epson DURABrite Ultra T902XL420 Ink Pack - High capacity Yellow,code+color
+SAFE_AUTO,7581,Epson T902XXL - Black,SY6061336,,B07BBZRNQ8,Epson DURABrite Ultra T902XXL120 Ink Pack - Extra High capacity Black,code+color
+SAFE_AUTO,7632,HP 305A - Cyan,CE411A,,B006ZZGDIW,HP 305A Cyan LaserJet Toner Cartridge - CE411A,code+color
+SAFE_AUTO,7633,HP 305A - Magenta,CE413A,,B006ZZGD3W,HP 305A (CE413A) Magenta Original LaserJet Toner Cartridge,code+color
+SAFE_AUTO,7631,HP 305A - Yellow,CE412A,,B006ZZGEK4,HP 305A (CE412A) Yellow Original LaserJet Toner Cartridge,code+color
+SAFE_AUTO,7647,HP 414A - Cyan,W2021A,,B0BFZXBGZY,Clover Remanufactured Toner Cartridge Replacement for HP W2021A (HP 414A) | Cyan,code+color
+SAFE_AUTO,7648,HP 414A - Magenta,W2023A,,B0CPSYW1GR,"with Chip LCL Compatible Toner Cartridge for HP 414A 414X W2023A W2023X (1-Pack,Magenta) for HP Color Pro M454dw M454dn MFP M479fdw M479fnw M479fdn M479dw Laserjet Enterprise M455dn MFP M480f Printer",code+color
+ALREADY_LINKED,7542,Grand & Toy Hole Punch,OM99263,B06XKN4HPY,,,existing
+ALREADY_LINKED,7597,Hilroy 8.5x11 Lined Notepad,54130,B00L2B2C0C,,,existing
+ALREADY_LINKED,7594,Neenah Cardstock,EXI11011,B07QQ3JKKB,,,existing
+ALREADY_LINKED,7556,Office Depot Laminating Pouches,OD535704,B07MLSC4VJ,,,existing
+ALREADY_LINKED,7612,Toilet Plunger,3455,B0D22RX6BJ,,,existing
+ALREADY_LINKED,7654,Unison Toner Cartridge - Cyan,C230H20,B07FDHJ73F,,,existing
+NEEDS_REVIEW,7537,"1.5"" Binder",99568,,,,none
+NEEDS_REVIEW,7536,"1"" Binder",99799,,,,none
+NEEDS_REVIEW,7607,"10"" Lobby Angle Broom",4010-0,,,,none
+NEEDS_REVIEW,7606,"12"" Dust Pan",3005,,,,none
+NEEDS_REVIEW,7538,"2"" Binder",67425,,,,none
+NEEDS_REVIEW,7549,9x12 Catalogue Envelopes,44562,,,,none
+NEEDS_REVIEW,7627,Bandages,03041-0,,,,none
+NEEDS_REVIEW,7560,BIC Ballpoint Pens Blue,GSM609-BE,,,,none
+NEEDS_REVIEW,7592,Boise Copy Paper,OX9001,,,,none
+NEEDS_REVIEW,7541,"Calculator, 8-digit",EDC4300-1,,,,none
+NEEDS_REVIEW,7577,Coin Batteries,2025BP-4,,,,none
+NEEDS_REVIEW,7629,Collapsable Shovel,CRC-SS,,,,none
+NEEDS_REVIEW,7576,Energizer Max 9V,522BP,,,,none
+NEEDS_REVIEW,7574,Energizer Max AA,E91,,,,none
+NEEDS_REVIEW,7573,Energizer Max AAA,E92,,,,none
+NEEDS_REVIEW,7575,Energizer Max D,E95BP2,,,,none
+NEEDS_REVIEW,7591,Epson 522 Ink Tank Full Set,Amazon,,,,none
+NEEDS_REVIEW,7590,Epson T10W - Black,126ink,,,,none
+NEEDS_REVIEW,7588,Epson T10W - Cyan,124ink,,,,none
+NEEDS_REVIEW,7589,Epson T10W - Magenta,125ink,,,,none
+NEEDS_REVIEW,7587,Epson T10W - Yellow,123ink,,,,none
+NEEDS_REVIEW,7580,Epson T902XL - Magenta,SY6061334,,,,color_mismatch
+NEEDS_REVIEW,7562,Expo Whiteboard Eraser,81505,,,,none
+NEEDS_REVIEW,7618,Facial Tissue,21400,,,,none
+NEEDS_REVIEW,7619,Febreze Air Freshener Linen & Sky,96256PG,,,,none
+NEEDS_REVIEW,7626,First Aid Kit,51610,,,,none
+NEEDS_REVIEW,7628,Gracios Living Stepstool,94046-4C,,,,none
+NEEDS_REVIEW,7540,"Grand & Toy 1/2"" x 1 3/4"" Labels",99765,,,,none
+NEEDS_REVIEW,7546,"Grand & Toy 8"" Scissors",OM97613,,,,none
+NEEDS_REVIEW,7563,Grand & Toy Assorted Highlighters,97972,,,,none
+NEEDS_REVIEW,7605,Grand & Toy Cleaning Air Dusters,OD9920790,,,,none
+NEEDS_REVIEW,7554,Grand & Toy Clipboard,97125,,,,none
+NEEDS_REVIEW,7566,Grand & Toy Desktop Tape Dispenser,OM97059,,,,none
+NEEDS_REVIEW,7550,Grand & Toy Document Storage Boxes,99802,,,,none
+NEEDS_REVIEW,7561,Grand & Toy Dry-Erase Markers,99848,,,,none
+NEEDS_REVIEW,7557,Grand & Toy Paper Clips,98840,,,,none
+NEEDS_REVIEW,7567,Grand & Toy Premium Packing Tape,99842,,,,none
+NEEDS_REVIEW,7558,Grand & Toy Pushpins,97169,,,,none
+NEEDS_REVIEW,7572,Grand & Toy Sheet Protectors,98214,,,,none
+NEEDS_REVIEW,7547,Grand & Toy Standard Staples,OD432087,,,,none
+NEEDS_REVIEW,7543,Grand & Toy Stapler Combo Pack,98070,,,,none
+NEEDS_REVIEW,7564,Grand & Toy Sticky Notes,98821,,,,none
+NEEDS_REVIEW,7569,Grand and Toy Correction Tape/White-Out,98804,,,,none
+NEEDS_REVIEW,7616,Health Gards Recepticle Liners,KLHSP,,,,none
+NEEDS_REVIEW,7603,Highmark Dish Soap 740ml,98932,,,,none
+NEEDS_REVIEW,7600,Highmark Glass Cleaner 946ml,98917-0,,,,none
+NEEDS_REVIEW,7601,Highmark Glass Cleaner Refill Jug 4L,98934,,,,none
+NEEDS_REVIEW,7613,"HighMark Industrial Garbage Bags 20"" x 22""",98249,,,,none
+NEEDS_REVIEW,7614,"HighMark Industrial Garbage Bags 22"" x 24""",98238,,,,none
+NEEDS_REVIEW,7615,"HighMark Industrial Garbage Bags 35"" x 50""",98241,,,,none
+NEEDS_REVIEW,7602,Highmark Toilet Bowl Cleaner 1L,98922,,,,none
+NEEDS_REVIEW,7634,HP 305A - Black,CE410A,,,,none
+NEEDS_REVIEW,7637,HP 410A - Black,CF413A,,,,none
+NEEDS_REVIEW,7636,HP 410A - Cyan,CF411A,,,,none
+NEEDS_REVIEW,7635,HP 410A - Yellow,CF412A,,,,none
+NEEDS_REVIEW,7649,HP 414A - Black,W2020A,,,,none
+NEEDS_REVIEW,7646,HP 414A - Yellow,W2022A,,,,none
+NEEDS_REVIEW,7641,HP 902XL - Black,T6M14AN,,,,none
+NEEDS_REVIEW,7639,HP 902XL - Cyan,T6M02AN,,,,none
+NEEDS_REVIEW,7640,HP 902XL - Magenta,T6M11AN,,,,none
+NEEDS_REVIEW,7638,HP 902XL - Yellow,T6M10AN,,,,none
+NEEDS_REVIEW,7645,HP 962XL - Black,3JA03AN,,,,none
+NEEDS_REVIEW,7643,HP 962XL - Cyan,3JA00AN,,,,none
+NEEDS_REVIEW,7644,HP 962XL - Magenta,3JA01AN,,,,none
+NEEDS_REVIEW,7642,HP 962XL - Yellow,3JA02AN,,,,none
+NEEDS_REVIEW,7610,Kodiak Micro Fibre Cloths,KM720,,,,none
+NEEDS_REVIEW,7598,Lysol Disinfectant Cleaner,75227,,,,none
+NEEDS_REVIEW,7624,Master Lock Brass Lock,MLK140-D,,,,none
+NEEDS_REVIEW,7625,Merangue Wrist Coil Key Rings,1008-3031,,,,none
+NEEDS_REVIEW,7599,Mr. Clean Antibacterial Floor Cleaner,31504PG,,,,none
+NEEDS_REVIEW,7609,Mr. Clean Magic Erasers,79009,,,,none
+NEEDS_REVIEW,7559,Office Depot Rubber Bands,OD855883,,,,none
+NEEDS_REVIEW,7539,Okford Loose Leaf Dividers,213B,,,,none
+NEEDS_REVIEW,7535,OLFA Replacement Blades,LB-10B,,,,none
+NEEDS_REVIEW,7534,OLFA Utility Knife,12L-2,,,,none
+NEEDS_REVIEW,7552,Pendalex Hanging File Folders,09317-0,,,,none
+NEEDS_REVIEW,7553,Pendalex Insertable Tabs,42,,,,none
+NEEDS_REVIEW,7670,Product 1,12345,,,,none
+NEEDS_REVIEW,7630,PUR Ice Melter,352441-0,,,,none
+NEEDS_REVIEW,7622,RONCO Disposable Gloves - Large,143-0,,,,none
+NEEDS_REVIEW,7621,RONCO Disposable Gloves - Medium,142,,,,none
+NEEDS_REVIEW,7620,RONCO Disposable Gloves - Small,141-00,,,,none
+NEEDS_REVIEW,7617,Rubbermaid Desk Garbage Can,2956-00BK,,,,none
+NEEDS_REVIEW,7604,Scotch Brite Scrubbing Sponge,529-8CA,,,,none
+NEEDS_REVIEW,7565,Seal-It Tape Refill,60061,,,,none
+NEEDS_REVIEW,7570,Sharpie,30001,,,,none
+NEEDS_REVIEW,7551,Smead Manila File Folders,10145-SMD,,,,none
+NEEDS_REVIEW,7608,Swiffer Duster Refills,PG13195,,,,none
+NEEDS_REVIEW,7544,Swingline Paper Trimmer,G7010008,,,,none
+NEEDS_REVIEW,7555,Swingline Thermal Laminator,6447470185,,,,none
+NEEDS_REVIEW,8176,Thermal roll,999999,,,,none
+NEEDS_REVIEW,7611,Toilet Brush with Caddy,709302031,,,,none
+NEEDS_REVIEW,7651,Unison Toner Cartridge - Black,C230H10,,,,none
+NEEDS_REVIEW,7653,Unison Toner Cartridge - Magenta,C230H30,,,,none
+NEEDS_REVIEW,7652,Unison Toner Cartridge - Yellow,C230H40,,,,none
+NEEDS_REVIEW,7568,Westcott Packing Tape Dispenser,80016-0,,,,none
+NEEDS_REVIEW,7545,Westcott Plastic Ruler,R41506,,,,none
+NEEDS_REVIEW,7548,White Business Envelopes,90025B,,,,none
+NEEDS_REVIEW,7593,Xerographic Copy Paper,10648-0,,,,none
+NEEDS_REVIEW,7623,Zytec Hand Sanitizer,1204-0,,,,none

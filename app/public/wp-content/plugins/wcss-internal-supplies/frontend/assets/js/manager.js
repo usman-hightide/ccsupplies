@@ -136,6 +136,8 @@
 
     // let state = { page: 1, per_page: 20, search: "" };
     const urlParams = new URLSearchParams(window.location.search);
+    const vendorParam = (urlParams.get("vendor") || "").toLowerCase();
+    const allowedVendors = ["amazon", "grand-toy"];
     let state = {
       page:
         parseInt(urlParams.get("page"), 10) > 0
@@ -145,6 +147,7 @@
       total_pages: 1,
       total: 0,
       search: urlParams.get("search") || "",
+      vendor: allowedVendors.indexOf(vendorParam) !== -1 ? vendorParam : "",
     };
 
     function render(items, meta) {
@@ -160,6 +163,9 @@
           }
           if (state.search) {
             qsParts.push("search=" + encodeURIComponent(state.search));
+          }
+          if (state.vendor) {
+            qsParts.push("vendor=" + encodeURIComponent(state.vendor));
           }
           const editUrl =
             p.id + (qsParts.length ? "?" + qsParts.join("&") : "");
@@ -311,11 +317,15 @@
 
     function load() {
       $grid.html("Loading…");
-      const qs = $.param({
+      const qsPayload = {
         page: state.page,
         per_page: state.per_page,
         search: state.search,
-      });
+      };
+      if (state.vendor) {
+        qsPayload.vendor = state.vendor;
+      }
+      const qs = $.param(qsPayload);
       $.ajax({
         url: WCSSM.rest + "products?" + qs,
         headers: { "X-WP-Nonce": WCSSM.nonce },
@@ -346,6 +356,12 @@
         params.set("search", state.search);
       } else {
         params.delete("search");
+      }
+
+      if (state.vendor) {
+        params.set("vendor", state.vendor);
+      } else {
+        params.delete("vendor");
       }
 
       const qs = params.toString();
@@ -1783,6 +1799,13 @@
         );
       }
 
+      // Vendor names may already contain &amp; from WP; decode once before esc.
+      function plainText(s) {
+        var el = document.createElement("textarea");
+        el.innerHTML = String(s || "");
+        return el.value;
+      }
+
       function render(d) {
         // ---- cards
         var pendingAll =
@@ -1802,7 +1825,7 @@
             return (
               "<tr>" +
               "<td>" +
-              esc(v.name || "Vendor #" + (v.id || "")) +
+              esc(plainText(v.name || "Vendor #" + (v.id || ""))) +
               "</td>" +
               "<td>" +
               (v.orders || 0) +
@@ -2455,8 +2478,14 @@
       }, 2200);
     }
 
+    function plainText(s) {
+      var el = document.createElement("textarea");
+      el.innerHTML = String(s || "");
+      return el.value;
+    }
+
     function escapeHtml(s) {
-      return (s || "").toString().replace(/[&<>"]/g, function (c) {
+      return plainText(s).replace(/[&<>"]/g, function (c) {
         return {
           "&": "&amp;",
           "<": "&lt;",

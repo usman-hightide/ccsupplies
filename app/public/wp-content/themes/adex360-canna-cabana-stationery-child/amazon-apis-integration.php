@@ -128,6 +128,489 @@ function wp_amazon_business_search_products(
     return $data;
 }
 
+/**
+ * Look up Amazon Business products by ASIN list (max 30).
+ *
+ * Amazon docs: POST /products/2020-08-26/products/getProductsByAsins
+ * Required body: productIds, productRegion, locale. CA is a valid region.
+ *
+ * @param string[] $asins ASIN list.
+ * @return array|WP_Error Same family of product payload as keyword search, plus notFoundAsins.
+ */
+function wp_amazon_business_get_products_by_asins( $asins ) {
+
+    $access_token = wp_amazon_get_access_token();
+
+    if ( is_wp_error( $access_token ) ) {
+        return $access_token;
+    }
+
+    $product_ids = array();
+
+    foreach ( (array) $asins as $asin ) {
+        $asin = strtoupper( preg_replace( '/[^A-Z0-9]/i', '', (string) $asin ) );
+
+        if ( $asin !== '' ) {
+            $product_ids[] = $asin;
+        }
+    }
+
+    $product_ids = array_values( array_unique( $product_ids ) );
+
+    if ( empty( $product_ids ) ) {
+        return new WP_Error(
+            'amazon_asin_empty',
+            'No valid Amazon ASIN was provided.'
+        );
+    }
+
+    if ( count( $product_ids ) > 30 ) {
+        $product_ids = array_slice( $product_ids, 0, 30 );
+    }
+
+    $user_email = 'ecom@hightideinc.com';
+    $endpoint   = 'https://na.business-api.amazon.com/products/2020-08-26/products/getProductsByAsins';
+
+    $response = wp_remote_post(
+        $endpoint,
+        array(
+            'timeout' => 30,
+            'headers' => array(
+                'x-amz-access-token' => $access_token,
+                'x-amz-user-email'   => $user_email,
+                'Accept'             => 'application/json',
+                'Content-Type'       => 'application/json',
+            ),
+            'body'    => wp_json_encode(
+                array(
+                    'productIds'    => $product_ids,
+                    'productRegion' => 'CA',
+                    'locale'        => 'en_US',
+                    'facets'        => array( 'OFFERS', 'IMAGES' ),
+                )
+            ),
+        )
+    );
+
+    if ( is_wp_error( $response ) ) {
+        return $response;
+    }
+
+    $status_code = wp_remote_retrieve_response_code( $response );
+    $body        = wp_remote_retrieve_body( $response );
+    $data        = json_decode( $body, true );
+
+    if ( $status_code < 200 || $status_code >= 300 ) {
+        return new WP_Error(
+            'amazon_asin_error',
+            'Amazon Business ASIN lookup failed.',
+            array(
+                'status'   => $status_code,
+                'response' => $data,
+                'raw'      => $body,
+            )
+        );
+    }
+
+    if ( ! is_array( $data ) ) {
+        return new WP_Error(
+            'amazon_asin_error',
+            'Amazon Business ASIN lookup returned an invalid response.'
+        );
+    }
+
+    return $data;
+}
+
+/**
+ * Look up one Amazon product by ASIN.
+ *
+ * @param string $asin Amazon ASIN.
+ * @return array|WP_Error Keyword-search-shaped array with products[0], or error.
+ */
+function wp_amazon_business_get_product_by_asin( $asin ) {
+
+    $result = wp_amazon_business_get_products_by_asins( array( $asin ) );
+
+    if ( is_wp_error( $result ) ) {
+        return $result;
+    }
+
+    $asin_norm = strtoupper( preg_replace( '/[^A-Z0-9]/i', '', (string) $asin ) );
+
+    if ( ! empty( $result['notFoundAsins'] ) && is_array( $result['notFoundAsins'] ) ) {
+        foreach ( $result['notFoundAsins'] as $missing ) {
+            if ( strtoupper( (string) $missing ) === $asin_norm ) {
+                return new WP_Error(
+                    'amazon_asin_not_found',
+                    'Amazon did not return a product for ASIN ' . $asin_norm . '.'
+                );
+            }
+        }
+    }
+
+    if ( empty( $result['products'] ) || ! is_array( $result['products'] ) ) {
+        return new WP_Error(
+            'amazon_asin_not_found',
+            'Amazon did not return a product for ASIN ' . $asin_norm . '.'
+        );
+    }
+
+    foreach ( $result['products'] as $product ) {
+        if ( ! is_array( $product ) ) {
+            continue;
+        }
+
+        $product_asin = isset( $product['asin'] ) ? strtoupper( (string) $product['asin'] ) : '';
+
+        if ( $product_asin === $asin_norm ) {
+            return array(
+                'products' => array( $product ),
+            );
+        }
+    }
+
+    // Some responses may omit asin on the row; take the first product for a single-ASIN call.
+    if ( count( $result['products'] ) === 1 && is_array( $result['products'][0] ) ) {
+        return array(
+            'products' => array( $result['products'][0] ),
+        );
+    }
+
+    return new WP_Error(
+        'amazon_asin_not_found',
+        'Amazon did not return a matching product for ASIN ' . $asin_norm . '.'
+    );
+}
+
+/**
+ * ASIN linked to a WooCommerce store product.
+ *
+ * @param WC_Product|false $product Product.
+ * @return string
+ */
+function wcss_amazon_get_linked_asin_for_product( $product ) {
+
+    if ( ! $product || ! is_object( $product ) || ! method_exists( $product, 'get_id' ) ) {
+        return '';
+    }
+
+    $asin = get_post_meta( (int) $product->get_id(), 'amazon_asin', true );
+    $asin = strtoupper( preg_replace( '/[^A-Z0-9]/i', '', (string) $asin ) );
+
+    return $asin;
+}
+
+/**
+ * Normalize a title for exact ASIN-sheet matching only.
+ *
+ * @param string $title Title.
+ * @return string
+ */
+function wcss_amazon_normalize_title_for_asin_match( $title ) {
+    $title = strtolower( wp_strip_all_tags( (string) $title ) );
+    $title = preg_replace( '/[^a-z0-9]+/i', ' ', $title );
+    $title = trim( preg_replace( '/\s+/', ' ', $title ) );
+
+    return $title;
+}
+
+/**
+ * Load Tomas ASIN catalog JSON shipped with the theme.
+ *
+ * @return array<int,array{asin:string,description:string}>
+ */
+function wcss_amazon_load_asin_catalog_rows() {
+
+    $path = get_stylesheet_directory() . '/amazon-asin-catalog.json';
+
+    if ( ! is_readable( $path ) ) {
+        return array();
+    }
+
+    $decoded = json_decode( (string) file_get_contents( $path ), true );
+
+    if ( ! is_array( $decoded ) ) {
+        return array();
+    }
+
+    $rows = array();
+
+    foreach ( $decoded as $row ) {
+        if ( empty( $row['asin'] ) || empty( $row['description'] ) ) {
+            continue;
+        }
+
+        $rows[] = array(
+            'asin'        => strtoupper( preg_replace( '/[^A-Z0-9]/i', '', (string) $row['asin'] ) ),
+            'description' => (string) $row['description'],
+        );
+    }
+
+    return $rows;
+}
+
+/**
+ * Extract OEM / cartridge-style codes from a title or SKU for Tomas matching.
+ *
+ * @param string $text Text.
+ * @return string[] Uppercase codes.
+ */
+function wcss_amazon_extract_oem_codes_for_asin_match( $text ) {
+    $text  = (string) $text;
+    $codes = array();
+    $patterns = array(
+        '/\b(CE\d{3}[A-Z])\b/i',
+        '/\b(CF\d{3}[A-Z])\b/i',
+        '/\b(W\d{4}[A-Z])\b/i',
+        '/\b(T\d{2,}[A-Z0-9]*)\b/i',
+        '/\b(MK-?\d{3,}[A-Z]*)\b/i',
+        '/\b(M-K\d{3,}[A-Z]*)\b/i',
+        '/\((\d{4,6})\)/',
+    );
+
+    foreach ( $patterns as $pattern ) {
+        if ( preg_match_all( $pattern, $text, $m ) ) {
+            foreach ( $m[1] as $code ) {
+                $codes[] = strtoupper( preg_replace( '/[^A-Z0-9]/i', '', (string) $code ) );
+            }
+        }
+    }
+
+    if ( preg_match( '/M-?K231/i', $text ) ) {
+        $codes[] = 'MK231';
+    }
+
+    return array_values( array_unique( array_filter( $codes ) ) );
+}
+
+/**
+ * Single ink/toner colour word in text, if exactly one.
+ *
+ * @param string $text Text.
+ * @return string Empty or black|cyan|magenta|yellow.
+ */
+function wcss_amazon_detect_ink_color_for_asin_match( $text ) {
+    $text  = strtolower( (string) $text );
+    $found = array();
+
+    foreach ( array( 'black', 'cyan', 'magenta', 'yellow' ) as $color ) {
+        if ( preg_match( '/\b' . $color . '\b/', $text ) ) {
+            $found[] = $color;
+        }
+    }
+
+    return count( $found ) === 1 ? $found[0] : '';
+}
+
+/**
+ * Resolve one Tomas ASIN for a store product: exact title, else OEM/SKU code (+ colour).
+ * Does not guess weak fuzzy title matches.
+ *
+ * @param WC_Product                                                            $product Product.
+ * @param array<string,string[]>                                                $by_title Normalized title → ASINs.
+ * @param array<int,array{asin:string,description:string,codes:string[],color:string}> $catalog_rows Catalog.
+ * @return array{asin?:string,method?:string,error?:string}
+ */
+function wcss_amazon_resolve_tomas_asin_for_product( $product, $by_title, $catalog_rows ) {
+    $name = $product->get_name();
+    $sku  = (string) $product->get_sku();
+    $key  = wcss_amazon_normalize_title_for_asin_match( $name );
+
+    if ( $key !== '' && ! empty( $by_title[ $key ] ) ) {
+        $asins = array_values( array_unique( $by_title[ $key ] ) );
+        if ( count( $asins ) === 1 ) {
+            return array(
+                'asin'   => $asins[0],
+                'method' => 'exact_title',
+            );
+        }
+        return array( 'error' => 'ambiguous_title' );
+    }
+
+    $woo_codes = array_merge(
+        wcss_amazon_extract_oem_codes_for_asin_match( $name ),
+        wcss_amazon_extract_oem_codes_for_asin_match( $sku )
+    );
+    $sku_norm = strtoupper( preg_replace( '/[^A-Z0-9]/i', '', $sku ) );
+    if ( $sku_norm !== '' ) {
+        $woo_codes[] = $sku_norm;
+    }
+    $woo_codes = array_values( array_unique( array_filter( $woo_codes ) ) );
+
+    $candidates = array();
+
+    foreach ( $catalog_rows as $row ) {
+        if ( ! is_array( $row ) || empty( $row['asin'] ) ) {
+            continue;
+        }
+        // Allow callers that pass raw catalog JSON rows (asin + description only).
+        if ( ! isset( $row['codes'] ) || ! is_array( $row['codes'] ) ) {
+            $row['codes'] = wcss_amazon_extract_oem_codes_for_asin_match( (string) ( $row['description'] ?? '' ) );
+        }
+        if ( ! isset( $row['color'] ) || ! is_string( $row['color'] ) ) {
+            $row['color'] = wcss_amazon_detect_ink_color_for_asin_match( (string) ( $row['description'] ?? '' ) );
+        }
+
+        $hit = false;
+        foreach ( $woo_codes as $code ) {
+            if ( in_array( $code, $row['codes'], true ) ) {
+                $hit = true;
+                break;
+            }
+            // Series: Woo "T902XL" vs Tomas "T902XL220".
+            foreach ( $row['codes'] as $tc ) {
+                if ( $code !== '' && ( str_starts_with( $tc, $code ) || str_starts_with( $code, $tc ) ) ) {
+                    $hit = true;
+                    break 2;
+                }
+            }
+        }
+        if ( ! $hit && preg_match( '/\bEpson\s*502\b/i', $name ) ) {
+            $has_t502 = false;
+            foreach ( $row['codes'] as $tc ) {
+                if ( str_starts_with( $tc, 'T502' ) ) {
+                    $has_t502 = true;
+                    break;
+                }
+            }
+            if ( false !== stripos( (string) ( $row['description'] ?? '' ), '502' ) && ( false !== stripos( (string) ( $row['description'] ?? '' ), 'EcoTank' ) || $has_t502 ) ) {
+                $hit = true;
+            }
+        }
+        if ( $hit ) {
+            $candidates[ $row['asin'] ] = $row;
+        }
+    }
+
+    if ( empty( $candidates ) ) {
+        return array( 'error' => 'unmatched' );
+    }
+
+    $woo_color = wcss_amazon_detect_ink_color_for_asin_match( $name );
+    if ( $woo_color !== '' ) {
+        $filtered = array();
+        foreach ( $candidates as $asin => $row ) {
+            if ( $row['color'] === $woo_color ) {
+                $filtered[ $asin ] = $row;
+            }
+        }
+        if ( count( $filtered ) === 1 ) {
+            $asin = array_key_first( $filtered );
+            return array(
+                'asin'   => $asin,
+                'method' => 'oem_code_color',
+            );
+        }
+        if ( count( $filtered ) > 1 ) {
+            return array( 'error' => 'ambiguous_color' );
+        }
+        return array( 'error' => 'color_mismatch' );
+    }
+
+    if ( count( $candidates ) === 1 ) {
+        $asin = array_key_first( $candidates );
+        return array(
+            'asin'   => $asin,
+            'method' => 'oem_code',
+        );
+    }
+
+    return array( 'error' => 'ambiguous' );
+}
+
+/**
+ * Link amazon_asin meta from Tomas list: exact title, then OEM/SKU + colour.
+ * Does not guess weak fuzzy title matches.
+ *
+ * @return array{linked:int,skipped_existing:int,unmatched:int,ambiguous:int,details:array<int,string>}
+ */
+function wcss_amazon_sync_asin_meta_exact_matches() {
+
+    $report = array(
+        'linked'           => 0,
+        'skipped_existing' => 0,
+        'unmatched'        => 0,
+        'ambiguous'        => 0,
+        'details'          => array(),
+    );
+
+    $rows = wcss_amazon_load_asin_catalog_rows();
+
+    if ( empty( $rows ) ) {
+        $report['details'][] = 'ASIN catalog JSON missing or empty.';
+        return $report;
+    }
+
+    $by_title     = array();
+    $catalog_rows = array();
+
+    foreach ( $rows as $row ) {
+        $key = wcss_amazon_normalize_title_for_asin_match( $row['description'] );
+
+        if ( $key === '' || $row['asin'] === '' ) {
+            continue;
+        }
+
+        if ( ! isset( $by_title[ $key ] ) ) {
+            $by_title[ $key ] = array();
+        }
+
+        $by_title[ $key ][] = $row['asin'];
+
+        $catalog_rows[] = array(
+            'asin'        => $row['asin'],
+            'description' => $row['description'],
+            'codes'       => wcss_amazon_extract_oem_codes_for_asin_match( $row['description'] ),
+            'color'       => wcss_amazon_detect_ink_color_for_asin_match( $row['description'] ),
+        );
+    }
+
+    $products = get_posts(
+        array(
+            'post_type'      => 'product',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'orderby'        => 'title',
+            'order'          => 'ASC',
+        )
+    );
+
+    foreach ( $products as $post ) {
+        $product = wc_get_product( $post->ID );
+
+        if ( ! $product || wcss_amazon_catalog_is_placeholder( $product->get_name(), (string) $product->get_sku() ) ) {
+            continue;
+        }
+
+        $existing = wcss_amazon_get_linked_asin_for_product( $product );
+
+        if ( $existing !== '' ) {
+            $report['skipped_existing']++;
+            continue;
+        }
+
+        $resolved = wcss_amazon_resolve_tomas_asin_for_product( $product, $by_title, $catalog_rows );
+
+        if ( empty( $resolved['asin'] ) ) {
+            $err = isset( $resolved['error'] ) ? $resolved['error'] : 'unmatched';
+            if ( in_array( $err, array( 'ambiguous', 'ambiguous_title', 'ambiguous_color' ), true ) ) {
+                $report['ambiguous']++;
+                $report['details'][] = 'Ambiguous for product #' . $product->get_id() . ' "' . $product->get_name() . '"';
+            } else {
+                $report['unmatched']++;
+            }
+            continue;
+        }
+
+        update_post_meta( $product->get_id(), 'amazon_asin', $resolved['asin'] );
+        $report['linked']++;
+        $report['details'][] = 'Linked product #' . $product->get_id() . ' "' . $product->get_name() . '" → ' . $resolved['asin'] . ' (' . $resolved['method'] . ')';
+    }
+
+    return $report;
+}
+
 
 // ======================================
 // AMAZON CART SETTINGS
@@ -412,6 +895,7 @@ function wcss_amazon_catalog_store_products() {
             'id'   => $product->get_id(),
             'name' => $name,
             'sku'  => $sku,
+            'asin' => wcss_amazon_get_linked_asin_for_product( $product ),
         );
     }
 
@@ -465,7 +949,19 @@ function wp_amazon_search_store_product_ajax() {
         );
     }
 
-    $amazon_result = wp_amazon_business_search_products( $product->get_name(), 1 );
+    $asin = wcss_amazon_get_linked_asin_for_product( $product );
+
+    if ( $asin === '' ) {
+        wp_send_json_error(
+            array(
+                'message' => 'No Amazon ASIN is linked to ' . $product->get_name() . '. Link an ASIN from the High Tide product list first.',
+            ),
+            404
+        );
+    }
+
+    // ASIN-based Product Search (getProductsByAsins). Keyword search is no longer used here.
+    $amazon_result = wp_amazon_business_get_product_by_asin( $asin );
 
     if ( is_wp_error( $amazon_result ) ) {
         wp_send_json_error(
@@ -476,7 +972,7 @@ function wp_amazon_search_store_product_ajax() {
 
     if ( empty( $amazon_result['products'][0] ) || ! is_array( $amazon_result['products'][0] ) ) {
         wp_send_json_error(
-            array( 'message' => 'No Amazon product found for ' . $product->get_name() . '.' ),
+            array( 'message' => 'No Amazon product found for ASIN ' . $asin . ' (' . $product->get_name() . ').' ),
             404
         );
     }
@@ -544,6 +1040,11 @@ if ( isset( $_POST['amazon_catalog_action'] ) ) {
     }
 }
 
+// Allow other theme modules to load Amazon helpers without rendering this page.
+if ( defined( 'WCSS_AMAZON_API_BOOTSTRAP_ONLY' ) && WCSS_AMAZON_API_BOOTSTRAP_ONLY ) {
+	return;
+}
+
 // ======================================
 // AMAZON CATALOG FOR WOOCOMMERCE ORDER
 // ======================================
@@ -573,8 +1074,7 @@ if ( $order_id ) {
         $results = array();
 
         /*
-         * Search Amazon one WooCommerce order item at a time.
-         * pageSize = 1 returns the top matching Amazon product.
+         * Look up Amazon one WooCommerce order item at a time by linked ASIN.
          */
         foreach ( $order->get_items() as $order_item_id => $order_item ) {
 
@@ -586,16 +1086,11 @@ if ( $order_id ) {
 
             $woo_product_title = $woo_product->get_name();
             $quantity           = $order_item->get_quantity();
+            $asin               = wcss_amazon_get_linked_asin_for_product( $woo_product );
 
-            $amazon_result = wp_amazon_business_search_products(
-                $woo_product_title,
-                1
-            );
-
-            if ( is_wp_error( $amazon_result ) ) {
-
+            if ( $asin === '' ) {
                 $products[] = array(
-                    '_amazon_error'      => $amazon_result->get_error_message(),
+                    '_amazon_error'      => 'No Amazon ASIN is linked to this store product.',
                     '_woo_order_item_id' => $order_item_id,
                     '_woo_product_id'    => $woo_product->get_id(),
                     '_woo_product_title' => $woo_product_title,
@@ -605,14 +1100,31 @@ if ( $order_id ) {
                 continue;
             }
 
-            if ( empty( $amazon_result['products'] ) ) {
+            $amazon_result = wp_amazon_business_get_product_by_asin( $asin );
+
+            if ( is_wp_error( $amazon_result ) ) {
 
                 $products[] = array(
-                    '_amazon_error'      => 'No Amazon product found.',
+                    '_amazon_error'      => $amazon_result->get_error_message(),
                     '_woo_order_item_id' => $order_item_id,
                     '_woo_product_id'    => $woo_product->get_id(),
                     '_woo_product_title' => $woo_product_title,
                     '_woo_quantity'      => $quantity,
+                    '_amazon_asin'       => $asin,
+                );
+
+                continue;
+            }
+
+            if ( empty( $amazon_result['products'] ) ) {
+
+                $products[] = array(
+                    '_amazon_error'      => 'No Amazon product found for ASIN ' . $asin . '.',
+                    '_woo_order_item_id' => $order_item_id,
+                    '_woo_product_id'    => $woo_product->get_id(),
+                    '_woo_product_title' => $woo_product_title,
+                    '_woo_quantity'      => $quantity,
+                    '_amazon_asin'       => $asin,
                 );
 
                 continue;
@@ -625,10 +1137,24 @@ if ( $order_id ) {
             $amazon_product['_woo_product_id']    = $woo_product->get_id();
             $amazon_product['_woo_product_title'] = $woo_product_title;
             $amazon_product['_woo_quantity']      = $quantity;
+            $amazon_product['_amazon_asin']       = $asin;
 
             $products[] = $amazon_product;
         }
     }
+}
+
+$asin_sync_report = null;
+
+if (
+    isset( $_GET['wcss_sync_amazon_asins'] )
+    && is_user_logged_in()
+    && ( current_user_can( 'manage_woocommerce' ) || current_user_can( 'manage_options' ) )
+) {
+    check_admin_referer( 'wcss_sync_amazon_asins' );
+    $asin_sync_report = wcss_amazon_sync_asin_meta_exact_matches();
+    // Refresh store product list after linking ASINs.
+    $store_products = function_exists( 'wc_get_product' ) ? wcss_amazon_catalog_store_products() : array();
 }
 
 get_header();
@@ -750,6 +1276,10 @@ get_header();
     border-radius: 8px;
     background: #fff6f6;
     color: #8a1f1f;
+}
+
+.amazon-catalog-page .ac-asin-sync-report {
+    margin-bottom: 32px;
 }
 
 .amazon-catalog-page .ac-empty {
@@ -1338,9 +1868,10 @@ get_header();
             </h1>
 
             <p>
-                Search the published store catalog, then look up the top Amazon match for a product.
+                Search the published store catalog, then look up Amazon by the linked ASIN.
+                Keyword search is no longer used on this page.
                 <?php if ( $order ) : ?>
-                    Order items are still matched below.
+                    Order items below also use linked ASINs.
                 <?php endif; ?>
             </p>
         </div>
@@ -1351,15 +1882,50 @@ get_header();
                 <span class="ac-view-cart-count" id="ac-view-cart-count" hidden>0</span>
             </a>
             <p class="ac-cart-note" id="ac-cart-note" hidden></p>
+            <?php if ( current_user_can( 'manage_woocommerce' ) || current_user_can( 'manage_options' ) ) : ?>
+                <?php
+                $sync_url = wp_nonce_url(
+                    add_query_arg( 'wcss_sync_amazon_asins', '1' ),
+                    'wcss_sync_amazon_asins'
+                );
+                ?>
+                <a class="ac-view-cart" href="<?php echo esc_url( $sync_url ); ?>" style="background:#333 !important; box-shadow:none;">
+                    <span>Sync ASIN matches</span>
+                </a>
+                <?php
+                $compare_page = get_page_by_path( 'vendor-compare' );
+                $compare_url  = $compare_page ? get_permalink( $compare_page ) : home_url( '/?page_id=8212' );
+                ?>
+                <a class="ac-view-cart" href="<?php echo esc_url( $compare_url ); ?>" style="background:#1d3557 !important; box-shadow:none;">
+                    <span>Vendor compare</span>
+                </a>
+            <?php endif; ?>
         </div>
     </div>
+
+    <?php if ( is_array( $asin_sync_report ) ) : ?>
+        <div class="ac-error ac-asin-sync-report" style="background:#f3f3f3; border-color:#161616; color:#161616;">
+            <strong>ASIN sync (exact title or OEM/SKU + colour)</strong><br>
+            Linked: <?php echo esc_html( (string) $asin_sync_report['linked'] ); ?> ·
+            Already linked: <?php echo esc_html( (string) $asin_sync_report['skipped_existing'] ); ?> ·
+            Unmatched: <?php echo esc_html( (string) $asin_sync_report['unmatched'] ); ?> ·
+            Ambiguous: <?php echo esc_html( (string) $asin_sync_report['ambiguous'] ); ?>
+            <?php if ( ! empty( $asin_sync_report['details'] ) ) : ?>
+                <ul style="margin:12px 0 0; padding-left:18px;">
+                    <?php foreach ( array_slice( $asin_sync_report['details'], 0, 40 ) as $detail_line ) : ?>
+                        <li><?php echo esc_html( $detail_line ); ?></li>
+                    <?php endforeach; ?>
+                </ul>
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
 
     <section class="ac-store-search">
         <div class="ac-store-head">
             <h2>Store catalog</h2>
             <span class="ac-store-total"><?php echo esc_html( count( $store_products ) ); ?> published products</span>
         </div>
-        <p>Type a name or SKU, then search Amazon for that product.</p>
+        <p>Type a name or SKU, then search Amazon by the product’s linked ASIN.</p>
 
         <input
             id="ac-store-search-input"
@@ -1374,7 +1940,8 @@ get_header();
         <div class="ac-store-list" id="ac-store-list">
             <?php foreach ( $store_products as $store_product ) : ?>
                 <?php
-                $store_search = strtolower( $store_product['name'] . ' ' . $store_product['sku'] );
+                $store_search = strtolower( $store_product['name'] . ' ' . $store_product['sku'] . ' ' . ( $store_product['asin'] ?? '' ) );
+                $has_asin     = ! empty( $store_product['asin'] );
                 ?>
                 <article
                     class="ac-store-item"
@@ -1386,12 +1953,18 @@ get_header();
                         <?php if ( $store_product['sku'] !== '' ) : ?>
                             <span class="ac-store-sku">SKU <?php echo esc_html( $store_product['sku'] ); ?></span>
                         <?php endif; ?>
+                        <?php if ( $has_asin ) : ?>
+                            <span class="ac-store-sku">ASIN <?php echo esc_html( $store_product['asin'] ); ?></span>
+                        <?php else : ?>
+                            <span class="ac-store-sku">ASIN not linked</span>
+                        <?php endif; ?>
                     </div>
 
                     <button
                         type="button"
                         class="ac-button ac-search-amazon"
                         data-product-id="<?php echo esc_attr( $store_product['id'] ); ?>"
+                        <?php disabled( ! $has_asin ); ?>
                     >
                         Search Amazon
                     </button>

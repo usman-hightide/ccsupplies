@@ -1,0 +1,29 @@
+Amazon ASIN mapping request — for Chris / Basit / Ops
+Source: live store catalog https://ccsupplies.ca/amazon-catalog/
+Exported: 2026-10-26
+Total published products: 118
+Already linked: 26
+Missing (need ASIN): 92
+
+PLEASE FILL AND RETURN
+File: Amazon_Missing_SKU_ASIN_Mapping.csv
+Columns:
+- Woo Product ID
+- Store SKU
+- Product Name
+- Amazon ASIN (please fill)  ← Ops/Tomas fill this
+- Notes (optional)
+
+REFERENCE ONLY
+File: Amazon_Already_Linked_ASINs.csv
+These 26 products are already linked and working.
+
+NOTES
+- Tomas High Tide Product List (ASIN + description only) was already received.
+- We need ASIN matched to Store SKU / Product ID (this sheet).
+- Approved Item List – Store Use Chemical Project is not this mapping (no ASIN column).
+
+G&T (recorded from Chris)
+- Approved G&T list: Chris said provided (Basit please confirm/share if needed)
+- SenderIdentity: all store email accounts
+- Backorder: secondary option, or store note + Ops finds replacement

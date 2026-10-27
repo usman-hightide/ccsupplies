@@ -13,7 +13,7 @@ Use this repo to sync Amazon + Manager portal changes between laptops.
 
 ## Not in this repo (on purpose)
 
-- `wp-config.php` (DB + Amazon API secrets)
+- `wp-config.php` (DB, Amazon API, and Grand & Toy cXML secrets)
 - `uploads/` media
 - Large stock plugins (WooCommerce, Elementor, etc.) — install/keep from your Local site / backup
 - Local by Flywheel `conf/` + `logs/`
@@ -61,6 +61,13 @@ define( 'AMAZON_SP_API_ENDPOINT', 'https://sandbox.sellingpartnerapi-na.amazon.c
 // Optional SMTP (Office 365) for plugin mailer override
 define( 'WCSS_SMTP_USER', 'no-reply@ccsupplies.ca' );
 define( 'WCSS_SMTP_PASSWORD', '...' );
+
+// Grand & Toy stage cXML (Trading Partner 312657). Do not set the production URL.
+define( 'CC_GT_STAGE_ENDPOINT', 'https://stage.grandandtoy.com/B2BIntegration/SubmitPO/SubmitPO_wholesale.aspx' );
+define( 'CC_GT_FROM_IDENTITY', 'CANNA312657' );
+define( 'CC_GT_TO_IDENTITY', '204139083' );
+define( 'CC_GT_SHARED_SECRET', '...' );
+define( 'CC_GT_STOCK_SENDER', 'LOCATION1' );
 ```
 
 4. In Local site shell:

@@ -434,7 +434,8 @@ class WCSS_REST_Reports {
         foreach ( $vendorAgg as $name => $agg ) {
             $vendors[] = [
                 'id'      => $vendorId[$name] ?? 0,
-                'name'    => $name,
+                // Term names may be stored as "Grand &amp; Toy"; decode for API/UI.
+                'name'    => html_entity_decode( (string) $name, ENT_QUOTES | ENT_HTML5, 'UTF-8' ),
                 'orders'  => (int) $agg['orders'],
                 'revenue' => (float) $agg['revenue'],
             ];

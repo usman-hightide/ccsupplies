@@ -29,6 +29,10 @@ class WCSS_REST_Products {
                 'search' => [
                     'sanitize_callback' => 'sanitize_text_field',
                 ],
+                'vendor' => [
+                    'sanitize_callback' => 'sanitize_key',
+                    'description'       => 'Filter by wcss_vendor term slug (e.g. amazon, grand-toy).',
+                ],
             ],
         ]);
     
@@ -112,6 +116,7 @@ class WCSS_REST_Products {
         $page   = max( 1, (int) ($req->get_param('page') ?: 1) );
         $per    = min( 20, max( 100, (int) ($req->get_param('per_page') ?: 20) ) );
         $search = sanitize_text_field( (string) $req->get_param('search') );
+        $vendor = sanitize_key( (string) $req->get_param('vendor') );
     
         // Build a safe, boring WP_Query for products
         $q_args = [
@@ -125,6 +130,18 @@ class WCSS_REST_Products {
             'no_found_rows'  => false,            // we want totals for pagination
             'fields'         => 'ids',            // fetch only IDs; faster
         ];
+
+        // Products-tab vendor filters (Amazon / Grand & Toy) via wcss_vendor slug.
+        $allowed_vendor_filters = [ 'amazon', 'grand-toy' ];
+        if ( $vendor !== '' && in_array( $vendor, $allowed_vendor_filters, true ) ) {
+            $q_args['tax_query'] = [
+                [
+                    'taxonomy' => 'wcss_vendor',
+                    'field'    => 'slug',
+                    'terms'    => [ $vendor ],
+                ],
+            ];
+        }
         // return 'testing the fucntion';
         try {
             $q = new WP_Query( $q_args );

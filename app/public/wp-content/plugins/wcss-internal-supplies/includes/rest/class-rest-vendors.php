@@ -52,10 +52,14 @@ class WCSS_REST_Vendors {
 
 
 
+    private function clean_name( string $name ): string {
+        return html_entity_decode( trim( $name ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+    }
+
     private function dto( WP_Term $t ): array {
         return [
             'id'      => (int) $t->term_id,
-            'name'    => $t->name,
+            'name'    => $this->clean_name( (string) $t->name ),
             'slug'    => $t->slug,
             'phone'   => (string) get_term_meta( $t->term_id, 'wcss_vendor_phone', true ),
             'email'   => (string) get_term_meta( $t->term_id, 'wcss_vendor_email', true ),
@@ -82,7 +86,7 @@ class WCSS_REST_Vendors {
     public function create( WP_REST_Request $req ) {
         // print_r($req->get_params());
         // die("creating vendor...");
-        $name = trim( (string) $req->get_param('name' ) );
+        $name = $this->clean_name( (string) $req->get_param('name' ) );
         $email = trim( (string) $req->get_param('email') );
         $phone = trim( (string) $req->get_param('phone') );
         $address = trim( (string) $req->get_param('address') );
@@ -120,7 +124,9 @@ class WCSS_REST_Vendors {
 
         $data = $req->get_json_params() ?: [];
         if ( isset($data['name']) && trim($data['name']) !== '' ) {
-            $ren = wp_update_term( $id, 'wcss_vendor', [ 'name' => sanitize_text_field($data['name']) ] );
+            $ren = wp_update_term( $id, 'wcss_vendor', [
+                'name' => sanitize_text_field( $this->clean_name( (string) $data['name'] ) ),
+            ] );
             if ( is_wp_error($ren) ) return $ren;
         }
         $this->save_meta_array( $id, $data );

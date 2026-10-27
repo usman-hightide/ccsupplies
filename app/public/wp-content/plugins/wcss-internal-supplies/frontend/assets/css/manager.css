@@ -416,14 +416,59 @@ body.admin-bar {
 }
 .wcss-manager-nav .nav-links li {
   margin-left: 20px;
+  position: relative;
 }
 .wcss-manager-nav .nav-links a {
   text-decoration: none;
   color: #ddd;
   font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .wcss-manager-nav .nav-links a:hover {
   color: #fff;
+}
+.wcss-manager-nav .nav-links a.is-active {
+  color: #fff;
+}
+.wcss-manager-nav .nav-caret {
+  font-size: 10px;
+  opacity: 0.8;
+  line-height: 1;
+}
+.wcss-manager-nav .nav-dropdown {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 190px;
+  margin: 0;
+  padding: 8px 0;
+  list-style: none;
+  background: #1f1f1f;
+  border: 1px solid #333;
+  border-radius: 6px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  z-index: 1000;
+}
+.wcss-manager-nav .nav-links li.has-dropdown:hover > .nav-dropdown,
+.wcss-manager-nav .nav-links li.has-dropdown:focus-within > .nav-dropdown {
+  display: block;
+}
+.wcss-manager-nav .nav-dropdown li {
+  margin: 0;
+}
+.wcss-manager-nav .nav-dropdown a {
+  display: block;
+  padding: 8px 14px;
+  color: #ddd;
+  white-space: nowrap;
+}
+.wcss-manager-nav .nav-dropdown a:hover,
+.wcss-manager-nav .nav-dropdown a.is-active {
+  color: #fff;
+  background: #2c2c2c;
 }
 .wcss-manager-nav .nav-right {
   display: flex;

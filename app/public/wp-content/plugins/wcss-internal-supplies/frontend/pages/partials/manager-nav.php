@@ -25,6 +25,23 @@ $nav_items = array(
 		'url'   => home_url( '/manager/products' ),
 		'active'=> ( strpos( $view, 'products' ) === 0 ),
 		'icon'  => '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7L12 12l8.7-5M12 22V12"/></svg>',
+		'children' => array(
+			array(
+				'label'  => 'All products',
+				'url'    => home_url( '/manager/products' ),
+				'active' => ( strpos( $view, 'products' ) === 0 && empty( $_GET['vendor'] ) ),
+			),
+			array(
+				'label'  => 'Amazon only',
+				'url'    => home_url( '/manager/products?vendor=amazon' ),
+				'active' => ( isset( $_GET['vendor'] ) && sanitize_key( wp_unslash( $_GET['vendor'] ) ) === 'amazon' ),
+			),
+			array(
+				'label'  => 'Grand & Toy only',
+				'url'    => home_url( '/manager/products?vendor=grand-toy' ),
+				'active' => ( isset( $_GET['vendor'] ) && sanitize_key( wp_unslash( $_GET['vendor'] ) ) === 'grand-toy' ),
+			),
+		),
 	),
 	array(
 		'key'   => 'vendors',
@@ -75,14 +92,38 @@ $nav_items = array(
     </a>
     <ul class="nav-links">
       <?php foreach ( $nav_items as $item ) : ?>
-        <li>
+        <?php
+        $has_children = ! empty( $item['children'] ) && is_array( $item['children'] );
+        $li_class     = $has_children ? 'has-dropdown' : '';
+        if ( ! empty( $item['active'] ) ) {
+          $li_class .= ( $li_class !== '' ? ' ' : '' ) . 'is-active';
+        }
+        ?>
+        <li class="<?php echo esc_attr( $li_class ); ?>">
           <a
             href="<?php echo esc_url( $item['url'] ); ?>"
             class="<?php echo ! empty( $item['active'] ) ? 'is-active' : ''; ?>"
+            <?php echo $has_children ? 'aria-haspopup="true"' : ''; ?>
           >
             <span class="nav-ico" aria-hidden="true"><?php echo $item['icon']; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?></span>
             <span><?php echo esc_html( $item['label'] ); ?></span>
+            <?php if ( $has_children ) : ?>
+              <span class="nav-caret" aria-hidden="true">▾</span>
+            <?php endif; ?>
           </a>
+          <?php if ( $has_children ) : ?>
+            <ul class="nav-dropdown" role="menu">
+              <?php foreach ( $item['children'] as $child ) : ?>
+                <li role="none">
+                  <a
+                    role="menuitem"
+                    href="<?php echo esc_url( $child['url'] ); ?>"
+                    class="<?php echo ! empty( $child['active'] ) ? 'is-active' : ''; ?>"
+                  ><?php echo esc_html( $child['label'] ); ?></a>
+                </li>
+              <?php endforeach; ?>
+            </ul>
+          <?php endif; ?>
         </li>
       <?php endforeach; ?>
     </ul>
