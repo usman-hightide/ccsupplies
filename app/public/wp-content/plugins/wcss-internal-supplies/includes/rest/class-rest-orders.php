@@ -394,11 +394,14 @@ class WCSS_REST_Orders {
 
         $dto = $this->dto_order( $o );
 
-        // Addresses
-        $dto['billing']  = $this->dto_addr( $o->get_address('billing') );
-        $dto['shipping'] = $this->dto_addr( $o->get_address('shipping') );
+        // Addresses + store-owner note (already on the order; surface for manager UI)
+        $dto['billing']       = $this->dto_addr( $o->get_address( 'billing' ) );
+        $dto['shipping']      = $this->dto_addr( $o->get_address( 'shipping' ) );
+        $dto['customer_note'] = (string) $o->get_customer_note();
+        $dto['billing_email'] = (string) $o->get_billing_email();
+        $dto['billing_phone'] = (string) $o->get_billing_phone();
 
-        // Items (include SKU, product/variation IDs)
+        // Items (include SKU, product/variation IDs, cart vendor selection)
         $dto['items'] = [];
         foreach ( $o->get_items() as $item_id => $item ) {
             if ( ! $item instanceof WC_Order_Item_Product ) continue;
@@ -419,16 +422,37 @@ class WCSS_REST_Orders {
                 $attrs = $item->get_variation_attributes();
             }
 
+            $vendor_key   = (string) $item->get_meta( '_cc_vendor', true );
+            $vendor_id    = (string) $item->get_meta( '_cc_vendor_id', true );
+            $vendor_price = $item->get_meta( '_cc_vendor_price', true );
+            $vendor_label = '';
+            if ( $vendor_key === 'amazon' ) {
+                $vendor_label = 'Amazon';
+            } elseif ( $vendor_key === 'gt' ) {
+                $vendor_label = 'Grand & Toy';
+            } elseif ( $vendor_key !== '' ) {
+                $vendor_label = $vendor_key;
+            }
+
             $dto['items'][] = [
-                'item_id'     => $item_id,
-                'product_id'  => $pid ?: $item->get_product_id(),
-                'variation_id'=> $vid ?: $item->get_variation_id(),
-                'name'        => $name,
-                'sku'         => $sku,
-                'qty'         => $qty,
-                'subtotal'    => wc_price( (float) $item->get_subtotal() ),
-                'total'       => wc_price( $line_total ),
-                'attributes'  => $attrs,
+                'item_id'      => $item_id,
+                'product_id'   => $pid ?: $item->get_product_id(),
+                'variation_id' => $vid ?: $item->get_variation_id(),
+                'name'         => $name,
+                'sku'          => $sku,
+                'qty'          => $qty,
+                'subtotal'     => wc_price( (float) $item->get_subtotal() ),
+                'total'        => wc_price( $line_total ),
+                'attributes'   => $attrs,
+                'vendor'       => $vendor_key,
+                'vendor_label' => $vendor_label,
+                'vendor_id'    => $vendor_id,
+                'vendor_unit_price' => ( $vendor_price !== '' && $vendor_price !== null )
+                    ? (float) $vendor_price
+                    : null,
+                'vendor_unit_price_html' => ( $vendor_price !== '' && $vendor_price !== null )
+                    ? wc_price( (float) $vendor_price )
+                    : '',
             ];
         }
 

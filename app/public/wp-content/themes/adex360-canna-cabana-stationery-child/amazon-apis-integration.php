@@ -1057,6 +1057,15 @@ $store_products = function_exists( 'wc_get_product' ) ? wcss_amazon_catalog_stor
 $cart_url       = $order_id
     ? add_query_arg( 'order-id', $order_id, home_url( '/amazon-cart/' ) )
     : home_url( '/amazon-cart/' );
+$checkout_url   = $order_id
+    ? add_query_arg( 'order-id', $order_id, home_url( '/amazon-checkout/' ) )
+    : home_url( '/amazon-checkout/' );
+$amazon_view_url = $order_id
+    ? home_url( '/manager/orders/amazon-view/' . $order_id . '/' )
+    : '';
+$has_amazon_snapshot = false;
+$skipped_gt_items    = 0;
+$fulfillable_count   = 0;
 
 if ( $order_id ) {
 
@@ -1072,15 +1081,23 @@ if ( $order_id ) {
     } else {
 
         $results = array();
+        $has_amazon_snapshot = (bool) $order->get_meta( '_wcss_amazon_order_data' );
 
         /*
          * Look up Amazon one WooCommerce order item at a time by linked ASIN.
+         * Prefer lines the store owner marked as Amazon; skip explicit G&T lines.
          */
         foreach ( $order->get_items() as $order_item_id => $order_item ) {
 
             $woo_product = $order_item->get_product();
 
             if ( ! $woo_product ) {
+                continue;
+            }
+
+            $line_vendor = sanitize_key( (string) $order_item->get_meta( '_cc_vendor', true ) );
+            if ( $line_vendor === 'gt' ) {
+                $skipped_gt_items++;
                 continue;
             }
 
@@ -1095,6 +1112,7 @@ if ( $order_id ) {
                     '_woo_product_id'    => $woo_product->get_id(),
                     '_woo_product_title' => $woo_product_title,
                     '_woo_quantity'      => $quantity,
+                    '_woo_vendor'        => $line_vendor,
                 );
 
                 continue;
@@ -1111,6 +1129,7 @@ if ( $order_id ) {
                     '_woo_product_title' => $woo_product_title,
                     '_woo_quantity'      => $quantity,
                     '_amazon_asin'       => $asin,
+                    '_woo_vendor'        => $line_vendor,
                 );
 
                 continue;
@@ -1125,6 +1144,7 @@ if ( $order_id ) {
                     '_woo_product_title' => $woo_product_title,
                     '_woo_quantity'      => $quantity,
                     '_amazon_asin'       => $asin,
+                    '_woo_vendor'        => $line_vendor,
                 );
 
                 continue;
@@ -1138,8 +1158,10 @@ if ( $order_id ) {
             $amazon_product['_woo_product_title'] = $woo_product_title;
             $amazon_product['_woo_quantity']      = $quantity;
             $amazon_product['_amazon_asin']       = $asin;
+            $amazon_product['_woo_vendor']        = $line_vendor;
 
             $products[] = $amazon_product;
+            $fulfillable_count++;
         }
     }
 }
@@ -1214,9 +1236,16 @@ get_header();
 .amazon-catalog-page .ac-header-cart {
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
+    align-items: stretch;
     gap: 8px;
     flex: 0 0 auto;
+    min-width: 190px;
+}
+
+.amazon-catalog-page .ac-header-cart > .ac-view-cart {
+    width: 100%;
+    justify-content: center;
+    box-sizing: border-box;
 }
 
 .amazon-catalog-page .ac-view-cart {
@@ -1238,6 +1267,18 @@ get_header();
 .amazon-catalog-page .ac-view-cart:hover {
     background: #c61d16 !important;
     color: #fff !important;
+}
+
+.amazon-catalog-page .ac-view-cart.ac-sync-asins {
+    background: #f5f2ea !important;
+    color: #161616 !important;
+    border: 1px solid #e4e0d6;
+    box-shadow: none;
+}
+
+.amazon-catalog-page .ac-view-cart.ac-sync-asins:hover {
+    background: #ebe6db !important;
+    color: #161616 !important;
 }
 
 .amazon-catalog-page .ac-view-cart-count {
@@ -1268,6 +1309,169 @@ get_header();
     font-size: 13px !important;
     font-weight: 600;
     text-align: right;
+}
+
+.amazon-catalog-page .ac-fulfill {
+    margin: 0 0 32px;
+    padding: 24px 26px 20px;
+    border: 1px solid #e4e4e1;
+    border-radius: 12px;
+    background: linear-gradient(180deg, #fbfbfa 0%, #f4f4f1 100%);
+    box-shadow: 0 1px 0 rgba(22, 22, 22, 0.04);
+}
+
+.amazon-catalog-page .ac-fulfill-eyebrow {
+    margin: 0 0 6px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #6b6b66;
+}
+
+.amazon-catalog-page .ac-fulfill-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px 20px;
+    margin-bottom: 16px;
+}
+
+.amazon-catalog-page .ac-fulfill-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 12px;
+}
+
+.amazon-catalog-page .ac-fulfill-head h2 {
+    margin: 0;
+    font-size: 1.2rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: #161616;
+    line-height: 1.25;
+}
+
+.amazon-catalog-page .ac-fulfill-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #161616;
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.amazon-catalog-page .ac-fulfill-badge.is-approved {
+    background: #1f7a3a;
+    color: #fff;
+}
+
+.amazon-catalog-page .ac-fulfill-meta {
+    margin: 8px 0 0;
+    font-size: 0.9rem;
+    color: #555;
+    line-height: 1.4;
+}
+
+.amazon-catalog-page .ac-fulfill-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+}
+
+.amazon-catalog-page .ac-fulfill-actions .ac-button,
+.amazon-catalog-page .ac-fulfill-actions .ac-view-cart {
+    margin: 0;
+}
+
+.amazon-catalog-page .ac-fulfill-actions .ac-button-secondary {
+    background: #fff !important;
+    color: #161616 !important;
+    border: 1px solid #cfcfc9 !important;
+    box-shadow: none !important;
+}
+
+.amazon-catalog-page .ac-fulfill-actions .ac-button-secondary:hover {
+    background: #161616 !important;
+    color: #fff !important;
+    border-color: #161616 !important;
+}
+
+.amazon-catalog-page .ac-fulfill-details {
+    margin: 0 0 14px;
+    padding: 14px 16px;
+    border: 1px solid #e8e8e4;
+    border-radius: 10px;
+    background: #fff;
+}
+
+.amazon-catalog-page .ac-fulfill-dl {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px 20px;
+    margin: 0;
+}
+
+.amazon-catalog-page .ac-fulfill-dl > div {
+    min-width: 0;
+}
+
+.amazon-catalog-page .ac-fulfill-dl dt {
+    margin: 0 0 3px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #7a7a74;
+}
+
+.amazon-catalog-page .ac-fulfill-dl dd {
+    margin: 0;
+    font-size: 0.92rem;
+    font-weight: 500;
+    color: #161616;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.amazon-catalog-page .ac-fulfill-dl dd.ac-fulfill-address {
+    white-space: pre-line;
+}
+
+.amazon-catalog-page .ac-fulfill-note {
+    margin: 0;
+    padding: 12px 14px;
+    border-left: 3px solid #161616;
+    border-radius: 0 8px 8px 0;
+    background: rgba(22, 22, 22, 0.04);
+    font-size: 0.9rem;
+    font-style: italic;
+    font-weight: 500;
+    color: #2a2a2a;
+    line-height: 1.5;
+}
+
+.amazon-catalog-page .ac-fulfill-note strong {
+    font-style: normal;
+    font-weight: 700;
+    color: #161616;
+}
+
+.amazon-catalog-page .ac-fulfill-status {
+    margin: 12px 0 0;
+    font-size: 0.92rem;
+    color: #161616;
+    font-weight: 600;
+}
+
+.amazon-catalog-page .ac-fulfill-status.is-error {
+    color: #8a1f1f;
 }
 
 .amazon-catalog-page .ac-error {
@@ -1889,7 +2093,7 @@ get_header();
                     'wcss_sync_amazon_asins'
                 );
                 ?>
-                <a class="ac-view-cart" href="<?php echo esc_url( $sync_url ); ?>" style="background:#333 !important; box-shadow:none;">
+                <a class="ac-view-cart ac-sync-asins" href="<?php echo esc_url( $sync_url ); ?>">
                     <span>Sync ASIN matches</span>
                 </a>
             <?php endif; ?>
@@ -1911,6 +2115,119 @@ get_header();
                 </ul>
             <?php endif; ?>
         </div>
+    <?php endif; ?>
+
+    <?php if ( $order ) : ?>
+        <?php
+        $ship_name = trim( $order->get_formatted_shipping_full_name() );
+        if ( $ship_name === '' ) {
+            $ship_name = trim( $order->get_formatted_billing_full_name() );
+        }
+        $ship_company = (string) $order->get_shipping_company();
+        if ( $ship_company === '' ) {
+            $ship_company = (string) $order->get_billing_company();
+        }
+        $ship_address = $order->get_formatted_shipping_address();
+        if ( $ship_address === '' ) {
+            $ship_address = $order->get_formatted_billing_address();
+        }
+        $order_status = $order->get_status();
+        $status_label = function_exists( 'wc_get_order_status_name' )
+            ? wc_get_order_status_name( $order_status )
+            : $order_status;
+        $badge_class  = 'ac-fulfill-badge';
+        if ( 'approved' === $order_status || 'wc-approved' === $order_status ) {
+            $badge_class .= ' is-approved';
+        }
+        ?>
+        <section class="ac-fulfill" id="ac-fulfill" data-fulfillable="<?php echo esc_attr( (string) $fulfillable_count ); ?>">
+            <p class="ac-fulfill-eyebrow">Approved store order</p>
+
+            <div class="ac-fulfill-head">
+                <div>
+                    <div class="ac-fulfill-title-row">
+                        <h2>Order #<?php echo esc_html( (string) $order->get_order_number() ); ?></h2>
+                        <span class="<?php echo esc_attr( $badge_class ); ?>"><?php echo esc_html( $status_label ); ?></span>
+                    </div>
+                    <p class="ac-fulfill-meta">
+                        <?php echo esc_html( (string) $fulfillable_count ); ?> Amazon item<?php echo $fulfillable_count === 1 ? '' : 's'; ?> ready to fulfill
+                        <?php if ( $skipped_gt_items > 0 ) : ?>
+                            · <?php echo esc_html( (string) $skipped_gt_items ); ?> G&amp;T item<?php echo $skipped_gt_items === 1 ? '' : 's'; ?> skipped here
+                        <?php endif; ?>
+                    </p>
+                </div>
+                <div class="ac-fulfill-actions">
+                    <button
+                        type="button"
+                        class="ac-button"
+                        id="ac-fulfill-store-order"
+                        <?php disabled( $fulfillable_count < 1 ); ?>
+                    >
+                        Use store details → Checkout
+                    </button>
+                    <?php if ( $has_amazon_snapshot && $amazon_view_url ) : ?>
+                        <a class="ac-view-cart ac-button-secondary" href="<?php echo esc_url( $amazon_view_url ); ?>">
+                            Amazon order view
+                        </a>
+                    <?php endif; ?>
+                    <a class="ac-view-cart ac-button-secondary" href="<?php echo esc_url( $cart_url ); ?>">
+                        Open Amazon cart
+                    </a>
+                </div>
+            </div>
+
+            <?php
+            $has_fulfill_details = (
+                $ship_name !== ''
+                || $ship_company !== ''
+                || $ship_address !== ''
+                || (bool) $order->get_billing_email()
+                || (bool) $order->get_billing_phone()
+            );
+            ?>
+            <?php if ( $has_fulfill_details ) : ?>
+                <div class="ac-fulfill-details">
+                    <dl class="ac-fulfill-dl">
+                        <?php if ( $ship_name !== '' ) : ?>
+                            <div>
+                                <dt>Ship to</dt>
+                                <dd><?php echo esc_html( $ship_name ); ?></dd>
+                            </div>
+                        <?php endif; ?>
+                        <?php if ( $ship_company !== '' ) : ?>
+                            <div>
+                                <dt>Company</dt>
+                                <dd><?php echo esc_html( $ship_company ); ?></dd>
+                            </div>
+                        <?php endif; ?>
+                        <?php if ( $ship_address !== '' ) : ?>
+                            <div>
+                                <dt>Address</dt>
+                                <dd class="ac-fulfill-address"><?php echo esc_html( wp_strip_all_tags( $ship_address ) ); ?></dd>
+                            </div>
+                        <?php endif; ?>
+                        <?php if ( $order->get_billing_email() ) : ?>
+                            <div>
+                                <dt>Email</dt>
+                                <dd><?php echo esc_html( $order->get_billing_email() ); ?></dd>
+                            </div>
+                        <?php endif; ?>
+                        <?php if ( $order->get_billing_phone() ) : ?>
+                            <div>
+                                <dt>Phone</dt>
+                                <dd><?php echo esc_html( $order->get_billing_phone() ); ?></dd>
+                            </div>
+                        <?php endif; ?>
+                    </dl>
+                </div>
+            <?php endif; ?>
+
+            <p class="ac-fulfill-note">
+                <strong>What happens next:</strong>
+                One click adds the store’s Amazon items to cart at the ordered quantities, then opens checkout with this store’s shipping details already filled in — no need to retype them.
+            </p>
+            <p class="ac-fulfill-status" id="ac-fulfill-status" hidden></p>
+        </section>
     <?php endif; ?>
 
     <section class="ac-store-search">
@@ -2519,6 +2836,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var amazonCartNonce  = <?php echo wp_json_encode( wp_create_nonce( 'amazon_add_to_cart' ) ); ?>;
     var amazonSearchNonce = <?php echo wp_json_encode( wp_create_nonce( 'amazon_search_store_product' ) ); ?>;
     var catalogOrderId = <?php echo wp_json_encode( $order_id ? (string) $order_id : '' ); ?>;
+    var amazonCheckoutUrl = <?php echo wp_json_encode( $checkout_url ); ?>;
     var storeSearchInput = document.getElementById('ac-store-search-input');
     var storeCount = document.getElementById('ac-store-count');
     var storeItems = document.querySelectorAll('.amazon-catalog-page .ac-store-item');
@@ -2689,92 +3007,178 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    document.querySelector('.amazon-catalog-page').addEventListener('click', function (event) {
+    function addAmazonProductFromButton(button, options) {
+        options = options || {};
+        var silent = !!options.silent;
+        var container = button.closest('.ac-amazon-actions, .ac-modal-actions');
+        var message = container ? container.querySelector('.ac-cart-message') : null;
 
+        var asin = button.getAttribute('data-asin') || '';
+        var offerId = button.getAttribute('data-offer-id') || '';
+        var buyingOptionId = button.getAttribute('data-buying-option-id') || offerId;
+        var title = button.getAttribute('data-title') || '';
+        var quantity = parseInt(button.getAttribute('data-quantity') || '1', 10);
+        var woo_product_id = button.getAttribute('data-woo_product_id');
+
+        if (!asin || !buyingOptionId) {
+            var missing = 'Amazon buying option information is missing for this product.';
+            if (!silent && message) {
+                message.textContent = missing;
+            }
+            return Promise.reject(new Error(missing));
+        }
+
+        if (!silent) {
+            button.disabled = true;
+            if (message) {
+                message.textContent = 'Adding to Amazon cart...';
+            }
+        }
+
+        var formData = new FormData();
+        formData.append('amazon_catalog_action', 'amazon_add_to_cart');
+        formData.append('nonce', amazonCartNonce);
+        formData.append('woo_product_id', woo_product_id);
+        formData.append('asin', asin);
+        formData.append('offer_id', offerId);
+        formData.append('buying_option_id', buyingOptionId);
+        formData.append('title', title);
+        formData.append('quantity', quantity);
+
+        return fetch(amazonCartAjaxUrl, {
+            method: 'POST',
+            credentials: 'same-origin',
+            body: formData
+        })
+        .then(function (response) {
+            return response.json();
+        })
+        .then(function (response) {
+            if (response.success) {
+                if (!silent && message) {
+                    message.textContent = response.data.message || 'Added to Amazon cart.';
+                }
+                if (!silent) {
+                    button.textContent = 'Added to Amazon Cart';
+                }
+                showAmazonCartCount(response.data && response.data.item_count);
+                return response;
+            }
+
+            var errorMessage = 'Unable to add item to Amazon cart.';
+            if (response.data && response.data.message) {
+                errorMessage = response.data.message;
+            }
+            if (!silent && message) {
+                message.textContent = errorMessage;
+            }
+            throw new Error(errorMessage);
+        })
+        .catch(function (error) {
+            if (!silent && message && (!error || !error.message || error.message.indexOf('Unable') === -1)) {
+                message.textContent = 'Unable to connect to the Amazon Cart API.';
+            }
+            throw error;
+        })
+        .finally(function () {
+            if (!silent) {
+                button.disabled = false;
+            }
+        });
+    }
+
+    document.querySelector('.amazon-catalog-page').addEventListener('click', function (event) {
         var button = event.target.closest('.ac-add-to-cart');
 
         if (!button || button.disabled) {
             return;
         }
 
-            var container = button.closest('.ac-amazon-actions, .ac-modal-actions');
-            var message = container ? container.querySelector('.ac-cart-message') : null;
+        addAmazonProductFromButton(button).catch(function () {
+            // Message already shown on the product row.
+        });
+    });
 
-            var asin = button.getAttribute('data-asin') || '';
-            var offerId = button.getAttribute('data-offer-id') || '';
-            var buyingOptionId = button.getAttribute('data-buying-option-id') || offerId;
-            var title = button.getAttribute('data-title') || '';
-            var quantity = parseInt(button.getAttribute('data-quantity') || '1', 10);
-            var woo_product_id = button.getAttribute("data-woo_product_id");
+    var fulfillButton = document.getElementById('ac-fulfill-store-order');
+    var fulfillStatus = document.getElementById('ac-fulfill-status');
 
-            if (!asin || !buyingOptionId) {
-                if (message) {
-                    message.textContent = 'Amazon buying option information is missing for this product.';
-                }
+    function setFulfillStatus(text, isError) {
+        if (!fulfillStatus) {
+            return;
+        }
+        fulfillStatus.hidden = !text;
+        fulfillStatus.textContent = text || '';
+        fulfillStatus.classList.toggle('is-error', !!isError);
+    }
+
+    if (fulfillButton) {
+        fulfillButton.addEventListener('click', function () {
+            var buttons = Array.prototype.slice.call(
+                document.querySelectorAll('.amazon-catalog-page .ac-list .ac-add-to-cart')
+            ).filter(function (btn) {
+                return !btn.disabled && (btn.getAttribute('data-asin') || '') && (btn.getAttribute('data-buying-option-id') || btn.getAttribute('data-offer-id') || '');
+            });
+
+            if (!buttons.length) {
+                setFulfillStatus('No Amazon-ready items found on this order to add.', true);
                 return;
             }
 
-            button.disabled = true;
+            fulfillButton.disabled = true;
+            setFulfillStatus('Adding ' + buttons.length + ' store item' + (buttons.length === 1 ? '' : 's') + ' to the Amazon cart…', false);
 
-            if (message) {
-                message.textContent = 'Adding to Amazon cart...';
-            }
+            var chain = Promise.resolve();
+            var added = 0;
+            var failed = [];
 
-            var formData = new FormData();
-            formData.append('amazon_catalog_action', 'amazon_add_to_cart');
-            formData.append('nonce', amazonCartNonce);
-            formData.append("woo_product_id", woo_product_id),
-            formData.append('asin', asin);
-            formData.append('offer_id', offerId);
-            formData.append('buying_option_id', buyingOptionId);
-            formData.append('title', title);
-            formData.append('quantity', quantity);
-
-            fetch(amazonCartAjaxUrl, {
-                method: 'POST',
-                credentials: 'same-origin',
-                body: formData
-            })
-            .then(function (response) {
-                return response.json();
-            })
-            .then(function (response) {
-
-                if (response.success) {
-
-                    if (message) {
-                        message.textContent = response.data.message || 'Added to Amazon cart.';
-                    }
-
-                    button.textContent = 'Added to Amazon Cart';
-                    showAmazonCartCount(response.data && response.data.item_count);
-
-                } else {
-
-                    var errorMessage = 'Unable to add item to Amazon cart.';
-
-                    if (response.data && response.data.message) {
-                        errorMessage = response.data.message;
-                    }
-
-                    if (message) {
-                        message.textContent = errorMessage;
-                    }
-                }
-
-            })
-            .catch(function () {
-
-                if (message) {
-                    message.textContent = 'Unable to connect to the Amazon Cart API.';
-                }
-
-            })
-            .finally(function () {
-                button.disabled = false;
+            buttons.forEach(function (btn, index) {
+                chain = chain.then(function () {
+                    setFulfillStatus(
+                        'Adding item ' + (index + 1) + ' of ' + buttons.length + '…',
+                        false
+                    );
+                    return addAmazonProductFromButton(btn, { silent: true })
+                        .then(function () {
+                            added += 1;
+                            btn.textContent = 'Added to Amazon Cart';
+                            btn.disabled = true;
+                        })
+                        .catch(function (error) {
+                            failed.push((btn.getAttribute('data-title') || 'Item') + ': ' + (error && error.message ? error.message : 'failed'));
+                        });
+                });
             });
 
-    });
+            chain.finally(function () {
+                if (added < 1) {
+                    fulfillButton.disabled = false;
+                    setFulfillStatus(
+                        failed.length
+                            ? ('Could not add items. ' + failed[0])
+                            : 'Could not add any store items to the Amazon cart.',
+                        true
+                    );
+                    return;
+                }
+
+                if (failed.length) {
+                    setFulfillStatus(
+                        'Added ' + added + ' item' + (added === 1 ? '' : 's') + '. ' + failed.length + ' failed. Opening checkout…',
+                        true
+                    );
+                } else {
+                    setFulfillStatus(
+                        'Added ' + added + ' item' + (added === 1 ? '' : 's') + '. Opening checkout with store details…',
+                        false
+                    );
+                }
+
+                window.setTimeout(function () {
+                    window.location.href = amazonCheckoutUrl;
+                }, failed.length ? 900 : 400);
+            });
+        });
+    }
 
 });
 </script>

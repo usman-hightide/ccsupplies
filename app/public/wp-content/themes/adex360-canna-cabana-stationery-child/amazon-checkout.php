@@ -951,6 +951,113 @@ function wcss_amazon_checkout_cap_block( $wc_order_id ) {
 }
 
 /**
+ * Normalize Canadian province names / codes to 2-letter codes for the checkout select.
+ *
+ * @param string $state Raw state/province from WooCommerce.
+ * @return string
+ */
+function wcss_amazon_checkout_normalize_province( $state ) {
+	$state = strtoupper( trim( (string) $state ) );
+	if ( $state === '' ) {
+		return '';
+	}
+	if ( strlen( $state ) === 2 ) {
+		return $state;
+	}
+
+	$map = array(
+		'ALBERTA'                     => 'AB',
+		'BRITISH COLUMBIA'            => 'BC',
+		'MANITOBA'                    => 'MB',
+		'NEW BRUNSWICK'               => 'NB',
+		'NEWFOUNDLAND AND LABRADOR'   => 'NL',
+		'NEWFOUNDLAND'                => 'NL',
+		'NOVA SCOTIA'                 => 'NS',
+		'NORTHWEST TERRITORIES'       => 'NT',
+		'NUNAVUT'                     => 'NU',
+		'ONTARIO'                     => 'ON',
+		'PRINCE EDWARD ISLAND'        => 'PE',
+		'QUEBEC'                      => 'QC',
+		'SASKATCHEWAN'                => 'SK',
+		'YUKON'                       => 'YT',
+		'YUKON TERRITORY'             => 'YT',
+	);
+
+	return isset( $map[ $state ] ) ? $map[ $state ] : '';
+}
+
+/**
+ * Prefill Amazon checkout shipping fields from the linked WooCommerce store order.
+ *
+ * @param int $wc_order_id WooCommerce order ID.
+ * @return array<string,string>
+ */
+function wcss_amazon_checkout_prefill_from_order( $wc_order_id ) {
+	$defaults = array(
+		'full_name'              => '',
+		'email'                  => defined( 'AMAZON_USER_EMAIL' ) ? (string) AMAZON_USER_EMAIL : '',
+		'phone'                  => '',
+		'company_name'           => '',
+		'address_line1'          => '',
+		'address_line2'          => '',
+		'city'                   => '',
+		'state'                  => '',
+		'postal_code'            => '',
+		'purchase_order_number'  => '',
+	);
+
+	$wc_order_id = (int) $wc_order_id;
+	if ( ! $wc_order_id || ! function_exists( 'wc_get_order' ) ) {
+		return $defaults;
+	}
+
+	$order = wc_get_order( $wc_order_id );
+	if ( ! $order ) {
+		return $defaults;
+	}
+
+	$ship = $order->get_address( 'shipping' );
+	$bill = $order->get_address( 'billing' );
+	$src  = ( ! empty( $ship['address_1'] ) || ! empty( $ship['city'] ) ) ? $ship : $bill;
+
+	$full_name = trim(
+		( isset( $src['first_name'] ) ? (string) $src['first_name'] : '' ) . ' ' .
+		( isset( $src['last_name'] ) ? (string) $src['last_name'] : '' )
+	);
+	if ( $full_name === '' ) {
+		$full_name = trim(
+			(string) $order->get_billing_first_name() . ' ' . (string) $order->get_billing_last_name()
+		);
+	}
+
+	$email = (string) $order->get_billing_email();
+	if ( $email === '' && ! empty( $defaults['email'] ) ) {
+		$email = $defaults['email'];
+	}
+
+	$phone = (string) $order->get_billing_phone();
+	$company = '';
+	if ( ! empty( $src['company'] ) ) {
+		$company = (string) $src['company'];
+	} elseif ( $order->get_billing_company() ) {
+		$company = (string) $order->get_billing_company();
+	}
+
+	return array(
+		'full_name'             => $full_name,
+		'email'                 => $email,
+		'phone'                 => $phone,
+		'company_name'          => $company,
+		'address_line1'         => isset( $src['address_1'] ) ? (string) $src['address_1'] : '',
+		'address_line2'         => isset( $src['address_2'] ) ? (string) $src['address_2'] : '',
+		'city'                  => isset( $src['city'] ) ? (string) $src['city'] : '',
+		'state'                 => wcss_amazon_checkout_normalize_province( isset( $src['state'] ) ? $src['state'] : '' ),
+		'postal_code'           => isset( $src['postcode'] ) ? (string) $src['postcode'] : '',
+		'purchase_order_number' => (string) $order->get_order_number(),
+	);
+}
+
+/**
  * Amazon unit price may be at most this percent above the store price.
  */
 function wcss_amazon_checkout_price_tolerance_percent() {
@@ -1143,6 +1250,7 @@ $amazon_approval_block    = wcss_amazon_checkout_approval_block( $wc_order_id );
 $amazon_order_is_approved = ( null === $amazon_approval_block );
 $amazon_cap_status        = wcss_amazon_checkout_cap_status( $wc_order_id );
 $amazon_cap_block         = wcss_amazon_checkout_cap_block( $wc_order_id );
+$amazon_checkout_prefill  = wcss_amazon_checkout_prefill_from_order( $wc_order_id );
 
 $order_payload = null;
 
@@ -2406,6 +2514,7 @@ get_header();
 								id="full_name"
 								name="full_name"
 								placeholder="John Smith"
+								value="<?php echo esc_attr( $amazon_checkout_prefill['full_name'] ); ?>"
 								required
 							>
 
@@ -2422,7 +2531,7 @@ get_header();
 								type="email"
 								id="email"
 								name="email"
-								value="<?php echo esc_attr( AMAZON_USER_EMAIL ); ?>"
+								value="<?php echo esc_attr( $amazon_checkout_prefill['email'] !== '' ? $amazon_checkout_prefill['email'] : AMAZON_USER_EMAIL ); ?>"
 								required
 							>
 
@@ -2440,6 +2549,7 @@ get_header();
 								id="phone"
 								name="phone"
 								placeholder="416-555-0123"
+								value="<?php echo esc_attr( $amazon_checkout_prefill['phone'] ); ?>"
 								required
 							>
 
@@ -2457,6 +2567,7 @@ get_header();
 								id="company_name"
 								name="company_name"
 								placeholder="ABC Supplies Inc."
+								value="<?php echo esc_attr( $amazon_checkout_prefill['company_name'] ); ?>"
 							>
 
 						</div>
@@ -2473,6 +2584,7 @@ get_header();
 								id="address_line1"
 								name="address_line1"
 								placeholder="100 Queen Street West"
+								value="<?php echo esc_attr( $amazon_checkout_prefill['address_line1'] ); ?>"
 								required
 							>
 
@@ -2490,6 +2602,7 @@ get_header();
 								id="address_line2"
 								name="address_line2"
 								placeholder="Suite 100"
+								value="<?php echo esc_attr( $amazon_checkout_prefill['address_line2'] ); ?>"
 							>
 
 						</div>
@@ -2508,6 +2621,7 @@ get_header();
 									id="city"
 									name="city"
 									placeholder="Toronto"
+									value="<?php echo esc_attr( $amazon_checkout_prefill['city'] ); ?>"
 									required
 								>
 
@@ -2520,6 +2634,7 @@ get_header();
 									Province *
 								</label>
 
+								<?php $prefill_state = $amazon_checkout_prefill['state']; ?>
 								<select
 									id="state"
 									name="state"
@@ -2530,55 +2645,55 @@ get_header();
 										Select Province (e.g. Ontario / ON)
 									</option>
 
-									<option value="AB">
+									<option value="AB" <?php selected( $prefill_state, 'AB' ); ?>>
 										Alberta (AB)
 									</option>
 
-									<option value="BC">
+									<option value="BC" <?php selected( $prefill_state, 'BC' ); ?>>
 										British Columbia (BC)
 									</option>
 
-									<option value="MB">
+									<option value="MB" <?php selected( $prefill_state, 'MB' ); ?>>
 										Manitoba (MB)
 									</option>
 
-									<option value="NB">
+									<option value="NB" <?php selected( $prefill_state, 'NB' ); ?>>
 										New Brunswick (NB)
 									</option>
 
-									<option value="NL">
+									<option value="NL" <?php selected( $prefill_state, 'NL' ); ?>>
 										Newfoundland and Labrador (NL)
 									</option>
 
-									<option value="NS">
+									<option value="NS" <?php selected( $prefill_state, 'NS' ); ?>>
 										Nova Scotia (NS)
 									</option>
 
-									<option value="NT">
+									<option value="NT" <?php selected( $prefill_state, 'NT' ); ?>>
 										Northwest Territories (NT)
 									</option>
 
-									<option value="NU">
+									<option value="NU" <?php selected( $prefill_state, 'NU' ); ?>>
 										Nunavut (NU)
 									</option>
 
-									<option value="ON">
+									<option value="ON" <?php selected( $prefill_state, 'ON' ); ?>>
 										Ontario (ON)
 									</option>
 
-									<option value="PE">
+									<option value="PE" <?php selected( $prefill_state, 'PE' ); ?>>
 										Prince Edward Island (PE)
 									</option>
 
-									<option value="QC">
+									<option value="QC" <?php selected( $prefill_state, 'QC' ); ?>>
 										Quebec (QC)
 									</option>
 
-									<option value="SK">
+									<option value="SK" <?php selected( $prefill_state, 'SK' ); ?>>
 										Saskatchewan (SK)
 									</option>
 
-									<option value="YT">
+									<option value="YT" <?php selected( $prefill_state, 'YT' ); ?>>
 										Yukon (YT)
 									</option>
 
@@ -2603,6 +2718,7 @@ get_header();
 									name="postal_code"
 									placeholder="M5H 2N2"
 									autocomplete="postal-code"
+									value="<?php echo esc_attr( $amazon_checkout_prefill['postal_code'] ); ?>"
 									required
 								>
 
@@ -2733,6 +2849,7 @@ get_header();
 								name="purchase_order_number"
 								form="amazon-order-form"
 								placeholder="Direct Order 001"
+								value="<?php echo esc_attr( $amazon_checkout_prefill['purchase_order_number'] ); ?>"
 							>
 
 						</div>

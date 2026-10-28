@@ -132,6 +132,7 @@
   window.initProductsList = function () {
     const $grid = $("#wcssm-products-grid");
     const $search = $("#p-search");
+    const $vendor = $("#p-vendor");
     const $refresh = $("#p-refresh");
 
     // let state = { page: 1, per_page: 20, search: "" };
@@ -149,6 +150,21 @@
       search: urlParams.get("search") || "",
       vendor: allowedVendors.indexOf(vendorParam) !== -1 ? vendorParam : "",
     };
+
+    if ($search.length && state.search) {
+      $search.val(state.search);
+    }
+    if ($vendor.length) {
+      $vendor.val(state.vendor || "");
+    }
+
+    function readFiltersFromUi() {
+      state.search = $search.length ? $search.val() || "" : state.search;
+      if ($vendor.length) {
+        const v = ($vendor.val() || "").toLowerCase();
+        state.vendor = allowedVendors.indexOf(v) !== -1 ? v : "";
+      }
+    }
 
     function render(items, meta) {
       const head = `
@@ -247,7 +263,11 @@
         .on("click", function (e) {
           e.preventDefault();
 
-          const qs = $.param({ search: state.search || "" });
+          const exportPayload = { search: state.search || "" };
+          if (state.vendor) {
+            exportPayload.vendor = state.vendor;
+          }
+          const qs = $.param(exportPayload);
 
           fetch((WCSSM.rest || "/wp-json/wcss/v1/") + "products/export?" + qs, {
             headers: { "X-WP-Nonce": WCSSM.nonce },
@@ -370,27 +390,31 @@
       window.history.replaceState({}, "", newUrl);
     }
 
-    // search hooks (optional)
+    // search + vendor filter hooks
     if ($refresh.length)
       $refresh.on("click", function () {
         state.page = 1;
-        state.search = $search.val() || "";
+        readFiltersFromUi();
         syncQueryWithState();
         load();
-
-        // state.page = 1;
-        // state.search = $search.val() || "";
-        // load();
       });
 
     if ($search.length)
       $search.on("keypress", function (e) {
         if (e.which === 13) {
           state.page = 1;
-          state.search = $search.val() || "";
+          readFiltersFromUi();
           syncQueryWithState();
           load();
         }
+      });
+
+    if ($vendor.length)
+      $vendor.on("change", function () {
+        state.page = 1;
+        readFiltersFromUi();
+        syncQueryWithState();
+        load();
       });
 
     load();
@@ -1233,36 +1257,13 @@
 
       const rows = (items || [])
         .map((o) => {
-          const act = [];
-          if (canApprove(o.status_slug)) {
-            act.push(
-              `<button class="btn btn-xs o-approve" data-id="${o.id}">Approve</button>`
-            );
-          }
-          if (canReject(o.status_slug)) {
-            act.push(
-              `<button class="btn btn-xs btn-danger o-reject" data-id="${o.id}">Reject</button>`
-            );
-          }
-          act.push(
-            `<button class="btn btn-xs o-view" data-id="${o.id}">View</button>`
-          );
-          act.push(
-            `<button class="btn btn-xs o-amazon-order" data-id="${o.id}">Amazon Test Order</button>`
-          );
-          act.push(
-            `<button class="btn btn-xs o-amazon-view" data-id="${o.id}" ${
-              o.has_amazon_order ? "" : 'title="No Amazon details saved yet — open after cart/checkout"'
-            }>Amazon order view</button>`
-          );
-          act.push(
-            `<button class="btn btn-xs o-gt-order" data-id="${o.id}">G&T Test Order</button>`
-          );
-          act.push(
-            `<button class="btn btn-xs o-gt-view" data-id="${o.id}" ${
-              o.has_gt_order ? "" : 'title="No Grand & Toy details saved yet — open after G&T checkout"'
-            }>G&T order view</button>`
-          );
+          // List actions only: View + vendor test-order entry points.
+          // Approve / Reject / vendor detail views move elsewhere (detail screens).
+          const act = [
+            `<button class="btn btn-xs o-view" data-id="${o.id}">View</button>`,
+            `<button class="btn btn-xs o-amazon-order" data-id="${o.id}">Amazon Test Order</button>`,
+            `<button class="btn btn-xs o-gt-order" data-id="${o.id}">G&T Test Order</button>`,
+          ];
 
           return `
           <div class="row">
@@ -1495,6 +1496,48 @@
         //   storeLine = "<p><strong>Store:</strong> " + bits.join(" ") + "</p>";
         // }
 
+        function esc(s) {
+          return (s == null ? "" : String(s))
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+        }
+
+        function dlRow(label, value) {
+          if (value == null || value === "") return "";
+          return (
+            "<div class='ov-dl__row'>" +
+            "<dt>" +
+            esc(label) +
+            "</dt>" +
+            "<dd>" +
+            value +
+            "</dd>" +
+            "</div>"
+          );
+        }
+
+        function formatAddr(a) {
+          if (!a || typeof a !== "object") return "";
+          var name = [a.first_name, a.last_name].filter(Boolean).join(" ").trim();
+          var lines = [];
+          if (name) lines.push(esc(name));
+          if (a.company) lines.push(esc(a.company));
+          if (a.address_1) lines.push(esc(a.address_1));
+          if (a.address_2) lines.push(esc(a.address_2));
+          var cityLine = [a.city, a.state, a.postcode].filter(Boolean).join(", ");
+          if (cityLine) lines.push(esc(cityLine));
+          if (a.country) lines.push(esc(a.country));
+          if (a.email) lines.push(esc(a.email));
+          if (a.phone) lines.push(esc(a.phone));
+          return lines.length ? lines.join("<br>") : "";
+        }
+
+        function hasAddr(a) {
+          return !!(a && (a.address_1 || a.city || a.email || a.phone || a.first_name || a.company));
+        }
+
         // ledger + store blocks (optional UI, shown only if present)
         var ledgerBlock = "";
         if (data && data.ledger) {
@@ -1510,90 +1553,153 @@
             }
           };
           ledgerBlock =
+            "<div class='ov-card ov-ledger'>" +
             "<h3>Monthly Usage</h3>" +
-            "<div class='ov-ledger'>" +
-            "<p><strong>Month:</strong> " +
-            (l.month || "") +
-            "</p>" +
-            "<p><strong>Orders:</strong> " +
-            (l.used_orders || 0) +
-            " / " +
-            (l.quota || "∞") +
-            "</p>" +
-            "<p><strong>Spend:</strong> " +
-            fmt(l.used_amount || 0) +
-            " / " +
-            (l.budget ? fmt(l.budget) : "∞") +
-            "</p>" +
-            "<p><strong>Remaining Orders:</strong> " +
-            (l.quota ? Math.max(0, l.quota - (l.used_orders || 0)) : "∞") +
-            "</p>" +
-            "<p><strong>Remaining Budget:</strong> " +
-            (l.budget
-              ? fmt(Math.max(0, (l.budget || 0) - (l.used_amount || 0)))
-              : "∞") +
-            "</p>" +
+            "<dl class='ov-dl'>" +
+            dlRow("Month", esc(l.month || "")) +
+            dlRow(
+              "Orders",
+              esc((l.used_orders || 0) + " / " + (l.quota || "∞"))
+            ) +
+            dlRow(
+              "Spend",
+              esc(fmt(l.used_amount || 0) + " / " + (l.budget ? fmt(l.budget) : "∞"))
+            ) +
+            dlRow(
+              "Remaining orders",
+              esc(l.quota ? Math.max(0, l.quota - (l.used_orders || 0)) : "∞")
+            ) +
+            dlRow(
+              "Remaining budget",
+              esc(
+                l.budget
+                  ? fmt(Math.max(0, (l.budget || 0) - (l.used_amount || 0)))
+                  : "∞"
+              )
+            ) +
+            "</dl>" +
             "</div>";
         }
 
-        var storeLine = "";
+        var storeBlock = "";
         if (data && data.store && (data.store.name || data.store.id)) {
-          storeLine =
-            "<div class='store-details'>" +
-            "<p><strong>Store:</strong> " +
-            (data.store.name || null) +
-            "<br>" +
-            "<p><strong>Store ID:</strong> " +
-            (data.store.id || null) +
-            "<br>" +
-            "<p><strong>Store Code:</strong> " +
-            (data.store.code || null) +
-            "<br>" +
-            "<p><strong>Store City:</strong> " +
-            (data.store.city || null) +
-            "<br>" +
+          var s = data.store;
+          storeBlock =
+            "<div class='ov-card store-details'>" +
+            "<h3>Store</h3>" +
+            "<dl class='ov-dl'>" +
+            dlRow("Store", esc(s.name || "")) +
+            dlRow("Store ID", esc(s.id || "")) +
+            dlRow("Store code", esc(s.code || "")) +
+            dlRow("City", esc(s.city || "")) +
+            dlRow("State / province", esc(s.state || "")) +
+            "</dl>" +
+            "</div>";
+        }
+
+        var orderMetaRows =
+          dlRow("Date", esc(data.date || "")) +
+          dlRow("Status", esc(data.status || "")) +
+          dlRow("Total", data.total_html || esc(data.total || "")) +
+          dlRow("Customer", esc(data.customer || "")) +
+          dlRow("Email", esc(data.billing_email || (data.billing && data.billing.email) || "")) +
+          dlRow("Phone", esc(data.billing_phone || (data.billing && data.billing.phone) || "")) +
+          dlRow("Expected delivery", esc(data.edd || "")) +
+          dlRow("Internal ref", esc(data.ref || ""));
+
+        if (data.shipment) {
+          orderMetaRows +=
+            dlRow("Tracking", esc(data.shipment.tracking || "")) +
+            dlRow("Carrier", esc(data.shipment.carrier || "")) +
+            dlRow("Shipment EDD", esc(data.shipment.edd || ""));
+        }
+
+        var addressBlocks = "";
+        if (hasAddr(data.billing)) {
+          addressBlocks +=
+            "<div class='ov-card'>" +
+            "<h3>Billing address</h3>" +
+            "<div class='ov-addr'>" +
+            formatAddr(data.billing) +
+            "</div>" +
+            "</div>";
+        }
+        if (hasAddr(data.shipping)) {
+          addressBlocks +=
+            "<div class='ov-card'>" +
+            "<h3>Shipping address</h3>" +
+            "<div class='ov-addr'>" +
+            formatAddr(data.shipping) +
+            "</div>" +
+            "</div>";
+        }
+
+        var noteBlock = "";
+        if (data.customer_note) {
+          noteBlock =
+            "<div class='ov-card'>" +
+            "<h3>Order notes</h3>" +
+            "<p class='ov-note'>" +
+            esc(data.customer_note).replace(/\n/g, "<br>") +
             "</p>" +
             "</div>";
         }
 
         var html =
           "<div class='order-store-wrap'>" +
-          "<div class='order-meta'>" +
+          "<div class='ov-card order-meta'>" +
           "<h2>Order #" +
-          (data.number || orderId) +
+          esc(data.number || orderId) +
           "</h2>" +
-          "<p><strong>Date:</strong> " +
-          (data.date || "") +
-          "</p>" +
-          "<p><strong>Status:</strong> " +
-          (data.status || "") +
-          "</p>" +
-          "<p><strong>Total:</strong> " +
-          (data.total_html || data.total || "") +
-          "</p>" +
-          "<p><strong>Customer:</strong> " +
-          (data.customer || "") +
-          "</p>" +
+          "<dl class='ov-dl'>" +
+          orderMetaRows +
+          "</dl>" +
           "</div>" +
-          storeLine +
+          storeBlock +
           "</div>" +
+          (addressBlocks
+            ? "<div class='ov-address-grid'>" + addressBlocks + "</div>"
+            : "") +
+          noteBlock +
+          "<div class='ov-items-card'>" +
           "<h3>Items</h3>" +
-          "<table class='table'>" +
-          "<thead><tr><th>Product</th><th>SKU</th><th>Qty</th><th>Total</th></tr></thead>" +
+          "<div class='ov-table-wrap'>" +
+          "<table class='table ov-items-table'>" +
+          "<thead><tr><th>Product</th><th>Vendor</th><th>SKU</th><th>Qty</th><th>Unit</th><th>Total</th></tr></thead>" +
           "<tbody>" +
           (Array.isArray(data.items)
             ? data.items
                 .map(function (i) {
+                  var vendorCell = i.vendor_label
+                    ? "<span class='ov-vendor-badge'>" +
+                      esc(i.vendor_label) +
+                      "</span>" +
+                      (i.vendor_id
+                        ? "<span class='ov-vendor-id'>" +
+                          esc(i.vendor_id) +
+                          "</span>"
+                        : "")
+                    : "<span class='ov-muted'>—</span>";
+                  var unitCell =
+                    i.vendor_unit_price_html ||
+                    i.subtotal ||
+                    "<span class='ov-muted'>—</span>";
                   return (
                     "<tr>" +
                     "<td>" +
-                    (i.name || "") +
+                    esc(i.name || "") +
                     "</td>" +
                     "<td>" +
-                    (i.sku || "") +
+                    vendorCell +
                     "</td>" +
                     "<td>" +
-                    (i.qty || 0) +
+                    esc(i.sku || "") +
+                    "</td>" +
+                    "<td>" +
+                    esc(i.qty || 0) +
+                    "</td>" +
+                    "<td>" +
+                    unitCell +
                     "</td>" +
                     "<td>" +
                     (i.total || "") +
@@ -1602,16 +1708,21 @@
                   );
                 })
                 .join("")
-            : "<tr><td colspan='3'>No items</td></tr>") +
+            : "<tr><td colspan='6'>No items</td></tr>") +
           "</tbody>" +
           "</table>" +
-          ledgerBlock +
-          "<h3>Update Status</h3>" +
-          "<div class='actions'>" +
-          "<button class='btn btn-success' id='order-approve'>Approve</button> " +
-          "<button class='btn btn-danger' id='order-reject'>Reject</button>" +
           "</div>" +
-          "<div id='order-msg'></div>";
+          "</div>" +
+          ledgerBlock +
+          "<div class='ov-status-card'>" +
+          "<h3>Update Status</h3>" +
+          "<p class='ov-status-hint'>Review this requisition, then approve to proceed or reject to send it back.</p>" +
+          "<div class='actions ov-status-actions'>" +
+          "<button type='button' class='btn btn-approve' id='order-approve'>Approve order</button>" +
+          "<button type='button' class='btn btn-reject' id='order-reject'>Reject order</button>" +
+          "</div>" +
+          "<div id='order-msg'></div>" +
+          "</div>";
 
         // var html =
         //   "<div class='order-meta'>" +

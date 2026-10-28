@@ -12,8 +12,15 @@
     <h2>Products</h2>
 
     <div class="actions">
-      <input id="p-search" class="input" type="search" placeholder="Search name or SKU…" />
-      <button id="p-refresh" class="btn btn-light">Search</button>
+      <div class="wcssm-products-search" role="search">
+        <input id="p-search" class="input" type="search" placeholder="Search name or SKU…" aria-label="Search products" />
+        <select id="p-vendor" class="input wcssm-vendor-filter" aria-label="Filter by vendor">
+          <option value="">All vendors</option>
+          <option value="amazon">Amazon</option>
+          <option value="grand-toy">Grand &amp; Toy</option>
+        </select>
+        <button id="p-refresh" class="btn btn-light" type="button">Search</button>
+      </div>
       <a
         id="p-export"
         class="btn btn-primary"

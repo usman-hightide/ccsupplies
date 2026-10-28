@@ -25,23 +25,6 @@ $nav_items = array(
 		'url'   => home_url( '/manager/products' ),
 		'active'=> ( strpos( $view, 'products' ) === 0 ),
 		'icon'  => '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7L12 12l8.7-5M12 22V12"/></svg>',
-		'children' => array(
-			array(
-				'label'  => 'All products',
-				'url'    => home_url( '/manager/products' ),
-				'active' => ( strpos( $view, 'products' ) === 0 && empty( $_GET['vendor'] ) ),
-			),
-			array(
-				'label'  => 'Amazon only',
-				'url'    => home_url( '/manager/products?vendor=amazon' ),
-				'active' => ( isset( $_GET['vendor'] ) && sanitize_key( wp_unslash( $_GET['vendor'] ) ) === 'amazon' ),
-			),
-			array(
-				'label'  => 'Grand & Toy only',
-				'url'    => home_url( '/manager/products?vendor=grand-toy' ),
-				'active' => ( isset( $_GET['vendor'] ) && sanitize_key( wp_unslash( $_GET['vendor'] ) ) === 'grand-toy' ),
-			),
-		),
 	),
 	array(
 		'key'   => 'vendors',
