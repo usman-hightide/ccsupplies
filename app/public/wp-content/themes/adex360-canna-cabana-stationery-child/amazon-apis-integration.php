@@ -1892,13 +1892,6 @@ get_header();
                 <a class="ac-view-cart" href="<?php echo esc_url( $sync_url ); ?>" style="background:#333 !important; box-shadow:none;">
                     <span>Sync ASIN matches</span>
                 </a>
-                <?php
-                $compare_page = get_page_by_path( 'vendor-compare' );
-                $compare_url  = $compare_page ? get_permalink( $compare_page ) : home_url( '/?page_id=8212' );
-                ?>
-                <a class="ac-view-cart" href="<?php echo esc_url( $compare_url ); ?>" style="background:#1d3557 !important; box-shadow:none;">
-                    <span>Vendor compare</span>
-                </a>
             <?php endif; ?>
         </div>
     </div>

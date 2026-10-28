@@ -71,6 +71,13 @@ $nav_items = array(
 		'active'=> ( strpos( $path, '/amazon-catalog' ) !== false ),
 		'icon'  => '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
 	),
+	array(
+		'key'   => 'gt-catalog',
+		'label' => 'Grand & Toy',
+		'url'   => home_url( '/gt-catalog/' ),
+		'active'=> ( strpos( $path, '/gt-catalog' ) !== false || strpos( $path, '/gt-cart' ) !== false || strpos( $path, '/gt-checkout' ) !== false ),
+		'icon'  => '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18l-1.5 12h-15L3 7z"/><path d="M8 7V5a4 4 0 0 1 8 0v2"/></svg>',
+	),
 );
 ?>
 

@@ -1,7 +1,10 @@
 <?php
 require_once get_stylesheet_directory() . '/amazon-order-storage.php';
 require_once get_stylesheet_directory() . '/amazon-catalogItems.php';
+// Grand & Toy — separate from Amazon (cXML + procurement UI helpers).
 require_once get_stylesheet_directory() . '/grand-and-toy-cxml.php';
+require_once get_stylesheet_directory() . '/cc-gt-procurement.php';
+// Shared product admin fields (ASIN + eligibility). Optional Ops compare kept off Amazon nav.
 require_once get_stylesheet_directory() . '/cc-vendor-product-admin.php';
 require_once get_stylesheet_directory() . '/cc-vendor-compare.php';
 require_once get_stylesheet_directory() . '/cc-vendor-compare-ajax.php';

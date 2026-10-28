@@ -1255,6 +1255,14 @@
               o.has_amazon_order ? "" : 'title="No Amazon details saved yet — open after cart/checkout"'
             }>Amazon order view</button>`
           );
+          act.push(
+            `<button class="btn btn-xs o-gt-order" data-id="${o.id}">G&T Test Order</button>`
+          );
+          act.push(
+            `<button class="btn btn-xs o-gt-view" data-id="${o.id}" ${
+              o.has_gt_order ? "" : 'title="No Grand & Toy details saved yet — open after G&T checkout"'
+            }>G&T order view</button>`
+          );
 
           return `
           <div class="row">
@@ -1375,15 +1383,28 @@
         });
     });
 
-    $grid.on("click", ".o-amazon-order", function(){
+    $grid.on("click", ".o-amazon-order", function () {
       const id = parseInt($(this).data("id"), 10);
-       window.location.href = "/amazon-catalog/?order-id=" + id;
+      const home = (WCSSM.home || "/").replace(/\/+$/, "/");
+      window.location.href = home + "amazon-catalog/?order-id=" + id;
     });
 
     $grid.on("click", ".o-amazon-view", function () {
       const id = parseInt($(this).data("id"), 10);
       const base = (WCSSM.manager_base || "/manager/").replace(/\/+$/, "/");
       window.location.href = base + "orders/amazon-view/" + id;
+    });
+
+    $grid.on("click", ".o-gt-order", function () {
+      const id = parseInt($(this).data("id"), 10);
+      const home = (WCSSM.home || "/").replace(/\/+$/, "/");
+      window.location.href = home + "gt-catalog/?order-id=" + id;
+    });
+
+    $grid.on("click", ".o-gt-view", function () {
+      const id = parseInt($(this).data("id"), 10);
+      const base = (WCSSM.manager_base || "/manager/").replace(/\/+$/, "/");
+      window.location.href = base + "orders/gt-view/" + id;
     });
 
     $grid.on("click", ".o-reject", function () {

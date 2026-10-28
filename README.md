@@ -9,7 +9,7 @@ Use this repo to sync Amazon + Manager portal changes between laptops.
 - `wp-content/themes/adex360-canna-cabana-stationery-child/` — Amazon catalog/cart/checkout + order storage
 - `wp-content/themes/adex360-cannacabana-stationery/` — parent theme
 - `wp-content/plugins/wcss-internal-supplies/` — Manager portal (incl. **Amazon order view**)
-- `docs/` — store documentation
+- `Knowledge/` — **all** client docs, emails, plans, Approved Item Lists, ASIN sheets, demo status (was `docs/`)
 
 ## Not in this repo (on purpose)
 
@@ -45,9 +45,19 @@ rsync -a \
   "app/public/wp-content/themes/adex360-cannacabana-stationery/" \
   "$SITE/wp-content/themes/adex360-cannacabana-stationery/"
 
-mkdir -p "$SITE/../../docs"
-rsync -a docs/ "$SITE/../../docs/"
+# Knowledge pack (status + client files) — already in repo root after git pull
+# Open: Knowledge/PROJECT_STATUS_AND_CHAT_HISTORY.md
 ```
+
+### Final demo branch (2026-10-28)
+
+```bash
+git fetch origin
+git checkout feature/gt-amazon-knowledge-demo-2026-10-28
+git pull origin feature/gt-amazon-knowledge-demo-2026-10-28
+```
+
+Then paste `Knowledge/DEMO_HANDOFF_PROMPT.md` into Cursor on that machine.
 
 3. Ensure local `wp-config.php` has secrets (from live / other laptop — **do not commit**):
 

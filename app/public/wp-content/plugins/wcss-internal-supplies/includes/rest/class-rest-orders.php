@@ -84,6 +84,12 @@ class WCSS_REST_Orders {
             'callback'            => [ $this, 'orders_read_amazon' ],
         ]);
 
+        register_rest_route( self::NS, '/orders/(?P<id>\d+)/gt', [
+            'methods'             => 'GET',
+            'permission_callback' => [ $this, 'can_manage' ],
+            'callback'            => [ $this, 'orders_read_gt' ],
+        ]);
+
         register_rest_route( self::NS, '/orders/(?P<id>\d+)/status', [
             'methods'=>'POST', 'permission_callback'=>[ $this,'can_manage' ],
             'callback'=>[ $this,'orders_update_status' ],
@@ -376,6 +382,7 @@ class WCSS_REST_Orders {
             'store'      => $store,
             'shipment' => $shipment,
             'has_amazon_order' => (bool) $o->get_meta( '_wcss_amazon_order_data' ),
+            'has_gt_order'     => (bool) $o->get_meta( '_wcss_gt_order_data' ),
         ];
 
     }
@@ -552,7 +559,45 @@ class WCSS_REST_Orders {
             'amazon' => $data,
         ]);
     }
-    
+
+    /**
+     * Grand & Toy stage PO snapshot saved against a WooCommerce order.
+     */
+    public function orders_read_gt( WP_REST_Request $req ) {
+        $order_id = (int) $req['id'];
+        $o        = wc_get_order( $order_id );
+        if ( ! $o ) {
+            return new WP_Error( 'not_found', 'Order not found', [ 'status' => 404 ] );
+        }
+
+        $data = $o->get_meta( '_wcss_gt_order_data', true );
+        if ( ! is_array( $data ) || empty( $data ) ) {
+            return rest_ensure_response([
+                'ok'      => true,
+                'found'   => false,
+                'order'   => [
+                    'id'     => $o->get_id(),
+                    'number' => $o->get_order_number(),
+                ],
+                'gt'      => null,
+                'message' => 'No Grand & Toy details saved yet. Use G&T Test Order → Catalog/Cart/Checkout first.',
+            ]);
+        }
+
+        return rest_ensure_response([
+            'ok'    => true,
+            'found' => true,
+            'order' => [
+                'id'              => $o->get_id(),
+                'number'          => $o->get_order_number(),
+                'status'          => wc_get_order_status_name( $o->get_status() ),
+                'total'           => (float) $o->get_total(),
+                'total_formatted' => html_entity_decode( wp_strip_all_tags( $o->get_formatted_order_total() ), ENT_QUOTES, 'UTF-8' ),
+                'currency'        => $o->get_currency(),
+            ],
+            'gt'    => $data,
+        ]);
+    }
 
     private function dto_addr( array $a ): array {
         return [

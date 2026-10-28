@@ -341,6 +341,7 @@ class WCSS_Route_Manager {
             case 'orders':
                 if ( $action === 'view'   ) return $base . 'orders-view.php';
                 if ( $action === 'amazon-view' ) return $base . 'orders-amazon-view.php';
+                if ( $action === 'gt-view' ) return $base . 'orders-gt-view.php';
                 if ( $action === null || $action === '' ) return $base . 'orders.php';
                 return false;
 

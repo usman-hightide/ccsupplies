@@ -5,6 +5,15 @@
 .vscode/
 *.log
 
+# Local env / junk (never commit)
+app/.envrc
+**/*.bak
+**/advanced-cache.php.bak
+
+# Large local DB dumps (keep README under Knowledge/db-backups/)
+Knowledge/db-backups/*.sql
+docs/db-backups/*.sql
+
 # Local by Flywheel runtime
 logs/
 conf/
