@@ -189,7 +189,55 @@ function cc_cart_vendor_after_item_name( $cart_item, $cart_item_key ) {
 add_action( 'woocommerce_after_cart_item_name', 'cc_cart_vendor_after_item_name', 20, 2 );
 
 /**
- * Copy vendor choice onto order line items.
+ * Expose vendor choice in cart item data (checkout / emails / order UI helpers).
+ *
+ * @param array $item_data Item data rows.
+ * @param array $cart_item Cart item.
+ * @return array
+ */
+function cc_cart_vendor_get_item_data( $item_data, $cart_item ) {
+	if ( empty( $cart_item['cc_vendor'] ) ) {
+		return $item_data;
+	}
+
+	$vendor = sanitize_key( (string) $cart_item['cc_vendor'] );
+	if ( ! in_array( $vendor, cc_cart_vendor_allowed_keys(), true ) ) {
+		return $item_data;
+	}
+
+	// Cart has the vendor dropdown; checkout review table has Vendor / Unit columns.
+	if ( ( function_exists( 'is_cart' ) && is_cart() ) || ( function_exists( 'is_checkout' ) && is_checkout() ) ) {
+		return $item_data;
+	}
+
+	$item_data[] = array(
+		'key'     => __( 'Vendor', 'adex360' ),
+		'value'   => cc_cart_vendor_label( $vendor ),
+		'display' => '',
+	);
+
+	if ( ! empty( $cart_item['cc_vendor_id'] ) ) {
+		$item_data[] = array(
+			'key'     => $vendor === 'amazon' ? __( 'ASIN', 'adex360' ) : __( 'G&T part', 'adex360' ),
+			'value'   => (string) $cart_item['cc_vendor_id'],
+			'display' => '',
+		);
+	}
+
+	if ( isset( $cart_item['cc_vendor_price'] ) && $cart_item['cc_vendor_price'] !== '' && empty( $cart_item['cc_vendor_error'] ) ) {
+		$item_data[] = array(
+			'key'     => __( 'Vendor unit price', 'adex360' ),
+			'value'   => wp_strip_all_tags( wc_price( (float) $cart_item['cc_vendor_price'] ) ),
+			'display' => wc_price( (float) $cart_item['cc_vendor_price'] ),
+		);
+	}
+
+	return $item_data;
+}
+add_filter( 'woocommerce_get_item_data', 'cc_cart_vendor_get_item_data', 20, 2 );
+
+/**
+ * Copy vendor choice onto order line items (forward to manager / thank-you / emails).
  *
  * @param WC_Order_Item_Product $item          Order item.
  * @param string                $cart_item_key Cart key.
@@ -209,7 +257,13 @@ function cc_cart_vendor_checkout_line_item( $item, $cart_item_key, $values, $ord
 	$item->add_meta_data( __( 'Vendor', 'adex360' ), cc_cart_vendor_label( $vendor ), true );
 
 	if ( isset( $values['cc_vendor_price'] ) && $values['cc_vendor_price'] !== '' && empty( $values['cc_vendor_error'] ) ) {
-		$item->add_meta_data( '_cc_vendor_price', (float) $values['cc_vendor_price'], true );
+		$price = (float) $values['cc_vendor_price'];
+		$item->add_meta_data( '_cc_vendor_price', $price, true );
+		$item->add_meta_data(
+			__( 'Vendor unit price', 'adex360' ),
+			wp_strip_all_tags( wc_price( $price ) ),
+			true
+		);
 	}
 	if ( ! empty( $values['cc_vendor_id'] ) ) {
 		$item->add_meta_data( '_cc_vendor_id', (string) $values['cc_vendor_id'], true );
@@ -218,6 +272,44 @@ function cc_cart_vendor_checkout_line_item( $item, $cart_item_key, $values, $ord
 	}
 }
 add_action( 'woocommerce_checkout_create_order_line_item', 'cc_cart_vendor_checkout_line_item', 20, 4 );
+
+/**
+ * Persist a compact vendor summary on the order for manager tooling.
+ *
+ * @param int      $order_id Order ID.
+ * @param array    $posted   Posted data.
+ * @param WC_Order $order    Order object.
+ */
+function cc_cart_vendor_checkout_order_meta( $order_id, $posted = array(), $order = null ) {
+	if ( ! $order && function_exists( 'wc_get_order' ) ) {
+		$order = wc_get_order( $order_id );
+	}
+	if ( ! $order || ! is_a( $order, 'WC_Order' ) ) {
+		return;
+	}
+
+	$summary = array();
+	foreach ( $order->get_items( 'line_item' ) as $item ) {
+		$vendor = (string) $item->get_meta( '_cc_vendor', true );
+		if ( $vendor === '' ) {
+			continue;
+		}
+		$summary[] = array(
+			'product_id' => (int) $item->get_product_id(),
+			'name'       => $item->get_name(),
+			'qty'        => (float) $item->get_quantity(),
+			'vendor'     => $vendor,
+			'vendor_id'  => (string) $item->get_meta( '_cc_vendor_id', true ),
+			'unit_price' => $item->get_meta( '_cc_vendor_price', true ),
+		);
+	}
+
+	if ( $summary ) {
+		$order->update_meta_data( '_cc_cart_vendor_summary', $summary );
+		$order->save();
+	}
+}
+add_action( 'woocommerce_checkout_order_processed', 'cc_cart_vendor_checkout_order_meta', 20, 3 );
 
 /**
  * Fetch one vendor row for a product.

@@ -80,6 +80,17 @@ function cc_cart_proceed_button_label( $translated, $text, $domain ) {
 add_filter( 'gettext', 'cc_cart_proceed_button_label', 20, 3 );
 
 /**
+ * “Your order” heading inside #order_review (must be inside the card, not a grid sibling).
+ */
+function cc_checkout_order_review_title() {
+	if ( ! function_exists( 'is_checkout' ) || ! is_checkout() ) {
+		return;
+	}
+	echo '<h3 class="cc-checkout-order-title">' . esc_html__( 'Your order', 'woocommerce' ) . '</h3>';
+}
+add_action( 'woocommerce_checkout_order_review', 'cc_checkout_order_review_title', 1 );
+
+/**
  * Enqueue cart page assets.
  */
 function cc_cart_enqueue_assets() {
