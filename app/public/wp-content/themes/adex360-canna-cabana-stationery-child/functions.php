@@ -8,6 +8,8 @@ require_once get_stylesheet_directory() . '/cc-gt-procurement.php';
 require_once get_stylesheet_directory() . '/cc-vendor-product-admin.php';
 require_once get_stylesheet_directory() . '/cc-vendor-compare.php';
 require_once get_stylesheet_directory() . '/cc-vendor-compare-ajax.php';
+require_once get_stylesheet_directory() . '/cc-cart-ui.php';
+require_once get_stylesheet_directory() . '/cc-cart-vendor.php';
 
 
 // Enqueue parent and child styles
@@ -21,3 +23,21 @@ function adex360_cannacabana_child_enqueue_styles() {
     );
 }
 add_action( 'wp_enqueue_scripts', 'adex360_cannacabana_child_enqueue_styles' );
+
+/**
+ * Shop sidebar category counts: show "5" instead of "(5)".
+ *
+ * @param string $output HTML from wp_list_categories / product cat walker.
+ * @return string
+ */
+function cc_shop_sidebar_strip_category_count_brackets( $output ) {
+	if ( ! is_string( $output ) || $output === '' ) {
+		return $output;
+	}
+	return preg_replace(
+		'/<span class="count">\s*\(\s*([0-9,]+)\s*\)\s*<\/span>/',
+		'<span class="count">$1</span>',
+		$output
+	);
+}
+add_filter( 'wp_list_categories', 'cc_shop_sidebar_strip_category_count_brackets', 20 );

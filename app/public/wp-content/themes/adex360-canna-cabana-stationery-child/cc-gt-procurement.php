@@ -666,72 +666,6 @@ function cc_gt_checkout_copy_cart_item_meta( $item, $cart_item_key, $values ) {
 add_action( 'woocommerce_checkout_create_order_line_item', 'cc_gt_checkout_copy_cart_item_meta', 10, 3 );
 
 /**
- * My Account → Grand & Toy supplies link (store employees).
- *
- * @param array<string,string> $items Menu items.
- * @return array<string,string>
- */
-function cc_gt_account_menu_items( $items ) {
-	if ( ! cc_gt_user_is_store_employee() ) {
-		return $items;
-	}
-	$new = array();
-	foreach ( $items as $key => $label ) {
-		$new[ $key ] = $label;
-		if ( $key === 'dashboard' ) {
-			$new['gt-supplies'] = __( 'Grand & Toy supplies', 'adex360' );
-		}
-	}
-	if ( ! isset( $new['gt-supplies'] ) ) {
-		$new['gt-supplies'] = __( 'Grand & Toy supplies', 'adex360' );
-	}
-	return $new;
-}
-add_filter( 'woocommerce_account_menu_items', 'cc_gt_account_menu_items', 20 );
-
-/**
- * Register My Account endpoint (legacy URL /my-account/gt-supplies/).
- */
-function cc_gt_add_account_endpoint() {
-	add_rewrite_endpoint( 'gt-supplies', EP_ROOT | EP_PAGES );
-}
-add_action( 'init', 'cc_gt_add_account_endpoint', 20 );
-
-/**
- * Menu link goes straight to G&T catalog (avoids account-template redirect).
- *
- * @param string $url       Endpoint URL.
- * @param string $endpoint  Endpoint key.
- * @param string $value     Endpoint value.
- * @param string $permalink Account permalink.
- * @return string
- */
-function cc_gt_account_endpoint_url( $url, $endpoint, $value, $permalink ) {
-	if ( $endpoint === 'gt-supplies' ) {
-		return home_url( '/gt-catalog/' );
-	}
-	return $url;
-}
-add_filter( 'woocommerce_get_endpoint_url', 'cc_gt_account_endpoint_url', 10, 4 );
-
-/**
- * Early redirect if someone hits /my-account/gt-supplies/ directly.
- * Must run before any HTML output (fixes headers-already-sent).
- */
-function cc_gt_account_gt_supplies_early_redirect() {
-	global $wp;
-	if ( empty( $wp->query_vars ) || ! array_key_exists( 'gt-supplies', $wp->query_vars ) ) {
-		return;
-	}
-	if ( headers_sent() ) {
-		return;
-	}
-	wp_safe_redirect( home_url( '/gt-catalog/' ), 302 );
-	exit;
-}
-add_action( 'template_redirect', 'cc_gt_account_gt_supplies_early_redirect', 1 );
-
-/**
  * G&T pages embed per-user AJAX nonces — never let CDN/page cache serve them.
  */
 function cc_gt_nocache_pages() {
@@ -746,27 +680,9 @@ function cc_gt_nocache_pages() {
 add_action( 'template_redirect', 'cc_gt_nocache_pages', 0 );
 
 /**
- * Fallback content if redirect could not run (should be rare).
+ * Store employees order via Explore products (Woo shop) only.
+ * Do not surface a separate My Account → Grand & Toy supplies link.
  */
-function cc_gt_account_gt_supplies_content() {
-	$catalog = esc_url( home_url( '/gt-catalog/' ) );
-	echo '<p>' . esc_html__( 'Opening Grand & Toy supplies…', 'adex360' ) . '</p>';
-	echo '<p><a class="button" href="' . $catalog . '">' . esc_html__( 'Go to Grand & Toy catalog', 'adex360' ) . '</a></p>';
-	echo '<script>window.location.replace(' . wp_json_encode( home_url( '/gt-catalog/' ) ) . ');</script>';
-}
-add_action( 'woocommerce_account_gt-supplies_endpoint', 'cc_gt_account_gt_supplies_content' );
-
-/**
- * One-time rewrite flush after endpoint registration.
- */
-function cc_gt_maybe_flush_rewrite() {
-	if ( get_option( 'cc_gt_account_endpoint_flushed' ) ) {
-		return;
-	}
-	flush_rewrite_rules( false );
-	update_option( 'cc_gt_account_endpoint_flushed', 1, false );
-}
-add_action( 'init', 'cc_gt_maybe_flush_rewrite', 99 );
 
 /**
  * AJAX: add to G&T cart.
