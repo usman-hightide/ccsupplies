@@ -101,7 +101,7 @@ class WCSS_Route_Manager {
             'wcss-manager',
             plugins_url( 'frontend/assets/css/manager.css', WCSS_FILE ),
             [],
-            '1.0.7'
+            '1.0.12'
         );
     
         wp_enqueue_script(

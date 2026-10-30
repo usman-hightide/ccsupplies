@@ -1178,7 +1178,7 @@ body.admin-bar {
 
 #wcssm-orders-grid .row {
   display: grid;
-  grid-template-columns: 110px 160px 160px 140px 1fr 150px 120px 220px;
+  grid-template-columns: 110px 160px 160px 140px 1fr 140px 150px 120px 120px;
   gap: 0;
   padding: 10px 12px;
   border-bottom: 1px solid #eee;
@@ -1917,12 +1917,36 @@ body.admin-bar {
 }
 
 .wcssm-orders #wcssm-orders-grid .row {
-  grid-template-columns: 78px 156px 148px 88px minmax(180px, 1fr) 118px 110px 268px;
+  grid-template-columns: 78px 156px 148px 88px minmax(160px, 1fr) 128px 110px 100px 120px;
   min-width: 1160px;
   padding: 12px 14px;
   border-bottom: 1px solid #f0f0f0;
   color: #222;
   font-size: 13px;
+}
+
+.wcssm-orders #wcssm-orders-grid .vendor-badge.vendor-amazon {
+  background: #fff7ed;
+  color: #9a3412;
+  border-color: #ffedd5;
+}
+
+.wcssm-orders #wcssm-orders-grid .vendor-badge.vendor-gt {
+  background: #ecfdf5;
+  color: #065f46;
+  border-color: #d1fae5;
+}
+
+.wcssm-orders #wcssm-orders-grid .vendor-badge.vendor-mixed {
+  background: #f5f3ff;
+  color: #5b21b6;
+  border-color: #ede9fe;
+}
+
+.wcssm-orders #wcssm-orders-grid .vendor-badge.vendor-none {
+  background: #f3f4f6;
+  color: #6b7280;
+  border-color: #e5e7eb;
 }
 
 .wcssm-orders #wcssm-orders-grid .row.head {
@@ -1948,28 +1972,38 @@ body.admin-bar {
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.wcssm-orders #wcssm-orders-grid .row.head > div:last-child {
+  text-align: right;
 }
 
 .wcssm-orders #wcssm-orders-grid .acts button.btn {
-  height: 30px;
-  padding: 0 9px;
-  border-radius: 7px;
-  font-size: 12px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
   white-space: nowrap;
 }
 
 .wcssm-orders #wcssm-orders-grid .acts .o-view,
 .wcssm-orders #wcssm-orders-grid .acts .o-amazon-view {
-  background: #fff;
-  color: #111;
+  min-width: 88px;
+  background: #111;
+  border-color: #111;
+  color: #fff;
+  box-shadow: 0 1px 0 rgba(17, 17, 17, 0.08);
 }
 
 .wcssm-orders #wcssm-orders-grid .acts .o-view:hover,
 .wcssm-orders #wcssm-orders-grid .acts .o-view:focus,
 .wcssm-orders #wcssm-orders-grid .acts .o-amazon-view:hover,
 .wcssm-orders #wcssm-orders-grid .acts .o-amazon-view:focus {
-  background: #111;
-  border-color: #111;
+  background: #2a2a2a;
+  border-color: #2a2a2a;
   color: #fff;
 }
 

@@ -1242,6 +1242,20 @@
       );
     }
 
+    function vendorCell(o) {
+      const slug = (o.vendor || "").toString();
+      const label = (o.vendor_label || "—").toString();
+      const cls =
+        slug === "amazon"
+          ? "vendor-amazon"
+          : slug === "gt"
+          ? "vendor-gt"
+          : slug === "mixed"
+          ? "vendor-mixed"
+          : "vendor-none";
+      return `<span class="badge vendor-badge ${cls}">${escapeHtml(label)}</span>`;
+    }
+
     function render(items) {
       const head = `
         <div class="row head">
@@ -1250,6 +1264,7 @@
           <div>Status</div>
           <div>Total</div>
           <div>Customer</div>
+          <div>Vendor</div>
           <div>EDD</div>
           <div>Ref</div>
           <div>Actions</div>
@@ -1257,12 +1272,9 @@
 
       const rows = (items || [])
         .map((o) => {
-          // List actions only: View + vendor test-order entry points.
-          // Approve / Reject / vendor detail views move elsewhere (detail screens).
+          // List actions: View only. Amazon / G&T Test Order live on the order View screen.
           const act = [
             `<button class="btn btn-xs o-view" data-id="${o.id}">View</button>`,
-            `<button class="btn btn-xs o-amazon-order" data-id="${o.id}">Amazon Test Order</button>`,
-            `<button class="btn btn-xs o-gt-order" data-id="${o.id}">G&T Test Order</button>`,
           ];
 
           return `
@@ -1274,6 +1286,7 @@
             )}">${escapeHtml(o.status)}</span></div>
             <div>${o.total || ""}</div>
             <div>${escapeHtml(o.customer || "")}</div>
+            <div>${vendorCell(o)}</div>
             <div>${escapeHtml(o.edd || "")}</div>
             <div>${escapeHtml(o.ref || "")}</div>
             <div class="acts">${act.join(" ")}</div>
@@ -1458,6 +1471,164 @@
 
   window.initOrderView = function initOrderView(orderId) {
     var $wrap = jQuery("#order-detail");
+    var statusBusy = false;
+
+    function setOrderMsg(html) {
+      var $msg = $wrap.find("#order-msg");
+      if ($msg.length) {
+        $msg.html(html);
+      }
+    }
+
+    function setStatusButtonsBusy(busy, newStatus) {
+      var $approve = $wrap.find("#order-approve");
+      var $reject = $wrap.find("#order-reject");
+      $approve.prop("disabled", !!busy);
+      $reject.prop("disabled", !!busy);
+      if (busy && newStatus === "approved" && $approve.length) {
+        $approve.data("label", $approve.data("label") || $approve.text());
+        $approve.text("Approving…");
+      } else if (busy && newStatus === "rejected" && $reject.length) {
+        $reject.data("label", $reject.data("label") || $reject.text());
+        $reject.text("Rejecting…");
+      } else {
+        if ($approve.data("label")) $approve.text($approve.data("label"));
+        if ($reject.data("label")) $reject.text($reject.data("label"));
+      }
+    }
+
+    function updateStatus(newStatus, opts) {
+      opts = opts || {};
+      if (statusBusy) return;
+      statusBusy = true;
+      setStatusButtonsBusy(true, newStatus);
+      setOrderMsg("<div class='flash-info'>Updating status…</div>");
+
+      var payload = { status: newStatus };
+      if (opts.override) payload.override = 1;
+      if (opts.note) payload.note = opts.note;
+
+      fetch(
+        (WCSSM.rest || "/wp-json/wcss/v1/") + "orders/" + orderId + "/status",
+        {
+          method: "POST",
+          headers: {
+            "X-WP-Nonce": WCSSM.nonce,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        }
+      )
+        .then(function (r) {
+          if (r.status === 409) {
+            return r.json().then(function (j) {
+              j.__status = 409;
+              return j;
+            });
+          }
+          return r.json();
+        })
+        .then(function (res) {
+          // WP REST: limit fields live on res.data (flat). Older nested shape: res.data.data
+          var limitData = null;
+          if (res && res.__status === 409) {
+            if (res.data && res.data.data && typeof res.data.data === "object") {
+              limitData = res.data.data;
+            } else if (res.data && typeof res.data === "object") {
+              limitData = res.data;
+            }
+          }
+
+          if (limitData) {
+            statusBusy = false;
+            setStatusButtonsBusy(false);
+            var d = limitData;
+            var money = function (n) {
+              try {
+                return new Intl.NumberFormat(undefined, {
+                  style: "currency",
+                  currency: d.currency || "CAD",
+                }).format(+n || 0);
+              } catch (e) {
+                return (d.currency || "") + " " + (n || 0);
+              }
+            };
+            var msg = "Approving this order exceeds the store limits:\n";
+            if (d.quota)
+              msg += "• Orders: " + d.will_orders + " / " + d.quota + "\n";
+            if (d.budget)
+              msg +=
+                "• Spend: " +
+                money(d.will_spend) +
+                " / " +
+                money(d.budget) +
+                "\n";
+            msg += "\nProceed anyway?";
+            if (window.confirm(msg)) {
+              var note = window.prompt(
+                "Add a note (optional):",
+                "Approved with override"
+              );
+              updateStatus("approved", {
+                override: true,
+                note: note || "",
+              });
+            } else {
+              setOrderMsg(
+                "<div class='flash-error'>Approval cancelled.</div>"
+              );
+            }
+            return;
+          }
+
+          if (res && res.ok) {
+            setOrderMsg(
+              "<div class='flash-success'>Status updated to " +
+                newStatus +
+                "!</div>"
+            );
+            // Stay on this order View and refresh so vendor fulfill options appear.
+            setTimeout(function () {
+              initOrderView(orderId);
+            }, 450);
+          } else {
+            statusBusy = false;
+            setStatusButtonsBusy(false);
+            setOrderMsg(
+              "<div class='flash-error'>" +
+                (res && res.message ? res.message : "Failed") +
+                "</div>"
+            );
+          }
+        })
+        .catch(function () {
+          statusBusy = false;
+          setStatusButtonsBusy(false);
+          setOrderMsg("<div class='flash-error'>Request failed</div>");
+        });
+    }
+
+    // Delegated handlers survive HTML re-renders (fixes first-click miss).
+    $wrap.off("click.wcssOrderStatus");
+    $wrap.on("click.wcssOrderStatus", "#order-approve", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      updateStatus("approved");
+    });
+    $wrap.on("click.wcssOrderStatus", "#order-reject", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      updateStatus("rejected");
+    });
+    jQuery(document)
+      .off("click.wcssVendorFulfill", "[data-vendor-fulfill]")
+      .on("click.wcssVendorFulfill", "[data-vendor-fulfill]", function () {
+        var path = jQuery(this).attr("data-vendor-path") || "";
+        if (!path) return;
+        var home = (WCSSM.home || "/").replace(/\/+$/, "/");
+        window.location.href = home + path + orderId;
+      });
+
     $wrap.html("<p>Loading...</p>");
 
     fetch((WCSSM.rest || "/wp-json/wcss/v1/") + "orders/" + orderId, {
@@ -1714,15 +1885,101 @@
           "</div>" +
           "</div>" +
           ledgerBlock +
-          "<div class='ov-status-card'>" +
-          "<h3>Update Status</h3>" +
-          "<p class='ov-status-hint'>Review this requisition, then approve to proceed or reject to send it back.</p>" +
-          "<div class='actions ov-status-actions'>" +
-          "<button type='button' class='btn btn-approve' id='order-approve'>Approve order</button>" +
-          "<button type='button' class='btn btn-reject' id='order-reject'>Reject order</button>" +
-          "</div>" +
-          "<div id='order-msg'></div>" +
-          "</div>";
+          (function () {
+            var statusSlug = (data.status_slug || "").toString();
+            var canDecide =
+              ["pending", "awaiting-approval", "on-hold"].indexOf(statusSlug) !==
+              -1;
+            var isApproved = statusSlug === "approved";
+            var storeVendor = (data.vendor || "").toString();
+            var storeVendorLabel = (data.vendor_label || "—").toString();
+            var fulfillVendors = [
+              {
+                key: "amazon",
+                label: "Amazon",
+                path: "amazon-catalog/?order-id=",
+              },
+              {
+                key: "gt",
+                label: "Grand & Toy",
+                path: "gt-catalog/?order-id=",
+              },
+            ];
+
+            var statusHtml =
+              "<div class='ov-status-card'>" + "<h3>Update Status</h3>";
+
+            if (canDecide) {
+              statusHtml +=
+                "<p class='ov-status-hint'>Review this requisition, then approve to proceed or reject to send it back.</p>" +
+                "<div class='actions ov-status-actions'>" +
+                "<button type='button' class='btn btn-approve' id='order-approve'>Approve order</button>" +
+                "<button type='button' class='btn btn-reject' id='order-reject'>Reject order</button>" +
+                "</div>";
+            } else {
+              statusHtml +=
+                "<p class='ov-status-hint'>Current status: <strong>" +
+                esc(data.status || statusSlug) +
+                "</strong></p>";
+            }
+
+            if (isApproved) {
+              statusHtml +=
+                "<div class='ov-vendor-fulfill'>" +
+                "<p class='ov-vendor-fulfill__eyebrow'>Next step</p>" +
+                "<h4>Choose a vendor to place this order</h4>" +
+                "<p class='ov-vendor-fulfill__lead'>Pick Amazon or Grand &amp; Toy. You’ll go to that vendor’s checkout with the store’s submitted shipping details already filled in.</p>";
+              if (storeVendor && storeVendor !== "mixed") {
+                statusHtml +=
+                  "<div class='ov-store-vendor' role='status'>" +
+                  "<span class='ov-store-vendor__label'>Store owner preferred</span>" +
+                  "<span class='ov-store-vendor__value'>" +
+                  esc(storeVendorLabel) +
+                  "</span>" +
+                  "</div>";
+              } else if (storeVendor === "mixed") {
+                statusHtml +=
+                  "<div class='ov-store-vendor' role='status'>" +
+                  "<span class='ov-store-vendor__label'>Store owner preferred</span>" +
+                  "<span class='ov-store-vendor__value'>Mixed vendors on this order</span>" +
+                  "</div>";
+              } else {
+                statusHtml +=
+                  "<div class='ov-store-vendor is-empty' role='status'>" +
+                  "<span class='ov-store-vendor__label'>Store owner preferred</span>" +
+                  "<span class='ov-store-vendor__value'>No vendor selected — choose one below</span>" +
+                  "</div>";
+              }
+              statusHtml += "<div class='actions ov-fulfill-actions'>";
+              fulfillVendors.forEach(function (v) {
+                var preferred = storeVendor && storeVendor === v.key;
+                var hint =
+                  v.key === "amazon"
+                    ? "Open Amazon catalog & checkout"
+                    : "Open G&T catalog & checkout";
+                statusHtml +=
+                  "<button type='button' class='btn btn-fulfill" +
+                  (preferred ? " is-preferred" : "") +
+                  "' data-vendor-fulfill='" +
+                  esc(v.key) +
+                  "' data-vendor-path='" +
+                  esc(v.path) +
+                  "'>" +
+                  "<span class='btn-fulfill__name'>" +
+                  esc(v.label) +
+                  (preferred ? " · recommended" : "") +
+                  "</span>" +
+                  "<span class='btn-fulfill__hint'>" +
+                  esc(hint) +
+                  "</span>" +
+                  "</button>";
+              });
+              statusHtml += "</div></div>";
+            }
+
+            statusHtml += "<div id='order-msg'></div></div>";
+            return statusHtml;
+          })();
 
         // var html =
         //   "<div class='order-meta'>" +
@@ -1782,110 +2039,6 @@
         //   "<div id='order-msg'></div>";
 
         $wrap.html(html);
-
-        jQuery("#order-approve").on("click", function () {
-          updateStatus("approved");
-        });
-        jQuery("#order-reject").on("click", function () {
-          updateStatus("rejected");
-        });
-
-        function updateStatus(newStatus, opts) {
-          opts = opts || {};
-          var payload = { status: newStatus };
-          if (opts.override) payload.override = 1;
-          if (opts.note) payload.note = opts.note;
-
-          fetch(
-            (WCSSM.rest || "/wp-json/wcss/v1/") +
-              "orders/" +
-              orderId +
-              "/status",
-            {
-              method: "POST",
-              headers: {
-                "X-WP-Nonce": WCSSM.nonce,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify(payload),
-            }
-          )
-            .then(function (r) {
-              // Handle 409 (limit exceeded) specially
-              if (r.status === 409)
-                return r.json().then(function (j) {
-                  j.__status = 409;
-                  return j;
-                });
-              return r.json();
-            })
-            .then(function (res) {
-              // Limit exceeded → show confirm with details, allow override
-              if (res && res.__status === 409 && res.data) {
-                var d = res.data;
-                var money = function (n) {
-                  try {
-                    return new Intl.NumberFormat(undefined, {
-                      style: "currency",
-                      currency: d.currency,
-                    }).format(+n || 0);
-                  } catch (e) {
-                    return (d.currency || "") + " " + (n || 0);
-                  }
-                };
-                var msg = "Approving this order exceeds the store limits:\n";
-                if (d.quota)
-                  msg += "• Orders: " + d.will_orders + " / " + d.quota + "\n";
-                if (d.budget)
-                  msg +=
-                    "• Spend: " +
-                    money(d.will_spend) +
-                    " / " +
-                    money(d.budget) +
-                    "\n";
-                msg += "\nProceed anyway?";
-                if (window.confirm(msg)) {
-                  var note = window.prompt(
-                    "Add a note (optional):",
-                    "Approved with override"
-                  );
-                  updateStatus("approved", {
-                    override: true,
-                    note: note || "",
-                  });
-                } else {
-                  jQuery("#order-msg").html(
-                    "<div class='flash-error'>Approval cancelled.</div>"
-                  );
-                }
-                return;
-              }
-
-              if (res && res.ok) {
-                jQuery("#order-msg").html(
-                  "<div class='flash-success'>Status updated to " +
-                    newStatus +
-                    "!</div>"
-                );
-                // go back to orders list after a short pause
-                setTimeout(function () {
-                  window.location.href =
-                    (WCSSM.manager_base || "/manager/") + "orders";
-                }, 500);
-              } else {
-                jQuery("#order-msg").html(
-                  "<div class='flash-error'>" +
-                    (res && res.message ? res.message : "Failed") +
-                    "</div>"
-                );
-              }
-            })
-            .catch(function (e) {
-              jQuery("#order-msg").html(
-                "<div class='flash-error'>Request failed</div>"
-              );
-            });
-        }
       })
       .catch(function () {
         $wrap.html("<div class='flash-error'>Failed to load order.</div>");

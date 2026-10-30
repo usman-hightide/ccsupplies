@@ -19,6 +19,8 @@
     $(".woocommerce-cart-form .quantity .qty").each(function () {
       wrapQty($(this));
     });
+    syncSelectAll();
+    updateSelectedCount();
   }
 
   function bump($input, delta) {
@@ -124,9 +126,27 @@
       })
       .always(function () {
         if (loaderTimer) window.clearTimeout(loaderTimer);
-        if (started) setVendorLoading($wrap, false);
-        else setVendorLoading($wrap, false);
+        setVendorLoading($wrap, false);
       });
+  }
+
+  function updateSelectedCount() {
+    var count = $(".cc-cart-item-select:checked").length;
+    var $label = $("[data-cc-selected-count]");
+    if (!$label.length) return;
+    var i18n = (window.ccCartUi && ccCartUi.i18n) || {};
+    var tpl = count === 1 ? i18n.selectedOne || "%d item selected" : i18n.selectedMany || "%d items selected";
+    $label.text(tpl.replace("%d", String(count)));
+  }
+
+  function syncSelectAll() {
+    var $items = $(".cc-cart-item-select");
+    var $all = $(".cc-cart-select-all");
+    if (!$all.length || !$items.length) return;
+    var total = $items.length;
+    var checked = $items.filter(":checked").length;
+    $all.prop("checked", checked === total && total > 0);
+    $all.prop("indeterminate", checked > 0 && checked < total);
   }
 
   $(document.body).on("click", ".cc-qty__btn--minus", function (e) {
@@ -141,6 +161,83 @@
 
   $(document.body).on("change", ".cc-cart-vendor__select", function () {
     selectVendor($(this));
+  });
+
+  $(document.body).on("change", ".cc-cart-select-all", function () {
+    var on = $(this).is(":checked");
+    $(".cc-cart-item-select").prop("checked", on);
+    updateSelectedCount();
+  });
+
+  $(document.body).on("change", ".cc-cart-item-select", function () {
+    syncSelectAll();
+    updateSelectedCount();
+  });
+
+  $(document.body).on("click", ".cc-cart-clear", function (e) {
+    if (!window.confirm("Clear all items from your cart?")) {
+      e.preventDefault();
+    }
+  });
+
+  function showCheckoutAlert(html) {
+    var $box = $("#cc-checkout-alert");
+    if (!$box.length) return;
+    var title =
+      (window.ccCartUi && ccCartUi.i18n && ccCartUi.i18n.checkoutErrorTitle) ||
+      "Please fix the following to continue";
+    var $body = $box.find(".cc-checkout-alert__body");
+    $body.empty();
+    $body.append($('<p class="cc-checkout-alert__title" />').text(title));
+    if (html) {
+      $body.append(html);
+    }
+    $box.addClass("is-visible is-error").removeAttr("hidden").attr({
+      role: "alert",
+      "aria-live": "assertive",
+    });
+    try {
+      $box.get(0).scrollIntoView({ behavior: "smooth", block: "center" });
+    } catch (err) {
+      /* ignore */
+    }
+  }
+
+  function hideCheckoutAlertIfEmpty() {
+    var $box = $("#cc-checkout-alert");
+    if (!$box.length) return;
+    var hasList = $box.find(".cc-checkout-alert__list li, .woocommerce-error li, .woocommerce-error").length > 0;
+    if (!hasList && !$box.find(".cc-checkout-alert__body").text().trim()) {
+      $box.removeClass("is-visible is-error").attr("hidden", true);
+    }
+  }
+
+  $(document.body).on("checkout_error", function (e, errorMessage) {
+    if (!(window.ccCartUi && ccCartUi.isCheckout)) return;
+    var $tmp = $("<div/>").append(errorMessage || "");
+    // Prefer list items from Woo error markup.
+    var $list = $tmp.find(".woocommerce-error, ul.woocommerce-error");
+    if ($list.length) {
+      showCheckoutAlert($list.first().clone());
+    } else {
+      showCheckoutAlert($tmp.contents().length ? $tmp.contents() : $("<p/>").text(String(errorMessage || "")));
+    }
+  });
+
+  $(document.body).on("updated_checkout", function () {
+    if (!(window.ccCartUi && ccCartUi.isCheckout)) return;
+    // Move any stray notice group into the alert box.
+    var $stray = $(".woocommerce-NoticeGroup-checkout, .woocommerce-notices-wrapper").filter(function () {
+      return $(this).closest("#cc-checkout-alert").length === 0;
+    });
+    if ($stray.length && $stray.text().trim()) {
+      var $errors = $stray.find(".woocommerce-error").first();
+      if ($errors.length) {
+        showCheckoutAlert($errors.clone());
+        $stray.empty();
+      }
+    }
+    hideCheckoutAlertIfEmpty();
   });
 
   $(enhance);

@@ -251,24 +251,22 @@ class WCSS_REST_Orders {
                 $exceeds_budget = ($budget > 0) && ($will_spend  > $budget);
     
                 if ( ($exceeds_count || $exceeds_budget) && ! $override ) {
-                    // 409 with payload to show in UI
+                    // 409 with flat payload (WP REST puts these under response.data)
                     return new WP_Error(
                         'wcss_limit_block',
                         __( 'Approving this order exceeds the store’s monthly limit.', 'wcss' ),
                         [
-                            'status' => 409,
-                            'data'   => [
-                                'store_id'      => $store_id,
-                                'month'         => $ym,
-                                'quota'         => $quota,
-                                'quota_used'    => $quota_used,
-                                'will_orders'   => $will_orders,
-                                'budget'        => $budget,
-                                'budget_used'   => $budget_used,
-                                'order_total'   => $order_total,
-                                'will_spend'    => $will_spend,
-                                'currency'      => get_woocommerce_currency(),
-                            ],
+                            'status'        => 409,
+                            'store_id'      => $store_id,
+                            'month'         => $ym,
+                            'quota'         => $quota,
+                            'quota_used'    => $quota_used,
+                            'will_orders'   => $will_orders,
+                            'budget'        => $budget,
+                            'budget_used'   => $budget_used,
+                            'order_total'   => $order_total,
+                            'will_spend'    => $will_spend,
+                            'currency'      => get_woocommerce_currency(),
                         ]
                     );
                 }
@@ -368,6 +366,8 @@ class WCSS_REST_Orders {
                 'edd'      => (string) $o->get_meta( '_wcss_edd' ), // optional: YYYY-MM-DD
             ];
 
+        $vendor_summary = $this->dto_order_vendor_summary( $o );
+
         return [
             'id'         => $o->get_id(),
             'number'     => $o->get_order_number(),
@@ -377,6 +377,9 @@ class WCSS_REST_Orders {
             'total'      => $o->get_total(),                  // raw numeric; JS can format
             'total_html' => $o->get_formatted_order_total(),  // pretty
             'customer'   => $o->get_billing_company() ?: $o->get_billing_email(),
+            'vendor'     => $vendor_summary['vendor'],
+            'vendor_label' => $vendor_summary['vendor_label'],
+            'vendors'    => $vendor_summary['vendors'],
             'edd'        => $o->get_meta('_wcss_expected_delivery_date'),
             'ref'        => $o->get_meta('_wcss_internal_ref'),
             'store'      => $store,
@@ -385,6 +388,52 @@ class WCSS_REST_Orders {
             'has_gt_order'     => (bool) $o->get_meta( '_wcss_gt_order_data' ),
         ];
 
+    }
+
+    /**
+     * Summarize cart vendor selections stored on order line items (_cc_vendor).
+     *
+     * @param WC_Order $o Order.
+     * @return array{vendor:string,vendor_label:string,vendors:array<int,string>}
+     */
+    private function dto_order_vendor_summary( $o ) {
+        $keys = array();
+
+        foreach ( $o->get_items() as $item ) {
+            $vendor = sanitize_key( (string) $item->get_meta( '_cc_vendor', true ) );
+            if ( $vendor === '' ) {
+                continue;
+            }
+            $keys[ $vendor ] = true;
+        }
+
+        $vendors = array_keys( $keys );
+        sort( $vendors );
+
+        if ( ! $vendors ) {
+            return array(
+                'vendor'       => '',
+                'vendor_label' => '—',
+                'vendors'      => array(),
+            );
+        }
+
+        $labels = array();
+        foreach ( $vendors as $vendor ) {
+            if ( $vendor === 'amazon' ) {
+                $labels[] = 'Amazon';
+            } elseif ( $vendor === 'gt' ) {
+                $labels[] = 'Grand & Toy';
+            } else {
+                $labels[] = $vendor;
+            }
+        }
+
+        return array(
+            'vendor'       => count( $vendors ) === 1 ? $vendors[0] : 'mixed',
+            'vendor_label' => implode( ' + ', $labels ),
+            'vendors'      => $vendors,
+        );
     }
 
 

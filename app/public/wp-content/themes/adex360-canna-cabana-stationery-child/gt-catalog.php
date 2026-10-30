@@ -22,12 +22,54 @@ $order_id   = function_exists( 'cc_gt_get_request_order_id' ) ? cc_gt_get_reques
 $cart_url   = $order_id
 	? add_query_arg( 'order-id', $order_id, home_url( '/gt-cart/' ) )
 	: home_url( '/gt-cart/' );
+$checkout_url = $order_id
+	? add_query_arg( 'order-id', $order_id, home_url( '/gt-checkout/' ) )
+	: home_url( '/gt-checkout/' );
+$gt_view_url = $order_id
+	? home_url( '/manager/orders/gt-view/' . $order_id . '/' )
+	: '';
 $woo_cart_url = function_exists( 'wc_get_cart_url' ) ? wc_get_cart_url() : home_url( '/cart/' );
 $nonce      = wp_create_nonce( 'cc_gt_procure' );
 $cart_count = ( $is_manager && function_exists( 'cc_gt_get_cart' ) ) ? count( cc_gt_get_cart() ) : 0;
 $woo_count  = ( function_exists( 'WC' ) && WC()->cart ) ? (int) WC()->cart->get_cart_contents_count() : 0;
 $order      = ( $order_id && function_exists( 'wc_get_order' ) ) ? wc_get_order( $order_id ) : false;
 $store_id   = function_exists( 'cc_gt_current_store_id' ) ? cc_gt_current_store_id() : 0;
+
+$fulfill_lines         = array();
+$fulfillable_count     = 0;
+$skipped_amazon_items  = 0;
+$has_gt_snapshot       = false;
+
+if ( $order && $is_manager ) {
+	$gt_meta_key     = defined( 'WCSS_GT_ORDER_META_KEY' ) ? WCSS_GT_ORDER_META_KEY : '_wcss_gt_order_data';
+	$has_gt_snapshot = (bool) $order->get_meta( $gt_meta_key );
+	foreach ( $order->get_items() as $order_item ) {
+		$woo_product = $order_item->get_product();
+		if ( ! $woo_product ) {
+			continue;
+		}
+		$line_vendor = sanitize_key( (string) $order_item->get_meta( '_cc_vendor', true ) );
+		if ( $line_vendor === 'amazon' ) {
+			$skipped_amazon_items++;
+			continue;
+		}
+		$product_id = $woo_product->get_id();
+		$gt_part    = function_exists( 'cc_gt_part_for_product' ) ? cc_gt_part_for_product( $product_id ) : '';
+		$line       = array(
+			'product_id' => $product_id,
+			'name'       => $woo_product->get_name(),
+			'sku'        => (string) $woo_product->get_sku(),
+			'gt_part'    => $gt_part,
+			'qty'        => max( 1, (int) $order_item->get_quantity() ),
+			'vendor'     => $line_vendor,
+			'ready'      => $gt_part !== '',
+		);
+		$fulfill_lines[] = $line;
+		if ( $line['ready'] ) {
+			$fulfillable_count++;
+		}
+	}
+}
 
 get_header();
 ?>
@@ -54,6 +96,32 @@ get_header();
 .gtc-stock.err{color:#a61b1b}
 .gtc-empty{font-family:system-ui,sans-serif;color:#666;padding:12px 0}
 .gtc-note{font-family:system-ui,sans-serif;font-size:.8rem;color:#666;margin-top:20px}
+.gtc-fulfill{margin:0 0 24px;padding:24px 26px 20px;border:1px solid #d5e5dc;border-radius:12px;background:linear-gradient(180deg,#fbfcfb 0%,#f3f8f5 100%);box-shadow:0 1px 0 rgba(11,110,79,.05)}
+.gtc-fulfill-eyebrow{margin:0 0 6px;font-family:system-ui,sans-serif;font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#5f7468}
+.gtc-fulfill-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px 20px;margin-bottom:16px}
+.gtc-fulfill-title-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px}
+.gtc-fulfill-head h2{margin:0;font-size:1.2rem;font-weight:700;letter-spacing:-.01em;line-height:1.25}
+.gtc-fulfill-badge{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;background:#111;color:#fff;font-family:system-ui,sans-serif;font-size:.75rem;font-weight:600;line-height:1.2}
+.gtc-fulfill-badge.is-approved{background:#1f7a3a}
+.gtc-fulfill-meta{margin:8px 0 0;font-family:system-ui,sans-serif;font-size:.9rem;color:#555;line-height:1.4}
+.gtc-fulfill-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.gtc-fulfill-actions .gtc-btn.secondary{background:#fff!important;color:#111!important;border:1px solid #cfcfc9!important}
+.gtc-fulfill-actions .gtc-btn.secondary:hover{background:#111!important;color:#fff!important;border-color:#111!important}
+.gtc-fulfill-details{margin:0 0 14px;padding:14px 16px;border:1px solid #dfeae3;border-radius:10px;background:#fff}
+.gtc-fulfill-dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px 20px;margin:0}
+.gtc-fulfill-dl dt{margin:0 0 3px;font-family:system-ui,sans-serif;font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#7a7a74}
+.gtc-fulfill-dl dd{margin:0;font-family:system-ui,sans-serif;font-size:.92rem;font-weight:500;color:#111;line-height:1.4;word-break:break-word}
+.gtc-fulfill-dl dd.ac-fulfill-address{white-space:pre-line}
+.gtc-fulfill-lines{margin:0 0 14px;overflow:auto;border:1px solid #dfeae3;border-radius:10px;background:#fff}
+.gtc-fulfill-lines table{width:100%;border-collapse:collapse;font-family:system-ui,sans-serif;font-size:.88rem}
+.gtc-fulfill-lines th,.gtc-fulfill-lines td{padding:10px 12px;border-bottom:1px solid #eef3ef;text-align:left;vertical-align:top}
+.gtc-fulfill-lines th{background:#f7faf8;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:#5f7468}
+.gtc-fulfill-lines tr:last-child td{border-bottom:0}
+.gtc-fulfill-lines .is-warn{color:#9a3412}
+.gtc-fulfill-note{margin:0;padding:12px 14px;border-left:3px solid #0b6e4f;border-radius:0 8px 8px 0;background:rgba(11,110,79,.06);font-family:system-ui,sans-serif;font-size:.9rem;font-style:italic;font-weight:500;color:#2a2a2a;line-height:1.5}
+.gtc-fulfill-note strong{font-style:normal;font-weight:700;color:#0b6e4f}
+.gtc-fulfill-status{margin:12px 0 0;font-family:system-ui,sans-serif;font-size:.92rem;font-weight:600;color:#111}
+.gtc-fulfill-status.is-error{color:#a61b1b}
 @media(max-width:720px){.gtc-item{grid-template-columns:1fr}}
 </style>
 
@@ -96,6 +164,141 @@ get_header();
 		</div>
 	</div>
 
+	<?php if ( $order && $is_manager ) : ?>
+		<?php
+		$ship_name = trim( $order->get_formatted_shipping_full_name() );
+		if ( $ship_name === '' ) {
+			$ship_name = trim( $order->get_formatted_billing_full_name() );
+		}
+		$ship_company = (string) $order->get_shipping_company();
+		if ( $ship_company === '' ) {
+			$ship_company = (string) $order->get_billing_company();
+		}
+		$ship_address = $order->get_formatted_shipping_address();
+		if ( $ship_address === '' ) {
+			$ship_address = $order->get_formatted_billing_address();
+		}
+		$order_status = $order->get_status();
+		$status_label = function_exists( 'wc_get_order_status_name' )
+			? wc_get_order_status_name( $order_status )
+			: $order_status;
+		$badge_class  = 'gtc-fulfill-badge';
+		if ( 'approved' === $order_status || 'wc-approved' === $order_status ) {
+			$badge_class .= ' is-approved';
+		}
+		$has_fulfill_details = (
+			$ship_name !== ''
+			|| $ship_company !== ''
+			|| $ship_address !== ''
+			|| (bool) $order->get_billing_email()
+			|| (bool) $order->get_billing_phone()
+		);
+		?>
+		<section class="gtc-fulfill" id="gtc-fulfill" data-fulfillable="<?php echo esc_attr( (string) $fulfillable_count ); ?>">
+			<p class="gtc-fulfill-eyebrow">Approved store order</p>
+			<div class="gtc-fulfill-head">
+				<div>
+					<div class="gtc-fulfill-title-row">
+						<h2>Order #<?php echo esc_html( (string) $order->get_order_number() ); ?></h2>
+						<span class="<?php echo esc_attr( $badge_class ); ?>"><?php echo esc_html( $status_label ); ?></span>
+					</div>
+					<p class="gtc-fulfill-meta">
+						<?php echo esc_html( (string) $fulfillable_count ); ?> G&amp;T item<?php echo $fulfillable_count === 1 ? '' : 's'; ?> ready to fulfill
+						<?php if ( $skipped_amazon_items > 0 ) : ?>
+							· <?php echo esc_html( (string) $skipped_amazon_items ); ?> Amazon item<?php echo $skipped_amazon_items === 1 ? '' : 's'; ?> skipped here
+						<?php endif; ?>
+					</p>
+				</div>
+				<div class="gtc-fulfill-actions">
+					<button
+						type="button"
+						class="gtc-btn"
+						id="gtc-fulfill-store-order"
+						<?php disabled( $fulfillable_count < 1 ); ?>
+					>
+						Use store details → Checkout
+					</button>
+					<?php if ( $has_gt_snapshot && $gt_view_url ) : ?>
+						<a class="gtc-btn secondary" href="<?php echo esc_url( $gt_view_url ); ?>">G&amp;T order view</a>
+					<?php endif; ?>
+					<a class="gtc-btn secondary" href="<?php echo esc_url( $cart_url ); ?>">Open G&amp;T cart</a>
+				</div>
+			</div>
+
+			<?php if ( $has_fulfill_details ) : ?>
+				<div class="gtc-fulfill-details">
+					<dl class="gtc-fulfill-dl">
+						<?php if ( $ship_name !== '' ) : ?>
+							<div>
+								<dt>Ship to</dt>
+								<dd><?php echo esc_html( $ship_name ); ?></dd>
+							</div>
+						<?php endif; ?>
+						<?php if ( $ship_company !== '' ) : ?>
+							<div>
+								<dt>Company</dt>
+								<dd><?php echo esc_html( $ship_company ); ?></dd>
+							</div>
+						<?php endif; ?>
+						<?php if ( $ship_address !== '' ) : ?>
+							<div>
+								<dt>Address</dt>
+								<dd class="ac-fulfill-address"><?php echo esc_html( wp_strip_all_tags( $ship_address ) ); ?></dd>
+							</div>
+						<?php endif; ?>
+						<?php if ( $order->get_billing_email() ) : ?>
+							<div>
+								<dt>Email</dt>
+								<dd><?php echo esc_html( $order->get_billing_email() ); ?></dd>
+							</div>
+						<?php endif; ?>
+						<?php if ( $order->get_billing_phone() ) : ?>
+							<div>
+								<dt>Phone</dt>
+								<dd><?php echo esc_html( $order->get_billing_phone() ); ?></dd>
+							</div>
+						<?php endif; ?>
+					</dl>
+				</div>
+			<?php endif; ?>
+
+			<?php if ( $fulfill_lines ) : ?>
+				<div class="gtc-fulfill-lines">
+					<table>
+						<thead>
+							<tr>
+								<th>Product</th>
+								<th>SKU</th>
+								<th>G&amp;T part</th>
+								<th>Qty</th>
+								<th>Status</th>
+							</tr>
+						</thead>
+						<tbody>
+							<?php foreach ( $fulfill_lines as $line ) : ?>
+								<tr>
+									<td><?php echo esc_html( $line['name'] ); ?></td>
+									<td><?php echo esc_html( $line['sku'] !== '' ? $line['sku'] : '—' ); ?></td>
+									<td><?php echo esc_html( $line['gt_part'] !== '' ? $line['gt_part'] : '—' ); ?></td>
+									<td><?php echo esc_html( (string) $line['qty'] ); ?></td>
+									<td class="<?php echo empty( $line['ready'] ) ? 'is-warn' : ''; ?>">
+										<?php echo empty( $line['ready'] ) ? 'Missing G&amp;T part' : 'Ready'; ?>
+									</td>
+								</tr>
+							<?php endforeach; ?>
+						</tbody>
+					</table>
+				</div>
+			<?php endif; ?>
+
+			<p class="gtc-fulfill-note">
+				<strong>What happens next:</strong>
+				One click checks Grand &amp; Toy stage stock for this store’s G&amp;T items, adds them to the G&amp;T cart at the ordered quantities, then opens checkout with this store’s shipping details already filled in — no need to retype them.
+			</p>
+			<p class="gtc-fulfill-status" id="gtc-fulfill-status" hidden></p>
+		</section>
+	<?php endif; ?>
+
 	<div class="gtc-panel">
 		<h2>1. Find a store product</h2>
 		<div class="gtc-row">
@@ -122,6 +325,10 @@ get_header();
 	const ajaxUrl = <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
 	const isStore = <?php echo $is_store ? 'true' : 'false'; ?>;
 	const orderId = <?php echo (int) $order_id; ?>;
+	const checkoutUrl = <?php echo wp_json_encode( $checkout_url ); ?>;
+	const fulfillLines = <?php echo wp_json_encode( array_values( array_filter( $fulfill_lines, static function ( $line ) {
+		return ! empty( $line['ready'] );
+	} ) ) ); ?>;
 	const results = document.getElementById('gtc-results');
 	const empty = document.getElementById('gtc-empty');
 	const countEl = document.getElementById('gtc-cart-count');
@@ -318,6 +525,98 @@ get_header();
 			}).catch(() => { e.target.disabled = false; alert('Could not add to cart.'); });
 		}
 	});
+
+	const fulfillButton = document.getElementById('gtc-fulfill-store-order');
+	const fulfillStatus = document.getElementById('gtc-fulfill-status');
+
+	function setFulfillStatus(text, isError) {
+		if (!fulfillStatus) return;
+		fulfillStatus.hidden = !text;
+		fulfillStatus.textContent = text || '';
+		fulfillStatus.classList.toggle('is-error', !!isError);
+	}
+
+	function fulfillAddLine(line, stock) {
+		return postWithFreshNonce('cc_gt_cart_add', {
+			product_id: line.product_id,
+			part_id: line.gt_part,
+			name: line.name,
+			sku: line.sku || '',
+			qty: line.qty || 1,
+			uom: (stock && stock.uom) || 'EA',
+			unit_price: stock && stock.unit_price != null ? stock.unit_price : '',
+			facility_id: (stock && stock.facility_id) || '',
+			available: (stock && stock.available) || '',
+			available_qty: stock && stock.available_qty != null ? stock.available_qty : '',
+			days: (stock && stock.days) || '',
+			wc_order_id: orderId || ''
+		}).then(res => {
+			if (!res || !res.success) {
+				throw new Error((res && res.data && res.data.message) || 'Could not add to G&T cart.');
+			}
+			const n = res.data.count || 0;
+			if (countEl) countEl.textContent = n ? '(' + n + ')' : '';
+			return res;
+		});
+	}
+
+	function fulfillOneLine(line, index, total) {
+		setFulfillStatus('Checking stock for item ' + (index + 1) + ' of ' + total + '…', false);
+		return postWithFreshNonce('cc_gt_stock', { part_id: line.gt_part }).then(res => {
+			if (!res || !res.success) {
+				throw new Error((res && res.data && (res.data.error || res.data.message)) || ('Stock check failed for ' + (line.name || line.gt_part)));
+			}
+			setFulfillStatus('Adding item ' + (index + 1) + ' of ' + total + ' to G&T cart…', false);
+			return fulfillAddLine(line, res.data || {});
+		});
+	}
+
+	if (fulfillButton) {
+		fulfillButton.addEventListener('click', function () {
+			const lines = Array.isArray(fulfillLines) ? fulfillLines.slice() : [];
+			if (!lines.length) {
+				setFulfillStatus('No G&T-ready items found on this order to add.', true);
+				return;
+			}
+
+			fulfillButton.disabled = true;
+			setFulfillStatus('Preparing ' + lines.length + ' store item' + (lines.length === 1 ? '' : 's') + '…', false);
+
+			let chain = Promise.resolve();
+			let added = 0;
+			const failed = [];
+
+			lines.forEach((line, index) => {
+				chain = chain.then(() => fulfillOneLine(line, index, lines.length)
+					.then(() => { added += 1; })
+					.catch(err => {
+						failed.push((line.name || line.gt_part || 'Item') + ': ' + (err && err.message ? err.message : 'failed'));
+					})
+				);
+			});
+
+			chain.finally(() => {
+				if (added < 1) {
+					fulfillButton.disabled = false;
+					setFulfillStatus(
+						failed.length ? ('Could not add items. ' + failed[0]) : 'Could not add any store items to the G&T cart.',
+						true
+					);
+					return;
+				}
+
+				if (failed.length) {
+					setFulfillStatus('Added ' + added + ' item' + (added === 1 ? '' : 's') + '. ' + failed.length + ' failed. Opening checkout…', true);
+				} else {
+					setFulfillStatus('Added ' + added + ' item' + (added === 1 ? '' : 's') + '. Opening checkout with store details…', false);
+				}
+
+				window.setTimeout(function () {
+					window.location.href = checkoutUrl;
+				}, failed.length ? 900 : 400);
+			});
+		});
+	}
 })();
 </script>
 <?php

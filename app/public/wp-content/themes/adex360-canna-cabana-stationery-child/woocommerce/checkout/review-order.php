@@ -45,13 +45,17 @@ defined( 'ABSPATH' ) || exit;
 						<?php echo wc_get_formatted_cart_item_data( $cart_item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 					</td>
 					<td class="product-vendor" data-title="<?php esc_attr_e( 'Vendor', 'adex360' ); ?>">
-						<?php if ( $vendor_label ) : ?>
-							<span class="cc-checkout-vendor-badge"><?php echo esc_html( $vendor_label ); ?></span>
-							<?php if ( $vendor_id !== '' ) : ?>
-								<span class="cc-checkout-vendor-id"><?php echo esc_html( $vendor_id ); ?></span>
-							<?php endif; ?>
-						<?php else : ?>
-							<span class="cc-checkout-vendor-muted"><?php esc_html_e( 'Not selected', 'adex360' ); ?></span>
+						<?php
+						if ( ! $vendor_label ) {
+							$cheapest = isset( $cart_item['cc_cheapest_vendor'] ) ? sanitize_key( (string) $cart_item['cc_cheapest_vendor'] ) : 'woo';
+							$vendor_label = function_exists( 'cc_vendor_prices_vendor_label' )
+								? cc_vendor_prices_vendor_label( $cheapest )
+								: __( 'Store', 'adex360' );
+						}
+						?>
+						<span class="cc-checkout-vendor-badge"><?php echo esc_html( $vendor_label ); ?></span>
+						<?php if ( $vendor_id !== '' ) : ?>
+							<span class="cc-checkout-vendor-id"><?php echo esc_html( $vendor_id ); ?></span>
 						<?php endif; ?>
 					</td>
 					<td class="product-unit" data-title="<?php esc_attr_e( 'Unit price', 'adex360' ); ?>">

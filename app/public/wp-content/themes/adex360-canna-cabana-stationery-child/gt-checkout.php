@@ -35,13 +35,31 @@ $city      = '';
 $state     = '';
 $postal    = '';
 if ( $order ) {
-	$ship_name = $order->get_formatted_billing_full_name() ?: $ship_name;
-	$ship_to   = $order->get_billing_company() ?: $order->get_formatted_billing_full_name();
-	$street1   = $order->get_billing_address_1();
-	$street2   = $order->get_billing_address_2();
-	$city      = $order->get_billing_city();
-	$state     = $order->get_billing_state();
-	$postal    = $order->get_billing_postcode();
+	$ship = $order->get_address( 'shipping' );
+	$bill = $order->get_address( 'billing' );
+	$src  = ( ! empty( $ship['address_1'] ) || ! empty( $ship['city'] ) ) ? $ship : $bill;
+
+	$ship_name = trim(
+		( isset( $src['first_name'] ) ? (string) $src['first_name'] : '' ) . ' ' .
+		( isset( $src['last_name'] ) ? (string) $src['last_name'] : '' )
+	);
+	if ( $ship_name === '' ) {
+		$ship_name = trim( $order->get_formatted_billing_full_name() ) ?: 'Canna Cabana';
+	}
+
+	if ( ! empty( $src['company'] ) ) {
+		$ship_to = (string) $src['company'];
+	} elseif ( $order->get_billing_company() ) {
+		$ship_to = (string) $order->get_billing_company();
+	} else {
+		$ship_to = $ship_name;
+	}
+
+	$street1 = isset( $src['address_1'] ) ? (string) $src['address_1'] : '';
+	$street2 = isset( $src['address_2'] ) ? (string) $src['address_2'] : '';
+	$city    = isset( $src['city'] ) ? (string) $src['city'] : '';
+	$state   = isset( $src['state'] ) ? (string) $src['state'] : '';
+	$postal  = isset( $src['postcode'] ) ? (string) $src['postcode'] : '';
 }
 
 get_header();

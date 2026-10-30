@@ -277,6 +277,142 @@ jQuery(function($){
   outline: none;
   box-shadow: 0 0 0 3px rgba(225, 37, 28, 0.22);
 }
+.ov-status-actions .btn-approve:disabled,
+.ov-status-actions .btn-reject:disabled {
+  opacity: 0.65;
+  cursor: wait;
+  transform: none;
+  box-shadow: none;
+}
+#order-msg .flash-success,
+#order-msg .flash-error,
+#order-msg .flash-info {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+#order-msg .flash-success { background: #eaf7ef; color: #0f6d2a; }
+#order-msg .flash-error   { background: #fde9ea; color: #8a1020; }
+#order-msg .flash-info    { background: #f3f4f6; color: #374151; }
+.ov-vendor-fulfill {
+  margin-top: 20px;
+  padding: 20px 20px 18px;
+  border: 1px solid #e6e6e6;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fbfbfb 0%, #f5f5f5 100%);
+}
+.ov-vendor-fulfill__eyebrow {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #1f7a3a;
+}
+.ov-vendor-fulfill h4 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #111;
+  line-height: 1.25;
+}
+.ov-vendor-fulfill__lead {
+  margin: 0 0 14px;
+  max-width: 54rem;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #444;
+}
+.ov-store-vendor {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 0 0 16px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid #e2e2e2;
+  font-size: 13px;
+  line-height: 1.3;
+}
+.ov-store-vendor.is-empty {
+  border-style: dashed;
+  color: #666;
+}
+.ov-store-vendor__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #777;
+}
+.ov-store-vendor__value {
+  font-weight: 700;
+  color: #111;
+}
+.ov-fulfill-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  align-items: stretch;
+  margin-top: 0;
+  max-width: 560px;
+}
+.ov-fulfill-actions .btn-fulfill {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 72px;
+  padding: 14px 18px;
+  border: 1px solid #d8d8d8;
+  border-radius: 12px;
+  background: #fff;
+  color: #111;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 1px 0 rgba(17, 17, 17, 0.04);
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.ov-fulfill-actions .btn-fulfill__name {
+  font-size: 15px;
+  font-weight: 700;
+}
+.ov-fulfill-actions .btn-fulfill__hint {
+  font-size: 12px;
+  font-weight: 500;
+  color: #666;
+}
+.ov-fulfill-actions .btn-fulfill.is-preferred {
+  background: #111;
+  border-color: #111;
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(17, 17, 17, 0.14);
+}
+.ov-fulfill-actions .btn-fulfill.is-preferred .btn-fulfill__hint {
+  color: rgba(255, 255, 255, 0.78);
+}
+.ov-fulfill-actions .btn-fulfill:hover,
+.ov-fulfill-actions .btn-fulfill:focus {
+  background: #111;
+  border-color: #111;
+  color: #fff;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.14);
+}
+.ov-fulfill-actions .btn-fulfill:hover .btn-fulfill__hint,
+.ov-fulfill-actions .btn-fulfill:focus .btn-fulfill__hint {
+  color: rgba(255, 255, 255, 0.78);
+}
 #order-msg {
   margin-top: 12px;
 }
@@ -285,6 +421,13 @@ jQuery(function($){
   .ov-status-actions .btn-reject {
     width: 100%;
     min-width: 0;
+  }
+  .ov-vendor-fulfill {
+    padding: 16px;
+  }
+  .ov-fulfill-actions {
+    grid-template-columns: 1fr;
+    max-width: none;
   }
 }
 </style>
