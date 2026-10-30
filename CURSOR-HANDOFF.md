@@ -1,12 +1,16 @@
-# CURSOR-HANDOFF — pointer (updated 2026-10-28)
+# CURSOR-HANDOFF — pointer
 
-This file is **superseded** by the Knowledge pack.
+Canonical project context lives in **Knowledge/**.
 
 | Need | Open |
 |------|------|
-| Full status, people, emails, data, flows, QA | [`Knowledge/PROJECT_STATUS_AND_CHAT_HISTORY.md`](Knowledge/PROJECT_STATUS_AND_CHAT_HISTORY.md) |
-| Prompt for other laptop Cursor | [`Knowledge/DEMO_HANDOFF_PROMPT.md`](Knowledge/DEMO_HANDOFF_PROMPT.md) |
-| Index of all client files | [`Knowledge/README.md`](Knowledge/README.md) |
-| Sync theme/plugin between machines | [`README.md`](README.md) |
+| Status, flows, people, QA, pending | [`Knowledge/PROJECT_STATUS_AND_CHAT_HISTORY.md`](Knowledge/PROJECT_STATUS_AND_CHAT_HISTORY.md) |
+| Paste prompt to analyze full project | [`Knowledge/ANALYZE_PROJECT_PROMPT.md`](Knowledge/ANALYZE_PROJECT_PROMPT.md) |
+| Knowledge index | [`Knowledge/README.md`](Knowledge/README.md) |
+| Post–29 Oct Aman requirements | [`Knowledge/plans-audits/PLAN_Aman_Requirements_Post_Demo_2026-10-29.md`](Knowledge/plans-audits/PLAN_Aman_Requirements_Post_Demo_2026-10-29.md) |
+| Supply Manager dashboard revamp brief | [`Knowledge/plans-audits/CLAUDE_BRIEF_Supply_Manager_Dashboard_Revamp.md`](Knowledge/plans-audits/CLAUDE_BRIEF_Supply_Manager_Dashboard_Revamp.md) |
+| Cheapest price / checkout UX plan | [`docs/PLAN-vendor-cheapest-pricing-and-checkout-ux.md`](docs/PLAN-vendor-cheapest-pricing-and-checkout-ux.md) |
+| Local DB restore | [`Knowledge/db-backups/README.md`](Knowledge/db-backups/README.md) |
+| Theme/plugin sync | [`README.md`](README.md) |
 
-**Branch for final demo sync:** `feature/gt-amazon-knowledge-demo-2026-10-28`
+**Active feature branch:** `feature/store-cheapest-pricing-checkout-ux-2026-10-30`

@@ -10,9 +10,10 @@ app/.envrc
 **/*.bak
 **/advanced-cache.php.bak
 
-# Large local DB dumps (keep README under Knowledge/db-backups/)
-Knowledge/db-backups/*.sql
+# Local DB dumps under Knowledge/db-backups/ ARE tracked (for restore).
+# Keep accidental dumps outside Knowledge ignored:
 docs/db-backups/*.sql
+*.sql.bak
 
 # Local by Flywheel runtime
 logs/

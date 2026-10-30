@@ -2,7 +2,7 @@
 
 Custom WordPress code for **Canna Cabana Stationery Store** (`ccsupplies`).
 
-Use this repo to sync Amazon + Manager portal changes between laptops.
+Custom WordPress theme/plugin code + the **Knowledge/** pack (status, meetings, plans, local DB dumps).
 
 ## What is in this repo
 
@@ -18,9 +18,12 @@ Use this repo to sync Amazon + Manager portal changes between laptops.
 - Large stock plugins (WooCommerce, Elementor, etc.) — install/keep from your Local site / backup
 - Local by Flywheel `conf/` + `logs/`
 
-## Other laptop setup
+## Local site setup (WordPress + this repo)
 
-1. Create/open Local site `ccsupplies` (same as before, with WP + WooCommerce already working).
+**Full analysis context:** start at `Knowledge/PROJECT_STATUS_AND_CHAT_HISTORY.md` and paste `Knowledge/ANALYZE_PROJECT_PROMPT.md` into Cursor.  
+**DB:** restore `Knowledge/db-backups/ccsupplies-local-db-LATEST.sql` (see `Knowledge/db-backups/README.md`).
+
+1. Create/open Local site `ccsupplies` (WP + WooCommerce working).
 2. Clone this repo, then sync custom folders into the Local site:
 
 ```bash
@@ -49,15 +52,19 @@ rsync -a \
 # Open: Knowledge/PROJECT_STATUS_AND_CHAT_HISTORY.md
 ```
 
-### Final demo branch (2026-10-28)
+### Branches
 
 ```bash
 git fetch origin
-git checkout feature/gt-amazon-knowledge-demo-2026-10-28
-git pull origin feature/gt-amazon-knowledge-demo-2026-10-28
+# Current storefront cheapest-price + checkout UX work:
+git checkout feature/store-cheapest-pricing-checkout-ux-2026-10-30
+git pull origin feature/store-cheapest-pricing-checkout-ux-2026-10-30
+
+# Prior G&T manager + Knowledge pack (Oct 28):
+# git checkout feature/gt-amazon-knowledge-demo-2026-10-28
 ```
 
-Then paste `Knowledge/DEMO_HANDOFF_PROMPT.md` into Cursor on that machine.
+Then paste `Knowledge/ANALYZE_PROJECT_PROMPT.md` into Cursor.
 
 3. Ensure local `wp-config.php` has secrets (from live / other laptop — **do not commit**):
 

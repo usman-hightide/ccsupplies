@@ -1,74 +1,109 @@
 # PROJECT STATUS & CHAT HISTORY — CC Supplies
 
-**Last updated:** 2026-10-28 (evening, Asia/Karachi)  
+**Last updated:** 2026-10-31  
 **Owner (dev):** Usman Zahid (`uzahid@basecampconsulting.co`) — Basecamp Consulting / High Tide  
 **Live:** https://ccsupplies.ca  
 **Local:** https://ccsupplies.local  
 **GitHub:** https://github.com/usman-hightide/ccsupplies  
-**This handoff branch:** `feature/gt-amazon-knowledge-demo-2026-10-28`
+
+**Active feature branch (storefront cheapest + checkout UX):** `feature/store-cheapest-pricing-checkout-ux-2026-10-30`  
+**Prior G&T + Knowledge demo branch:** `feature/gt-amazon-knowledge-demo-2026-10-28`  
+
+**Analyze prompt:** [`ANALYZE_PROJECT_PROMPT.md`](./ANALYZE_PROJECT_PROMPT.md)  
+**Post–29 Oct task plan:** [`plans-audits/PLAN_Aman_Requirements_Post_Demo_2026-10-29.md`](./plans-audits/PLAN_Aman_Requirements_Post_Demo_2026-10-29.md)  
+**Local DB:** [`db-backups/ccsupplies-local-db-LATEST.sql`](./db-backups/ccsupplies-local-db-LATEST.sql)
 
 ---
 
-## 1. What is the current process (production today)
+## 0. What must be present to understand / continue this project
 
-### A. Store employee (Woo requisition)
-
-1. Login → `/my-account/`
-2. Shop `/shop/` → cart `/cart-2/` → checkout `/checkout-2/`
-3. Payment method **Internal Requisition** → order status **Awaiting Approval**
-4. Track at `/my-account/orders/` (Woo status only)
-
-**G&T (store-facing, by design):** store employees **may** use `/gt-catalog/`, `/gt-cart/`, `/gt-checkout/` (Grand & Toy stage cXML). This is **OK**.
-
-**Amazon:** store employees **must not** place Amazon orders. Amazon Search AJAX requires manager caps → 403 for store role.
-
-### B. Manager — Amazon path (unchanged pattern)
-
-1. `/manager/orders/` → Approve Woo order (does **not** call Amazon)
-2. **Amazon Test Order** → `/amazon-catalog/?order-id={id}`
-3. Search → Add to Amazon cart → `/amazon-cart/` → `/amazon-checkout/`
-4. Gates: approval + CAD **$120** monthly cap + **5%** price tolerance + Trial Mode
-5. View: `/manager/orders/amazon-view/{id}`
-
-### C. Manager — Grand & Toy path (shipped live Oct 28)
-
-1. `/manager/orders/` → **G&T Test Order** → `/gt-catalog/?order-id={id}`
-2. Search store products → Check stock (stage cXML) → Add to G&T cart
-3. Cart syncs snapshot to Woo meta (`cart_saved`) → `/manager/orders/gt-view/{id}` shows lines
-4. `/gt-checkout/?order-id={id}` → Submit stage PO → status `submitted`, PO id like `TEST…`
-5. Final view: `/manager/orders/gt-view/{id}` (Amazon-parity UI: summary cards, badges, shipping, line table)
-
-**Rule (Basit):** Amazon ≠ G&T — separate nav, catalog, cart, checkout, manager views. Do not mix.
+| Item | Location |
+|------|----------|
+| This status doc | `Knowledge/PROJECT_STATUS_AND_CHAT_HISTORY.md` |
+| Meeting 29 Oct (Aman demo) | `Knowledge/client-shared/meetings/MEETING_2026-10-29_INTERNAL_DEMO.md` (+ PDF + transcript) |
+| Aman requirements plan | `Knowledge/plans-audits/PLAN_Aman_Requirements_Post_Demo_2026-10-29.md` |
+| Supply Manager UI brief | `Knowledge/plans-audits/CLAUDE_BRIEF_Supply_Manager_Dashboard_Revamp.md` |
+| Separate Amazon ≠ G&T plan | `Knowledge/plans-audits/PLAN_Separate_Amazon_GT_Dashboards_2026-10-27.md` |
+| Cheapest price + checkout UX plan | `docs/PLAN-vendor-cheapest-pricing-and-checkout-ux.md` |
+| Child theme (Amazon + G&T + cheapest) | `app/public/wp-content/themes/adex360-canna-cabana-stationery-child/` |
+| Manager portal plugin | `app/public/wp-content/plugins/wcss-internal-supplies/` |
+| Local DB dump | `Knowledge/db-backups/ccsupplies-local-db-LATEST.sql` |
+| Secrets (not in git) | Local `wp-config.php` → `AMAZON_*`, `CC_GT_*` |
 
 ---
 
-## 2. Cursor chat history — what we did (this Mac, Oct 27–28)
+## 1. Current process
 
-Primary agent chat: `861f8ed0-150c-4f26-819e-d0adfcdc71f9` (plus earlier Amazon/G&T chats `e670fe40`, `00d148cc`, `36884f80`, etc.)
+### A. Store employee — Woo requisition (production)
+
+1. Login → `/my-account/`  
+2. Shop `/shop/` → cart `/cart-2/` → checkout `/checkout-2/`  
+3. Payment **Internal Requisition** → status **Awaiting Approval**  
+4. Track at `/my-account/orders/`  
+
+**G&T storefront:** store employees **may** use `/gt-catalog/`, `/gt-cart/`, `/gt-checkout/` (stage cXML).  
+**Amazon:** store employees **must not** place Amazon orders (AJAX requires manager caps → 403).
+
+**29 Oct Ops direction (Chris / Aman):** stores must **not** see or pick vendor. Show one price = cheapest of Amazon vs Grand & Toy. Budget visibility yes; vendor name no.
+
+### B. Supply Manager — Amazon path (production)
+
+1. `/manager/orders/` → Approve Woo order (does **not** call Amazon)  
+2. **Amazon Test Order** → `/amazon-catalog/?order-id={id}`  
+3. Search → Amazon cart → Amazon checkout  
+4. Gates: approval + monthly cap (historically CAD $120 in Amazon checkout; Chris now says store budget **$125**) + **5%** price + Trial Mode  
+5. View: `/manager/orders/amazon-view/{id}`  
+
+### C. Supply Manager — Grand & Toy path (live since Oct 28)
+
+1. `/manager/orders/` → **G&T Test Order** → `/gt-catalog/?order-id={id}`  
+2. Search → Check stock → G&T cart (`cart_saved` on order meta)  
+3. `/gt-checkout/?order-id={id}` → stage PO → `submitted`  
+4. View: `/manager/orders/gt-view/{id}`  
+
+**Rule (Basit):** Amazon ≠ G&T — separate nav, catalog, cart, checkout, manager views.
+
+### D. Storefront cheapest pricing (local / feature branch)
+
+- Table `{prefix}cc_vendor_prices`; meta `_cc_cheapest_*`  
+- Hourly sync; shop/cart use cheapest; manual cart vendor picker removed  
+- Plan: `docs/PLAN-vendor-cheapest-pricing-and-checkout-ux.md`  
+- Still open vs Aman: hide checkout Vendor column for stores; budget alert at top; Back to cart; default budget **$125**
+
+### E. Target automation (decided 29 Oct — not fully shipped)
+
+- In-policy orders: **auto-approve** + **auto-submit** to winning vendor  
+- Alyshia only for exceptions (over budget / outside ordering window / second order)  
+- Ordering windows configurable; one order per store per month  
+- Supply Manager **reports** (Amazon vs G&T spend) — current dashboard export is insufficient  
+
+---
+
+## 2. Recent work timeline
 
 | When | Work |
 |------|------|
-| Oct 27 | Checkpoint branch; product audit ASIN vs G&T; separate-dashboards plan; local DB dump |
-| Oct 27–28 | Built G&T theme pages: `gt-catalog.php`, `gt-cart.php`, `gt-checkout.php`, `cc-gt-procurement.php` |
-| Oct 28 | Manager: G&T nav, `orders-gt-view.php`, REST DTO for G&T, `manager.js` buttons mirroring Amazon |
-| Oct 28 live | Deployed; fixed private G&T pages → publish for `store_employee`; soft-nonce for CDN-stale search |
-| Oct 28 QA | Live manager G&T E2E on order **#8226** — catalog → cart_saved → stage PO → gt-view **PASS** |
-| Oct 28 | Created store QA user **jordan.nguyen** for Woo place-order demos |
-| Oct 28 | Created `Knowledge/` + this status doc; feature branch for other-system sync |
+| Oct 27 | Checkpoint; Amazon vs G&T product audit; separate-dashboards plan; local DB dump |
+| Oct 27–28 | G&T theme pages + manager G&T mirror of Amazon UX |
+| Oct 28 | Live deploy + QA order **#8226**; Knowledge pack; jordan.nguyen QA user |
+| Oct 29 | Internal demo with Aman, Chris, Alyshia, Basit, Bhaumik, Moiz — see meeting notes |
+| Oct 29–30 | Store cart/checkout vendor UI branches; then **cheapest auto-price** feature branch |
+| Oct 31 | Aman requirements plan + Supply Manager Claude brief; Knowledge refresh; DB `LATEST` dump |
 
 ---
 
 ## 3. Done (shipped / verified)
 
-- [x] Amazon manager path (trial): catalog, cart, checkout gates, amazon-view
-- [x] Separate Amazon vs G&T manager UX (Basit non-negotiable)
-- [x] G&T catalog / cart / checkout (theme) + soft AJAX nonce for PressCACHE
-- [x] G&T pages published (not private) so store employees can open them
-- [x] Manager **G&T Test Order** + **G&T order view** with `cart_saved` / `submitted` snapshots
-- [x] Live QA manager flow order #8226 (PO `TEST261028171810`, HTTP 200)
-- [x] Live QA prior order #8227 submitted snapshot still readable
-- [x] Store employee QA user created and linked to Test store `#8177`
-- [x] Client Approved Item List CSVs filed under `Knowledge/client-shared/`
+- [x] Amazon manager path (trial): catalog, cart, checkout gates, amazon-view  
+- [x] Separate Amazon vs G&T manager UX  
+- [x] G&T catalog / cart / checkout + soft AJAX nonce for PressCACHE  
+- [x] Manager **G&T Test Order** + **G&T order view**  
+- [x] Live QA #8226 stage PO  
+- [x] Store QA user **jordan.nguyen** → Test store `#8177`  
+- [x] Approved Item List CSVs in Knowledge  
+- [x] Local cheapest vendor pricing stack (feature branch) — cache table, sync, shop/cart apply  
+- [x] Meeting 29 Oct filed (PDF + notes + transcript)  
+- [x] Aman post-demo plan + Supply Manager UI brief in Knowledge  
 
 ---
 
@@ -76,100 +111,85 @@ Primary agent chat: `861f8ed0-150c-4f26-819e-d0adfcdc71f9` (plus earlier Amazon/
 
 | Item | Owner | Notes |
 |------|-------|-------|
-| Final demo on **other laptop** | Usman | Pull this branch; sync theme/plugin; use Knowledge prompt |
-| Cloudways/PressCACHE purge of bare `/gt-catalog/` HTML | Usman / host | Soft-nonce mitigates; purge still recommended |
-| Confirm SenderIdentity mapping (store email vs `588`) with Chris | Chris / Usman | Checkout default remains `588` for stage |
-| Full multi-sheet Excel from Basit (if more location sheets) | Basit | Partial CSVs received (All Locations, The Well, Thompson, Thunder Bay, Chemical) |
-| Amazon **store-wide** release | Jai / Basit gate | Still manager-only unless business overrides |
-| G&T production (non-stage) endpoint | G&T / Chris | Stage only until TP production URL |
-| Optional: Vendor Compare demote | Usman | Not primary UX per Basit |
-| Optional: Scan Now dual-vendor | Basit priority later | Not v1 |
+| Auto-approve + auto-submit happy path | Usman / Basit | Aman plan §C |
+| CAD **$125** budget everywhere (not $160 / not old tiers) | Usman / Chris | Chris on 29 Oct |
+| Ordering windows (e.g. days 1–7 vs 7–15 by store group) | Usman | Aman plan §B3 |
+| Exception path to Alyshia (form/email OK for launch) | Usman / Alyshia | Aman plan §B4–B5 |
+| Hide vendor from store checkout | Usman | Cheapest plan leftover |
+| Supply Manager rename + reports (Amazon vs G&T spend) | Usman | Claude brief + Aman §E |
+| Orders tab = exception-first queue | Usman | Aman plan §3 |
+| Unmonitored supply mailbox on vendor submit | Usman / Chris | Aman §D2 |
+| Stop test emails to Aman (`asood@hightideinc.com`) | Usman | Confirmed on call |
+| Stakeholder demo **4 Nov 2026** | All | Aman required; Bhaumik+Basit QA first |
+| PressCACHE purge bare `/gt-catalog/` if needed | Usman / host | Soft-nonce mitigates |
+| SenderIdentity store email vs `588` | Chris / Usman | Stage default `588` |
+| Amazon store-wide release | Jai / Basit | Still gated |
+| G&T production endpoint | G&T / Chris | Stage only |
 
 ---
 
-## 5. People — who shared what
+## 5. People
 
-| Person | Role | What they shared / decided |
-|--------|------|----------------------------|
-| **Muhammad Basit Munir** | High Tide / product lead | Separate Amazon & G&T dashboards; Approved Item List direction; finish G&T mirror of Amazon UX |
-| **Chris Bilton** | Ops / G&T | Call notes (`Call with Chris and 1 other.docx`); SenderIdentity = store emails; BO vs note/Ops; ASIN entry with Alyshia |
-| **Alyshia Digiovannantonio** | Ops | ASIN entry in admin for Amazon-buyable items |
-| **Jai Radhakrishnan** | Amazon / architecture stakeholder | Recap emails; architecture review — emails drafted in `Knowledge/emails/` |
-| **Ed Petrovacki** | Stakeholder (Cc on architecture) | Amazon release process context |
-| **Bhaumik Dhandhukia** | Cc on architecture email | — |
-| **Usman Zahid** | Developer (Basecamp) | Implementation, live QA, Knowledge pack, demo |
-| **Tomas** (list) | ASIN file source | Historical ASIN list used in audit (~112) |
-
----
-
-## 6. Emails we prepared / received (in Knowledge)
-
-| File | To / purpose |
-|------|----------------|
-| `emails/EMAIL_TO_JAI_ARCHITECTURE.md` | Jai (+ Cc Ed, Chris, Bhaumik, Basit, Alyshia) — architecture DOCX |
-| `emails/EMAIL_TO_JAI_PRODUCT_SEARCH.md` | Jai — product search clarifications |
-| `emails/AMAZON_MEETING_MOM_EMAIL.md` | Amazon/AWS + HT — MOM of trial-mode demo |
-
-Do not treat draft bodies as proof of send; they are copy/paste templates used in the project.
+| Person | Role | Decisions / inputs |
+|--------|------|---------------------|
+| **Aman Sood** | Stakeholder | Auto-approve; no store vendor UI; cheapest price; reports; Supply Manager naming; 4 Nov demo |
+| **Muhammad Basit Munir** | Product lead | Amazon ≠ G&T separate; price sync cron; owns notes on calls |
+| **Bhaumik Dhandhukia** | Eng / PM | Cheapest via both APIs; reports filters; QA before demos |
+| **Chris Bilton** | Ops | No store vendor; $125 all stores; one order/month; windows; approvers = Alyshia/Hillel/Chris |
+| **Alyshia Digiovannantonio** | Ops | Approvals / exceptions; ASIN entry; OK with exception form |
+| **Jai Radhakrishnan** | Amazon stakeholder | Architecture / product search emails |
+| **Usman Zahid** | Developer | Implementation, Knowledge, demos |
 
 ---
 
-## 7. Data / files received from client
+## 6. Emails in Knowledge
 
-### Approved item lists (Basit / Ops) — `client-shared/approved-item-lists/`
+| File | Purpose |
+|------|---------|
+| `emails/EMAIL_TO_JAI_ARCHITECTURE.md` | Architecture DOCX |
+| `emails/EMAIL_TO_JAI_PRODUCT_SEARCH.md` | Product search |
+| `emails/AMAZON_MEETING_MOM_EMAIL.md` | Amazon trial demo MOM |
 
-- `Approved Item List 1(All Locations).csv`
-- `Approved Item List 1(The Well).csv`
-- `Approved Item List 1(Thompson (NCN)).csv`
-- `Approved Item List 1(Thunder Bay).csv`
-- `Approved Item List 1(Store Use Chemical Project).csv`
-
-### ASIN / product sheets — `client-shared/asin-sheet/`
-
-- High Tide Product List.xlsx
-- Amazon Already Linked / Missing SKU ASIN CSVs
-- SAFE_ASIN_MAP_BY_SKU.csv, audit CSVs, apply SQL, notes for Chris/Basit
-
-### Meetings
-
-- `client-shared/meetings/Call with Chris and 1 other.docx`
-
-### Plans written by us (from Basit/Chris direction)
-
-- `plans-audits/PLAN_Separate_Amazon_GT_Dashboards_2026-10-27.md`
-- `plans-audits/FINAL_PRE_IMPLEMENTATION_DECISION_Amazon_GT_2026-10-27.md`
-- `plans-audits/AUDIT_Amazon_GT_Product_Integration_2026-10-27.md`
+Drafts are templates — not proof of send.
 
 ---
 
-## 8. Flows cheat-sheet (demo)
+## 7. Client data in Knowledge
 
-### Demo 1 — Store places Woo order
+### Approved item lists — `client-shared/approved-item-lists/`
 
-1. Incognito → https://ccsupplies.ca/my-account/
-2. Login **jordan.nguyen** / `CcStoreOrder26!`
-3. Add product → checkout Internal Requisition
-4. Note order number → logout
+- All Locations, The Well, Thompson (NCN), Thunder Bay, Store Use Chemical Project  
 
-### Demo 2 — Manager Amazon Test Order
+### ASIN / products — `client-shared/asin-sheet/`
 
-1. Manager login → `/manager/orders/`
-2. Approve order → **Amazon Test Order**
-3. Search / cart / checkout (Trial Mode) → amazon-view
+- High Tide Product List.xlsx, linked/missing ASIN CSVs, SAFE maps, audit CSVs  
 
-### Demo 3 — Manager G&T Test Order
+### Meetings — `client-shared/meetings/`
 
-1. Same orders grid → **G&T Test Order**
-2. Search e.g. Epson → Check stock → Add to G&T cart
-3. Open **G&T order view** → should show `cart_saved`
-4. Checkout: Deliver to = person; Province = **ON** (not city); SenderIdentity leave **588** for stage
-5. Submit → gt-view `submitted` + Stage PO Yes
+- Call with Chris and 1 other.docx  
+- Internal Demo of Amazon and Grand Toy 2026-10-29.pdf + transcript + `MEETING_2026-10-29_INTERNAL_DEMO.md`  
 
-### Demo 4 — Store G&T browse (optional)
+---
 
-1. As jordan.nguyen open `/gt-catalog/`
-2. Search works (soft nonce) — expected **yes**
-3. `/amazon-catalog/` search should **fail/403** — expected
+## 8. Flows cheat-sheet
+
+### Store Woo order
+
+1. https://ccsupplies.ca/my-account/ → **jordan.nguyen** / `CcStoreOrder26!`  
+2. Add product → Internal Requisition → note order #  
+
+### Manager Amazon
+
+1. `/manager/orders/` → Approve → Amazon Test Order → Trial Mode path → amazon-view  
+
+### Manager G&T
+
+1. G&T Test Order → catalog → cart_saved → checkout Province **ON**, SenderIdentity **588** stage → gt-view submitted  
+
+### Store G&T vs Amazon
+
+1. jordan.nguyen: `/gt-catalog/` search OK  
+2. `/amazon-catalog/` search should **403**  
 
 ---
 
@@ -177,50 +197,46 @@ Do not treat draft bodies as proof of send; they are copy/paste templates used i
 
 | Account | Password | Role | Store |
 |---------|----------|------|-------|
-| `jordan.nguyen` | `CcStoreOrder26!` | store_employee | Test store `#8177` |
-| `storeowner.gt.qa` | `StoreTest123!` | store_employee (earlier QA) | `#8177` |
-| Manager | Usman’s admin / shop_manager session | portal | — |
+| `jordan.nguyen` | `CcStoreOrder26!` | store_employee | `#8177` |
+| `storeowner.gt.qa` | `StoreTest123!` | store_employee | `#8177` |
+| Manager | Usman admin / shop_manager | portal | — |
 
-**Never commit production Amazon/G&T API secrets.** Names only: `AMAZON_*`, `CC_GT_*` in `wp-config.php`.
+**Never commit production Amazon/G&T API secrets.**
 
 ---
 
-## 10. Key code paths (this branch)
+## 10. Key code paths
 
 ### Theme (`adex360-canna-cabana-stationery-child/`)
 
-- `cc-gt-procurement.php` — G&T AJAX, soft nonce, cart snapshot merge to order
-- `gt-catalog.php` / `gt-cart.php` / `gt-checkout.php`
-- `amazon-apis-integration.php` — Amazon path (leave intact)
-- `functions.php` — includes G&T module
+- `amazon-apis-integration.php` — Amazon path  
+- `cc-gt-procurement.php`, `gt-catalog.php`, `gt-cart.php`, `gt-checkout.php`  
+- `cc-vendor-prices.php`, `cc-vendor-prices-sync.php`, `cc-vendor-cheapest.php` — cheapest stack  
+- `cc-cart-vendor.php` — manual picker retired  
+- `cc-cart-ui.php` / checkout templates — checkout UX  
 
 ### Plugin (`wcss-internal-supplies/`)
 
-- `frontend/assets/js/manager.js` — Amazon + G&T Test Order / view buttons
-- `frontend/pages/orders-gt-view.php` + `orders-amazon-view.php` + shared `partials/orders-vendor-view-styles.php`
-- `frontend/pages/partials/manager-nav.php` — Grand & Toy link
-- `frontend/routes/class-routes-manager.php` — gt-view route
-- `includes/rest/class-rest-orders.php` — G&T DTO fields
+- `frontend/pages/dashboard.php`, `orders.php`, `orders-amazon-view.php`, `orders-gt-view.php`  
+- `frontend/pages/partials/manager-nav.php`  
+- `frontend/assets/js/manager.js`, `css/manager.css`  
+- `includes/rest/class-rest-orders.php`, reports overview endpoints  
+- Quota: `class-order-quota.php`, store meta `_wcss_monthly_quota`  
 
 ---
 
-## 11. Cursor agent transcripts (local Cursor only)
+## 11. Definition of ready (by milestone)
 
-Not in git. On this Mac under Cursor projects `agent-transcripts/`:
+### Live demo-ready (Amazon + G&T manager paths) — met Oct 28
 
-- `861f8ed0-…` — G&T separation + live QA + Knowledge (current)
-- Older: `e670fe40`, `00d148cc`, `36884f80`, `5ed8adf4`, `d5810324`
+Store Woo + manager Amazon trial + manager G&T stage PO.
 
-Other system should rely on **this Knowledge folder**, not transcript IDs.
+### Next stakeholder demo (4 Nov) — target
+
+Aman plan P0–P1 where possible: cheapest storefront behaviour, budget $125 direction, clear story on auto-approve / reports roadmap; Supply Manager naming; no Aman test spam.
 
 ---
 
-## 12. Definition of “demo ready”
+## 12. How agents should answer
 
-- Store can place Woo requisition with jordan.nguyen  
-- Manager can Amazon Test Order (trial) on approved order  
-- Manager can G&T Test Order → cart_saved → stage PO → gt-view  
-- Store has G&T catalog access; **no** Amazon place path  
-- Knowledge pack + this status file present on the branch  
-
-**Status as of 2026-10-28 evening:** Demo-ready on live for G&T + Amazon manager paths; pull this branch on the other system before the final demo.
+Always prefer this file + meeting notes + Aman plan + current branch code. State live vs local-feature vs planned. Never invent secrets.
