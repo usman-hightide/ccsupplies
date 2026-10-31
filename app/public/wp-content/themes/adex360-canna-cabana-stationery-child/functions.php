@@ -16,6 +16,9 @@ require_once get_stylesheet_directory() . '/cc-vendor-prices-sync.php';
 require_once get_stylesheet_directory() . '/cc-vendor-cheapest.php';
 // Header search relevance (backend only).
 require_once get_stylesheet_directory() . '/cc-product-search.php';
+// Shop Product Categories sidebar card (approved design).
+require_once get_stylesheet_directory() . '/cc-shop-categories.php';
+
 
 
 // Enqueue parent and child styles

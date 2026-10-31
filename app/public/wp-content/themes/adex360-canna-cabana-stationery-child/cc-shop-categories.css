@@ -1,0 +1,370 @@
+/**
+ * Shop Product Categories sidebar — approved card design.
+ * Scoped to #shop-sidebar-cat / panel 29d3d1d0 only.
+ */
+
+body.archive.woocommerce .elementor-592 .elementor-element-29d3d1d0,
+body.tax-product_cat .elementor-592 .elementor-element-29d3d1d0,
+body.post-type-archive-product .elementor-592 .elementor-element-29d3d1d0 {
+	background: transparent !important;
+	border: 0 !important;
+	border-radius: 0 !important;
+	padding: 0 !important;
+	box-sizing: border-box;
+	overflow: visible;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .elementor-widget-container,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .elementor-widget-container,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .elementor-widget-container {
+	padding: 0 !important;
+	margin: 0 !important;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .widget_product_categories.cc-cat-ready,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .widget_product_categories.cc-cat-ready,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .widget_product_categories.cc-cat-ready {
+	--cc-cat-red: #e1251c;
+	--cc-cat-ink: #1a1a1a;
+	--cc-cat-muted: #6b6b6b;
+	--cc-cat-line: #eeeeee;
+	--cc-cat-pill: #efefef;
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	margin: 0 !important;
+	padding: 0 0 72px !important;
+	background: #fff !important;
+	border: 1px solid #e6e6e6;
+	border-radius: 16px;
+	box-shadow: 0 10px 30px rgba(17, 17, 17, 0.1);
+	overflow: hidden;
+	box-sizing: border-box;
+}
+
+/* Dark header bar */
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .cc-cat-head,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .cc-cat-head,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .cc-cat-head {
+	display: flex !important;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	margin: 0 !important;
+	padding: 14px 16px !important;
+	border: 0 !important;
+	border-radius: 0 !important;
+	background: #1c1c1c !important;
+	color: #fff !important;
+	font-family: Montserrat, sans-serif !important;
+	font-size: 14px !important;
+	font-weight: 600 !important;
+	letter-spacing: 0.01em;
+	line-height: 1.25 !important;
+	text-align: left;
+	text-transform: none !important;
+	cursor: pointer;
+	appearance: none;
+	box-sizing: border-box;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .cc-cat-head:focus-visible,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .cc-cat-head:focus-visible,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .cc-cat-head:focus-visible {
+	outline: 2px solid var(--cc-cat-red);
+	outline-offset: -2px;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .cc-cat-head__icon,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .cc-cat-head__icon,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .cc-cat-head__icon {
+	display: grid;
+	grid-template-columns: 7px 7px;
+	grid-template-rows: 7px 7px;
+	gap: 2px;
+	flex: 0 0 auto;
+	width: 16px;
+	height: 16px;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .cc-cat-head__icon span,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .cc-cat-head__icon span,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .cc-cat-head__icon span {
+	display: block;
+	border-radius: 1px;
+	background: #fff;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .cc-cat-head__icon span:first-child,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .cc-cat-head__icon span:first-child,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .cc-cat-head__icon span:first-child {
+	background: var(--cc-cat-red);
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .cc-cat-head__label,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .cc-cat-head__label,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .cc-cat-head__label {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .cc-cat-head__chev,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .cc-cat-head__chev,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .cc-cat-head__chev {
+	flex: 0 0 auto;
+	width: 10px;
+	height: 10px;
+	border-right: 2px solid #fff;
+	border-bottom: 2px solid #fff;
+	transform: rotate(-135deg);
+	transition: transform 0.2s ease;
+	opacity: 0.95;
+	margin-bottom: -2px;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .widget_product_categories.cc-cat-ready.is-collapsed .cc-cat-head__chev,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .widget_product_categories.cc-cat-ready.is-collapsed .cc-cat-head__chev,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .widget_product_categories.cc-cat-ready.is-collapsed .cc-cat-head__chev {
+	transform: rotate(45deg);
+	margin-bottom: 4px;
+}
+
+/* Hide original widget title once enhanced */
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .widget_product_categories.cc-cat-ready > h5,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .widget_product_categories.cc-cat-ready > h5,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .widget_product_categories.cc-cat-ready > h5 {
+	display: none !important;
+}
+
+/* Category list */
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat ul.product-categories,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat ul.product-categories,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat ul.product-categories {
+	position: relative;
+	z-index: 1;
+	margin: 0 !important;
+	padding: 4px 0 0 !important;
+	list-style: none !important;
+	background: #fff;
+	border: 0 !important;
+	border-radius: 0 !important;
+	box-shadow: none !important;
+	outline: none !important;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .widget_product_categories.cc-cat-ready.is-collapsed ul.product-categories,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .widget_product_categories.cc-cat-ready.is-collapsed ul.product-categories,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .widget_product_categories.cc-cat-ready.is-collapsed ul.product-categories,
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .widget_product_categories.cc-cat-ready.is-collapsed .cc-cat-foot,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .widget_product_categories.cc-cat-ready.is-collapsed .cc-cat-foot,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .widget_product_categories.cc-cat-ready.is-collapsed .cc-cat-foot {
+	display: none !important;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .widget_product_categories.cc-cat-ready.is-collapsed,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .widget_product_categories.cc-cat-ready.is-collapsed,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .widget_product_categories.cc-cat-ready.is-collapsed {
+	padding-bottom: 0 !important;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item {
+	display: flex !important;
+	flex-direction: row !important;
+	align-items: center !important;
+	justify-content: flex-start !important;
+	gap: 8px;
+	margin: 0 !important;
+	padding: 0 14px !important;
+	min-height: 48px !important;
+	height: auto !important;
+	border-bottom: 1px solid var(--cc-cat-line) !important;
+	list-style: none !important;
+	background: transparent;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item:last-child,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item:last-child,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item:last-child {
+	border-bottom: 0 !important;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item > a,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item > a,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item > a {
+	display: flex !important;
+	align-items: center;
+	gap: 10px;
+	flex: 1 1 auto;
+	min-width: 0;
+	margin: 0 !important;
+	padding: 12px 0 !important;
+	border: 0 !important;
+	border-radius: 0 !important;
+	background: transparent !important;
+	box-shadow: none !important;
+	color: var(--cc-cat-ink) !important;
+	font-family: Montserrat, sans-serif !important;
+	font-size: 13.5px !important;
+	font-weight: 500 !important;
+	letter-spacing: 0;
+	line-height: 1.3 !important;
+	text-decoration: none !important;
+	text-transform: none !important;
+	white-space: normal;
+	transition: color 0.15s ease;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .cc-cat-ico,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .cc-cat-ico,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .cc-cat-ico {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	color: #222;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .cc-cat-ico svg,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .cc-cat-ico svg,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .cc-cat-ico svg {
+	width: 18px;
+	height: 18px;
+	display: block;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .cc-cat-label,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .cc-cat-label,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .cc-cat-label {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item > .count,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item > .count,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item > .count {
+	display: inline-flex !important;
+	align-items: center;
+	justify-content: center;
+	flex: 0 0 auto;
+	min-width: 28px;
+	height: 22px;
+	margin: 0 !important;
+	padding: 0 9px !important;
+	border-radius: 999px;
+	background: var(--cc-cat-pill) !important;
+	color: #666 !important;
+	font-family: Montserrat, sans-serif !important;
+	font-size: 11px !important;
+	font-weight: 600 !important;
+	line-height: 1 !important;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .cc-cat-arrow,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .cc-cat-arrow,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .cc-cat-arrow {
+	flex: 0 0 auto;
+	width: 7px;
+	height: 7px;
+	margin-left: 2px;
+	border-right: 1.5px solid #bdbdbd;
+	border-bottom: 1.5px solid #bdbdbd;
+	transform: rotate(-45deg);
+	transition: border-color 0.15s ease;
+}
+
+/* Active / hover — red icon+label+chevron; count stays gray pill */
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item:hover > a,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item:hover > a,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item:hover > a,
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat ul.product-categories > li.current-cat > a,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat ul.product-categories > li.current-cat > a,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat ul.product-categories > li.current-cat > a {
+	color: var(--cc-cat-red) !important;
+	background: transparent !important;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item:hover .cc-cat-ico,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item:hover .cc-cat-ico,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item:hover .cc-cat-ico,
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat ul.product-categories > li.current-cat .cc-cat-ico,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat ul.product-categories > li.current-cat .cc-cat-ico,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat ul.product-categories > li.current-cat .cc-cat-ico {
+	color: var(--cc-cat-red);
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item:hover > .count,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item:hover > .count,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item:hover > .count,
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat ul.product-categories > li.current-cat > .count,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat ul.product-categories > li.current-cat > .count,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat ul.product-categories > li.current-cat > .count {
+	background: var(--cc-cat-pill) !important;
+	color: #666 !important;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item:hover .cc-cat-arrow,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item:hover .cc-cat-arrow,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat ul.product-categories > li.cat-item:hover .cc-cat-arrow,
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat ul.product-categories > li.current-cat .cc-cat-arrow,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat ul.product-categories > li.current-cat .cc-cat-arrow,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat ul.product-categories > li.current-cat .cc-cat-arrow {
+	border-color: var(--cc-cat-red);
+}
+
+/* Nested children stay indented quietly */
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat ul.product-categories ul.children,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat ul.product-categories ul.children,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat ul.product-categories ul.children {
+	margin: 0 0 0 18px !important;
+	padding: 0 !important;
+	width: 100%;
+}
+
+/* Footer tagline + floral watermark */
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .cc-cat-foot,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .cc-cat-foot,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .cc-cat-foot {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: flex-end;
+	min-height: 72px;
+	padding: 18px 16px 16px;
+	pointer-events: none;
+	background:
+		url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 100' fill='none'%3E%3Cg opacity='0.34'%3E%3Cellipse cx='38' cy='78' rx='18' ry='28' transform='rotate(-28 38 78)' fill='%23f0a0b0'/%3E%3Cellipse cx='58' cy='70' rx='16' ry='26' transform='rotate(18 58 70)' fill='%23e8889c'/%3E%3Cellipse cx='48' cy='58' rx='14' ry='22' transform='rotate(-8 48 58)' fill='%23f5b8c4'/%3E%3Cellipse cx='70' cy='82' rx='12' ry='20' transform='rotate(36 70 82)' fill='%23e47890'/%3E%3Cellipse cx='26' cy='66' rx='11' ry='18' transform='rotate(-42 26 66)' fill='%23ef98aa'/%3E%3C/g%3E%3C/svg%3E")
+		left -6px bottom -4px / 168px 96px no-repeat;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .cc-cat-foot__rule,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .cc-cat-foot__rule,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .cc-cat-foot__rule {
+	display: block;
+	width: 28px;
+	height: 2px;
+	margin: 0 auto 8px;
+	background: var(--cc-cat-red);
+	border-radius: 1px;
+}
+
+body.archive.woocommerce .elementor-592 #shop-sidebar-cat .cc-cat-foot__text,
+body.tax-product_cat .elementor-592 #shop-sidebar-cat .cc-cat-foot__text,
+body.post-type-archive-product .elementor-592 #shop-sidebar-cat .cc-cat-foot__text {
+	margin: 0;
+	color: #4a4a4a;
+	font-family: Georgia, 'Times New Roman', Times, serif;
+	font-size: 12px;
+	font-style: italic;
+	font-weight: 400;
+	line-height: 1.35;
+	text-align: center;
+}
