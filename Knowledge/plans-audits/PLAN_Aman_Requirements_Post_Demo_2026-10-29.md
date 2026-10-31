@@ -6,7 +6,8 @@
 **Related storefront plan (cheapest price):** `docs/PLAN-vendor-cheapest-pricing-and-checkout-ux.md`  
 **Claude design brief (dashboard UI only):** [CLAUDE_BRIEF_Supply_Manager_Dashboard_Revamp.md](./CLAUDE_BRIEF_Supply_Manager_Dashboard_Revamp.md)  
 **Project status (current flows):** [../PROJECT_STATUS_AND_CHAT_HISTORY.md](../PROJECT_STATUS_AND_CHAT_HISTORY.md)  
-**Working branch for cheapest storefront work:** `feature/store-cheapest-pricing-checkout-ux-2026-10-30`
+**Working branch (clean Knowledge + continue):** `feature/knowledge-clean-continue-2026-11-01`  
+**Cheapest storefront code also on:** `feature/store-cheapest-pricing-checkout-ux-2026-10-30`
 
 ---
 

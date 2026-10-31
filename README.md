@@ -20,8 +20,8 @@ Custom WordPress theme/plugin code + the **Knowledge/** pack (status, meetings, 
 
 ## Local site setup (WordPress + this repo)
 
-**Full analysis context:** start at `Knowledge/PROJECT_STATUS_AND_CHAT_HISTORY.md` and paste `Knowledge/ANALYZE_PROJECT_PROMPT.md` into Cursor.  
-**DB:** restore `Knowledge/db-backups/ccsupplies-local-db-LATEST.sql` (see `Knowledge/db-backups/README.md`).
+**Full analysis context:** paste `Knowledge/ANALYZE_PROJECT_PROMPT.md` into Cursor.  
+**DB:** not in GitHub — use USB portable zip or local gitignored dumps (`Knowledge/db-backups/README.md`).
 
 1. Create/open Local site `ccsupplies` (WP + WooCommerce working).
 2. Clone this repo, then sync custom folders into the Local site:
@@ -52,16 +52,12 @@ rsync -a \
 # Open: Knowledge/PROJECT_STATUS_AND_CHAT_HISTORY.md
 ```
 
-### Branches
+### Branch
 
 ```bash
 git fetch origin
-# Current storefront cheapest-price + checkout UX work:
-git checkout feature/store-cheapest-pricing-checkout-ux-2026-10-30
-git pull origin feature/store-cheapest-pricing-checkout-ux-2026-10-30
-
-# Prior G&T manager + Knowledge pack (Oct 28):
-# git checkout feature/gt-amazon-knowledge-demo-2026-10-28
+git checkout feature/knowledge-clean-continue-2026-11-01
+git pull origin feature/knowledge-clean-continue-2026-11-01
 ```
 
 Then paste `Knowledge/ANALYZE_PROJECT_PROMPT.md` into Cursor.

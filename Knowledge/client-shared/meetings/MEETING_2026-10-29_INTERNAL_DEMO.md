@@ -1,8 +1,7 @@
 # Internal demo — Amazon & Grand & Toy
 
 **When:** 29 October 2026, 5:59 PM UTC (about 42 minutes)  
-**Source PDF:** [Internal Demo of Amazon and Grand Toy 2026-10-29.pdf](./Internal%20Demo%20of%20Amazon%20and%20Grand%20Toy%202026-10-29.pdf)  
-**Searchable transcript:** [Internal Demo of Amazon and Grand Toy 2026-10-29 transcript.txt](./Internal%20Demo%20of%20Amazon%20and%20Grand%20Toy%202026-10-29%20transcript.txt)
+**Source PDF:** [Internal Demo of Amazon and Grand Toy 2026-10-29.pdf](./Internal%20Demo%20of%20Amazon%20and%20Grand%20Toy%202026-10-29.pdf)
 
 **On the call:** Usman Zahid (demo), Muhammad Basit Munir, Bhaumik Dhandhukia, Aman Sood, Chris Bilton, Alyshia Digiovannantonio, Muhammad Moiz.
 

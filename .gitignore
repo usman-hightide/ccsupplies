@@ -10,10 +10,15 @@ app/.envrc
 **/*.bak
 **/advanced-cache.php.bak
 
-# Local DB dumps under Knowledge/db-backups/ ARE tracked (for restore).
-# Keep accidental dumps outside Knowledge ignored:
+# DB dumps — local/USB only (never GitHub)
+Knowledge/db-backups/*.sql
 docs/db-backups/*.sql
 *.sql.bak
+.qa-live/
+Knowledge/ccsupplies.code-workspace
+Knowledge/emails/
+Knowledge/screenshots/
+Knowledge/tests/
 
 # Local by Flywheel runtime
 logs/

@@ -6,12 +6,12 @@
 **Local:** https://ccsupplies.local  
 **GitHub:** https://github.com/usman-hightide/ccsupplies  
 
-**Active feature branch (storefront cheapest + checkout UX):** `feature/store-cheapest-pricing-checkout-ux-2026-10-30`  
-**Prior G&T + Knowledge demo branch:** `feature/gt-amazon-knowledge-demo-2026-10-28`  
+**Active clean branch:** `feature/knowledge-clean-continue-2026-11-01`  
+**Prior code branch (cheapest pricing):** `feature/store-cheapest-pricing-checkout-ux-2026-10-30`  
 
 **Analyze prompt:** [`ANALYZE_PROJECT_PROMPT.md`](./ANALYZE_PROJECT_PROMPT.md)  
 **Post–29 Oct task plan:** [`plans-audits/PLAN_Aman_Requirements_Post_Demo_2026-10-29.md`](./plans-audits/PLAN_Aman_Requirements_Post_Demo_2026-10-29.md)  
-**Local DB:** [`db-backups/ccsupplies-local-db-LATEST.sql`](./db-backups/ccsupplies-local-db-LATEST.sql)
+**Local DB:** not in git — USB zip or local `db-backups/*.sql` (see `db-backups/README.md`)
 
 ---
 
@@ -20,14 +20,14 @@
 | Item | Location |
 |------|----------|
 | This status doc | `Knowledge/PROJECT_STATUS_AND_CHAT_HISTORY.md` |
-| Meeting 29 Oct (Aman demo) | `Knowledge/client-shared/meetings/MEETING_2026-10-29_INTERNAL_DEMO.md` (+ PDF + transcript) |
+| Meeting 29 Oct (Aman demo) | `Knowledge/client-shared/meetings/MEETING_2026-10-29_INTERNAL_DEMO.md` (+ PDF) |
 | Aman requirements plan | `Knowledge/plans-audits/PLAN_Aman_Requirements_Post_Demo_2026-10-29.md` |
 | Supply Manager UI brief | `Knowledge/plans-audits/CLAUDE_BRIEF_Supply_Manager_Dashboard_Revamp.md` |
 | Separate Amazon ≠ G&T plan | `Knowledge/plans-audits/PLAN_Separate_Amazon_GT_Dashboards_2026-10-27.md` |
 | Cheapest price + checkout UX plan | `docs/PLAN-vendor-cheapest-pricing-and-checkout-ux.md` |
 | Child theme (Amazon + G&T + cheapest) | `app/public/wp-content/themes/adex360-canna-cabana-stationery-child/` |
 | Manager portal plugin | `app/public/wp-content/plugins/wcss-internal-supplies/` |
-| Local DB dump | `Knowledge/db-backups/ccsupplies-local-db-LATEST.sql` |
+| Local DB dump | USB portable zip / local `Knowledge/db-backups/*.sql` (gitignored) |
 | Secrets (not in git) | Local `wp-config.php` → `AMAZON_*`, `CC_GT_*` |
 
 ---
@@ -102,8 +102,9 @@
 - [x] Store QA user **jordan.nguyen** → Test store `#8177`  
 - [x] Approved Item List CSVs in Knowledge  
 - [x] Local cheapest vendor pricing stack (feature branch) — cache table, sync, shop/cart apply  
-- [x] Meeting 29 Oct filed (PDF + notes + transcript)  
+- [x] Meeting 29 Oct filed (PDF + notes)  
 - [x] Aman post-demo plan + Supply Manager UI brief in Knowledge  
+- [x] Knowledge pack cleaned (DB dumps off GitHub; lean file set)
 
 ---
 
@@ -142,19 +143,7 @@
 
 ---
 
-## 6. Emails in Knowledge
-
-| File | Purpose |
-|------|---------|
-| `emails/EMAIL_TO_JAI_ARCHITECTURE.md` | Architecture DOCX |
-| `emails/EMAIL_TO_JAI_PRODUCT_SEARCH.md` | Product search |
-| `emails/AMAZON_MEETING_MOM_EMAIL.md` | Amazon trial demo MOM |
-
-Drafts are templates — not proof of send.
-
----
-
-## 7. Client data in Knowledge
+## 6. Client data in Knowledge
 
 ### Approved item lists — `client-shared/approved-item-lists/`
 
@@ -167,7 +156,7 @@ Drafts are templates — not proof of send.
 ### Meetings — `client-shared/meetings/`
 
 - Call with Chris and 1 other.docx  
-- Internal Demo of Amazon and Grand Toy 2026-10-29.pdf + transcript + `MEETING_2026-10-29_INTERNAL_DEMO.md`  
+- Internal Demo of Amazon and Grand Toy 2026-10-29.pdf + `MEETING_2026-10-29_INTERNAL_DEMO.md`
 
 ---
 
