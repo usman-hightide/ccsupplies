@@ -497,7 +497,7 @@ header.elementor-location-header {
 }
 .e-search,
 .elementor-popup-modal .e-search {
-	--e-search-results-columns: 2 !important;
+	--e-search-results-columns: 3 !important;
 	position: relative;
 	z-index: 100060 !important;
 	overflow: visible !important;
@@ -505,7 +505,8 @@ header.elementor-location-header {
 .e-search .e-search-results-container,
 .elementor-popup-modal .e-search-results-container {
 	background: #fff !important;
-	border: 1px solid #e5e5e5 !important;
+	border: none !important;
+	outline: none !important;
 	border-radius: 10px !important;
 	box-shadow: 0 14px 36px rgba(0, 0, 0, 0.2) !important;
 	padding: 12px !important;
@@ -519,11 +520,11 @@ header.elementor-location-header {
 	isolation: isolate;
 	/* Closed until a search is in progress or results are inside. */
 	display: none !important;
-	/* Search width + a little extra (not full page) */
-	width: calc(100% + 48px) !important;
-	max-width: none !important;
-	min-width: 0 !important;
-	left: -24px !important;
+	/* Wider panel for 3-column product cards */
+	width: min(860px, calc(100vw - 32px)) !important;
+	max-width: min(860px, calc(100vw - 32px)) !important;
+	min-width: min(720px, calc(100vw - 32px)) !important;
+	left: 0 !important;
 	right: auto !important;
 	box-sizing: border-box !important;
 }
@@ -548,18 +549,24 @@ header.elementor-location-header {
 	width: 100% !important;
 	max-width: 100% !important;
 	overflow: visible !important;
+	border: none !important;
+	outline: none !important;
+	box-shadow: none !important;
 }
 .cc-search-results {
 	display: grid !important;
-	grid-template-columns: 1fr 1fr !important;
+	grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
 	gap: 12px;
 	width: 100% !important;
 	max-width: 100% !important;
 	box-sizing: border-box;
+	border: none !important;
+	outline: none !important;
+	box-shadow: none !important;
 }
 .cc-search-results .cc-search-hit:only-child {
 	grid-column: 1 / -1;
-	max-width: 320px;
+	max-width: 280px;
 }
 .cc-search-empty {
 	grid-column: 1 / -1;
@@ -721,10 +728,31 @@ a.cc-search-hit__atc.button:hover {
 	background: #222 !important;
 	border-color: #222 !important;
 }
+@media (max-width: 991px) {
+	.e-search,
+	.elementor-popup-modal .e-search {
+		--e-search-results-columns: 2 !important;
+	}
+	.e-search .e-search-results-container,
+	.elementor-popup-modal .e-search-results-container {
+		width: min(640px, calc(100vw - 24px)) !important;
+		max-width: min(640px, calc(100vw - 24px)) !important;
+		min-width: 0 !important;
+	}
+	.cc-search-results {
+		grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+	}
+}
 @media (max-width: 767px) {
+	.e-search,
+	.elementor-popup-modal .e-search {
+		--e-search-results-columns: 1 !important;
+	}
 	.e-search .e-search-results-container,
 	.elementor-popup-modal .e-search-results-container {
 		width: 100% !important;
+		max-width: 100% !important;
+		min-width: 0 !important;
 		left: 0 !important;
 	}
 	.cc-search-results {
