@@ -1101,6 +1101,8 @@ body.woocommerce-cart .wc-proceed-to-checkout a.checkout-button:focus {
   .wcss-usage { grid-template-columns: 1fr; }
   body.woocommerce-cart .woocommerce > .cart-collaterals { position: static; }
   .cc-cart-pagehead__main { flex-direction: column; }
+  /* flex-basis 280px becomes a height once stacked — leaves a big gap above the steps. */
+  .cc-cart-pagehead__titleblock { flex-basis: auto; }
   .cc-cart-steps { width: 100%; }
   .cc-cart-steps__list { min-width: 0; width: 100%; }
 }
@@ -1634,6 +1636,11 @@ body.woocommerce-checkout .cc-checkout-vendor-badge {
     color: #888;
   }
 
+  body.woocommerce-checkout .cc-checkout-review-table tfoot {
+    display: block;
+    width: 100%;
+  }
+
   body.woocommerce-checkout .cc-checkout-review-table tfoot tr {
     display: flex;
     justify-content: space-between;
@@ -1645,5 +1652,223 @@ body.woocommerce-checkout .cc-checkout-vendor-badge {
     display: block;
     width: auto;
     padding: 8px 0;
+  }
+}
+
+/* Small laptops / tablets landscape: two columns leave billing ~320px wide and labels
+   ("First name (optional)") wrap into each other — stack until there is room. */
+@media (min-width: 992px) and (max-width: 1099px) {
+  body.woocommerce-checkout form.checkout.woocommerce-checkout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "details"
+      "order";
+  }
+
+  body.woocommerce-checkout #order_review.woocommerce-checkout-review-order {
+    position: static;
+  }
+}
+
+/* Payment method note: site palette instead of Woo's default lilac box. */
+body.woocommerce-checkout #payment div.payment_box {
+  background: var(--cc-bg);
+  color: var(--cc-muted);
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+body.woocommerce-checkout #payment div.payment_box::before {
+  border-bottom-color: var(--cc-bg);
+}
+
+body.woocommerce-checkout #payment ul.payment_methods li > label {
+  font-weight: 700;
+  color: var(--cc-ink);
+}
+
+/* Phones: one field per row so labels never collide. */
+@media (max-width: 560px) {
+  body.woocommerce-checkout #customer_details .form-row-first,
+  body.woocommerce-checkout #customer_details .form-row-last {
+    float: none;
+    width: 100%;
+  }
+}
+
+/* ---- Checkout: "placing your order" overlay (cc-cart-ui.js) ---- */
+.cc-placing {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(17, 17, 17, 0.55);
+  backdrop-filter: blur(3px);
+  animation: cc-placing-fade 0.2s ease;
+}
+.cc-placing[hidden] {
+  display: none;
+}
+html.cc-placing-open,
+html.cc-placing-open body {
+  overflow: hidden;
+}
+/* Our overlay replaces Woo's grey blockUI while the order is posting. */
+html.cc-placing-open .blockUI {
+  display: none !important;
+}
+.cc-placing__card {
+  width: min(420px, 100%);
+  padding: 32px 28px 26px;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(17, 17, 17, 0.25);
+  text-align: center;
+  color: var(--cc-ink);
+}
+.cc-placing__spinner {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 18px;
+  border-radius: 50%;
+  border: 4px solid var(--cc-red-soft);
+  border-top-color: var(--cc-red);
+  animation: cc-spin 0.85s linear infinite;
+}
+.cc-placing__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--cc-ink);
+}
+.cc-placing__sub {
+  margin: 6px 0 18px;
+  min-height: 21px;
+  font-size: 15px;
+  color: var(--cc-muted);
+}
+.cc-placing__bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--cc-line);
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+.cc-placing__bar span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--cc-red);
+  transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.cc-placing__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+.cc-placing__steps li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  color: #a1a1aa;
+  transition: color 0.2s ease;
+}
+.cc-placing__dot {
+  position: relative;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #d4d4d8;
+  box-sizing: border-box;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.cc-placing__steps li.is-active {
+  color: var(--cc-ink);
+  font-weight: 700;
+}
+.cc-placing__steps li.is-active .cc-placing__dot {
+  border-color: var(--cc-red);
+  border-right-color: transparent;
+  animation: cc-spin 0.8s linear infinite;
+}
+.cc-placing__steps li.is-done {
+  color: var(--cc-ink);
+}
+.cc-placing__steps li.is-done .cc-placing__dot {
+  border-color: #1b7a3d;
+  background: #1b7a3d;
+}
+.cc-placing__steps li.is-done .cc-placing__dot::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.cc-placing__slow {
+  margin: 18px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff7e8;
+  color: #6b4100;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.cc-placing__slow[hidden] {
+  display: none;
+}
+
+/* Address / shipping refreshes: subtle white veil + spinner instead of Woo's grey block. */
+body.woocommerce-checkout .blockUI.blockOverlay {
+  background: rgba(255, 255, 255, 0.65) !important;
+  opacity: 1 !important;
+  border-radius: 16px;
+}
+body.woocommerce-checkout .blockUI.blockOverlay::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border-radius: 50%;
+  border: 3px solid var(--cc-red-soft);
+  border-top-color: var(--cc-red);
+  animation: cc-spin 0.8s linear infinite;
+  background: none;
+}
+
+@keyframes cc-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes cc-placing-fade {
+  from { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cc-placing,
+  .cc-placing__spinner,
+  .cc-placing__steps li.is-active .cc-placing__dot,
+  body.woocommerce-checkout .blockUI.blockOverlay::before {
+    animation-duration: 2.4s;
+  }
+  .cc-placing__bar span {
+    transition: none;
   }
 }

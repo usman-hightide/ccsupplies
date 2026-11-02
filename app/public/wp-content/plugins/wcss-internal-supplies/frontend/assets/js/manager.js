@@ -121,7 +121,8 @@
 
       const $vendors = $("#p-vendors").empty();
       (meta.vendors || []).forEach((v) =>
-        $("<option>").val(v.id).text(v.name).appendTo($vendors)
+        // Term names can be stored HTML-encoded ("Grand &amp; Toy"); decode before showing.
+        $("<option>").val(v.id).text($("<textarea>").html(v.name).text()).appendTo($vendors)
       );
 
       return meta;
@@ -169,7 +170,7 @@
     function render(items, meta) {
       const head = `
       <div class="row head">
-        <div>ID</div><div>Name</div><div>SKU</div><div>Vendor</div><div>Price</div><div>Actions</div>
+        <div>ID</div><div>Name</div><div>SKU</div><div>Vendor</div><div>Woo</div><div>Amazon</div><div>G&amp;T</div><div>Actions</div>
       </div>`;
       const rows = (items || [])
         .map((p) => {
@@ -186,6 +187,11 @@
           const editUrl =
             p.id + (qsParts.length ? "?" + qsParts.join("&") : "");
 
+          const wooHtml =
+            p.woo_price_html || p.price_html || (p.price != null ? p.price : "—");
+          const amazonHtml = p.amazon_price_html || "—";
+          const gtHtml = p.gt_price_html || "—";
+
           return `
       <div class="row">
         <div>#${p.id}</div>
@@ -195,7 +201,9 @@
           /</g,
           "&lt;"
         )}</div>
-        <div>${p.price_html || p.price || ""}</div>
+        <div class="price-cell">${wooHtml}</div>
+        <div class="price-cell">${amazonHtml}</div>
+        <div class="price-cell">${gtHtml}</div>
         <div class="actions">
           <a class="btn btn-sm" href="edit/${editUrl}">Edit</a>
           <button class="btn btn-sm btn-danger delete-product" data-id="${
@@ -1209,10 +1217,11 @@
       per_page: 20,
       total_pages: 1,
       total: 0,
-      status: "",
+      status: new URLSearchParams(window.location.search).get("status") || "",
       from: "",
       to: "",
     };
+    if (state.status) $status.val(state.status);
 
     function flash(msg, ok = true) {
       $flash
@@ -1261,7 +1270,6 @@
         <div class="row head">
           <div>#</div>
           <div>Date</div>
-          <div>Status</div>
           <div>Total</div>
           <div>Customer</div>
           <div>Vendor</div>
@@ -1281,9 +1289,6 @@
           <div class="row">
             <div>${escapeHtml(o.number || "#" + o.id)}</div>
             <div>${escapeHtml(o.date || "")}</div>
-            <div><span class="badge status-${escapeHtml(
-              o.status_slug
-            )}">${escapeHtml(o.status)}</span></div>
             <div>${o.total || ""}</div>
             <div>${escapeHtml(o.customer || "")}</div>
             <div>${vendorCell(o)}</div>
@@ -1629,6 +1634,51 @@
         window.location.href = home + path + orderId;
       });
 
+    $wrap.off("click.wcssToggleApi", "#ov-toggle-api-json");
+    $wrap.on("click.wcssToggleApi", "#ov-toggle-api-json", function (e) {
+      e.preventDefault();
+      var $btn = jQuery(this);
+      var $pre = $wrap.find("#ov-api-json");
+      var $copy = $wrap.find("#ov-copy-api-json");
+      var $label = $btn.find(".ov-api-toggle__label");
+      var open = $btn.attr("aria-expanded") === "true";
+      if (open) {
+        $btn.attr("aria-expanded", "false");
+        $label.text("Show JSON payload");
+        $pre.addClass("is-collapsed").attr("hidden", true);
+        $copy.attr("hidden", true);
+        $wrap.find(".ov-api-panel").removeClass("is-open");
+      } else {
+        $btn.attr("aria-expanded", "true");
+        $label.text("Hide JSON payload");
+        $pre.removeClass("is-collapsed").removeAttr("hidden");
+        $copy.removeAttr("hidden");
+        $wrap.find(".ov-api-panel").addClass("is-open");
+      }
+    });
+
+    $wrap.off("click.wcssCopyApi", "#ov-copy-api-json");
+    $wrap.on("click.wcssCopyApi", "#ov-copy-api-json", function (e) {
+      e.preventDefault();
+      var pre = document.getElementById("ov-api-json");
+      var text = pre ? pre.textContent || "" : "";
+      var $btn = jQuery(this);
+      var done = function () {
+        var prev = $btn.data("label") || $btn.text();
+        $btn.data("label", prev).text("Copied");
+        setTimeout(function () {
+          $btn.text($btn.data("label") || "Copy JSON");
+        }, 1400);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(function () {
+          done();
+        });
+      } else {
+        done();
+      }
+    });
+
     $wrap.html("<p>Loading...</p>");
 
     fetch((WCSSM.rest || "/wp-json/wcss/v1/") + "orders/" + orderId, {
@@ -1785,10 +1835,11 @@
             dlRow("Shipment EDD", esc(data.shipment.edd || ""));
         }
 
-        var addressBlocks = "";
+        // Billing / shipping sit under Store (right column) to fill empty space.
+        var sideAddressBlocks = "";
         if (hasAddr(data.billing)) {
-          addressBlocks +=
-            "<div class='ov-card'>" +
+          sideAddressBlocks +=
+            "<div class='ov-card ov-billing-card'>" +
             "<h3>Billing address</h3>" +
             "<div class='ov-addr'>" +
             formatAddr(data.billing) +
@@ -1796,14 +1847,22 @@
             "</div>";
         }
         if (hasAddr(data.shipping)) {
-          addressBlocks +=
-            "<div class='ov-card'>" +
+          sideAddressBlocks +=
+            "<div class='ov-card ov-shipping-card'>" +
             "<h3>Shipping address</h3>" +
             "<div class='ov-addr'>" +
             formatAddr(data.shipping) +
             "</div>" +
             "</div>";
         }
+
+        var sideColumn =
+          storeBlock || sideAddressBlocks
+            ? "<div class='ov-side-col'>" +
+              storeBlock +
+              sideAddressBlocks +
+              "</div>"
+            : "";
 
         var noteBlock = "";
         if (data.customer_note) {
@@ -1826,11 +1885,8 @@
           orderMetaRows +
           "</dl>" +
           "</div>" +
-          storeBlock +
+          sideColumn +
           "</div>" +
-          (addressBlocks
-            ? "<div class='ov-address-grid'>" + addressBlocks + "</div>"
-            : "") +
           noteBlock +
           "<div class='ov-items-card'>" +
           "<h3>Items</h3>" +
@@ -1886,6 +1942,151 @@
           "</div>" +
           ledgerBlock +
           (function () {
+            var auto = data.auto_submit_detail || data.auto_submit || null;
+            var amazon = data.amazon_order || {};
+            var gt = data.gt_order || {};
+            var autoStatus = (auto && auto.status) || "";
+            var autoDone =
+              autoStatus === "submitted" ||
+              autoStatus === "partial" ||
+              autoStatus === "failed" ||
+              autoStatus === "skipped";
+
+            function vendorOrderCard(title, payload, kind) {
+              if (!payload || !payload.found) {
+                return (
+                  "<div class='ov-card ov-vendor-order is-empty'>" +
+                  "<h3>" +
+                  esc(title) +
+                  "</h3>" +
+                  "<p class='ov-muted'>No " +
+                  esc(kind) +
+                  " order was triggered for this requisition.</p>" +
+                  "</div>"
+                );
+              }
+              var rows = "";
+              rows += dlRow("Status", esc(payload.status || "—"));
+              if (payload.auto) rows += dlRow("Source", "Automatic submit");
+              if (payload.po_id) rows += dlRow("PO / Ref", esc(payload.po_id));
+              if (payload.trial_mode) rows += dlRow("Mode", "Amazon trial");
+              if (payload.stage_only) rows += dlRow("Environment", "G&T stage");
+              if (payload.order_total != null && payload.order_total !== "") {
+                rows += dlRow(
+                  "Vendor total",
+                  esc(String(payload.order_total)) +
+                    " " +
+                    esc(payload.currency || "CAD")
+                );
+              }
+              if (payload.submitted_at || payload.placed_at) {
+                rows += dlRow(
+                  "Submitted",
+                  esc(payload.submitted_at || payload.placed_at)
+                );
+              }
+              if (payload.message) rows += dlRow("API message", esc(payload.message));
+              if (
+                payload.gt_result &&
+                payload.gt_result.ok === false &&
+                Array.isArray(payload.gt_result.errors) &&
+                payload.gt_result.errors.length
+              ) {
+                rows += dlRow(
+                  "Errors",
+                  esc(payload.gt_result.errors.join("; "))
+                );
+              }
+
+              var itemRows = "";
+              var items =
+                (Array.isArray(payload.cart_items) && payload.cart_items.length
+                  ? payload.cart_items
+                  : payload.intended_lines) || [];
+              if (items.length) {
+                itemRows =
+                  "<div class='ov-table-wrap' style='margin-top:12px'>" +
+                  "<table class='table ov-items-table'><thead><tr>" +
+                  "<th>Item</th><th>Vendor ID</th><th>Qty</th><th>Unit</th>" +
+                  "</tr></thead><tbody>" +
+                  items
+                    .map(function (it) {
+                      var name =
+                        it.name ||
+                        it.title ||
+                        it.description ||
+                        it.asin ||
+                        it.supplier_part_id ||
+                        "Item";
+                      var vid =
+                        it.vendor_id ||
+                        it.asin ||
+                        it.supplier_part_id ||
+                        it.productIdentifier ||
+                        "";
+                      var qty = it.qty || it.quantity || 1;
+                      var unit =
+                        it.unit_price != null
+                          ? it.unit_price
+                          : it.price != null
+                          ? it.price
+                          : it.amazon_price != null
+                          ? it.amazon_price
+                          : "—";
+                      return (
+                        "<tr><td>" +
+                        esc(name) +
+                        "</td><td>" +
+                        esc(vid) +
+                        "</td><td>" +
+                        esc(qty) +
+                        "</td><td>" +
+                        esc(unit) +
+                        "</td></tr>"
+                      );
+                    })
+                    .join("") +
+                  "</tbody></table></div>";
+              }
+
+              return (
+                "<div class='ov-card ov-vendor-order'>" +
+                "<h3>" +
+                esc(title) +
+                "</h3>" +
+                "<dl class='ov-dl'>" +
+                rows +
+                "</dl>" +
+                itemRows +
+                "</div>"
+              );
+            }
+
+            var vendorOrdersHtml =
+              "<div class='ov-vendor-orders'>" +
+              "<div class='ov-card ov-auto-submit'>" +
+              "<h3>Auto vendor submit</h3>" +
+              (auto
+                ? "<dl class='ov-dl'>" +
+                  dlRow("Status", esc(autoStatus || "—")) +
+                  dlRow(
+                    "Selected vendor",
+                    esc(
+                      auto.winning_vendor === "gt"
+                        ? "Grand & Toy"
+                        : auto.winning_vendor === "amazon"
+                        ? "Amazon"
+                        : auto.winning_vendor || data.vendor_label || "—"
+                    )
+                  ) +
+                  dlRow("Detail", esc(auto.message || "")) +
+                  "</dl>"
+                : "<p class='ov-muted'>No automatic vendor submit recorded for this order yet.</p>") +
+              "</div>" +
+              vendorOrderCard("Amazon order", amazon, "Amazon") +
+              vendorOrderCard("Grand & Toy order", gt, "Grand & Toy") +
+              "</div>";
+
             var statusSlug = (data.status_slug || "").toString();
             var canDecide =
               ["pending", "awaiting-approval", "on-hold"].indexOf(statusSlug) !==
@@ -1893,6 +2094,15 @@
             var isApproved = statusSlug === "approved";
             var storeVendor = (data.vendor || "").toString();
             var storeVendorLabel = (data.vendor_label || "—").toString();
+            var vendorAlreadyPlaced =
+              (amazon && amazon.found) || (gt && gt.found);
+            var needManualFulfill =
+              isApproved &&
+              !vendorAlreadyPlaced &&
+              (!autoDone ||
+                autoStatus === "failed" ||
+                autoStatus === "partial" ||
+                autoStatus === "skipped");
             var fulfillVendors = [
               {
                 key: "amazon",
@@ -1907,11 +2117,11 @@
             ];
 
             var statusHtml =
-              "<div class='ov-status-card'>" + "<h3>Update Status</h3>";
+              "<div class='ov-status-card'>" + "<h3>Order status</h3>";
 
             if (canDecide) {
               statusHtml +=
-                "<p class='ov-status-hint'>Review this requisition, then approve to proceed or reject to send it back.</p>" +
+                "<p class='ov-status-hint'>This requisition is still waiting. You can approve or reject manually if auto-submit has not finished.</p>" +
                 "<div class='actions ov-status-actions'>" +
                 "<button type='button' class='btn btn-approve' id='order-approve'>Approve order</button>" +
                 "<button type='button' class='btn btn-reject' id='order-reject'>Reject order</button>" +
@@ -1923,40 +2133,17 @@
                 "</strong></p>";
             }
 
-            if (isApproved) {
+            if (needManualFulfill) {
               statusHtml +=
                 "<div class='ov-vendor-fulfill'>" +
-                "<p class='ov-vendor-fulfill__eyebrow'>Next step</p>" +
-                "<h4>Choose a vendor to place this order</h4>" +
-                "<p class='ov-vendor-fulfill__lead'>Pick Amazon or Grand &amp; Toy. You’ll go to that vendor’s checkout with the store’s submitted shipping details already filled in.</p>";
-              if (storeVendor && storeVendor !== "mixed") {
-                statusHtml +=
-                  "<div class='ov-store-vendor' role='status'>" +
-                  "<span class='ov-store-vendor__label'>Store owner preferred</span>" +
-                  "<span class='ov-store-vendor__value'>" +
-                  esc(storeVendorLabel) +
-                  "</span>" +
-                  "</div>";
-              } else if (storeVendor === "mixed") {
-                statusHtml +=
-                  "<div class='ov-store-vendor' role='status'>" +
-                  "<span class='ov-store-vendor__label'>Store owner preferred</span>" +
-                  "<span class='ov-store-vendor__value'>Mixed vendors on this order</span>" +
-                  "</div>";
-              } else {
-                statusHtml +=
-                  "<div class='ov-store-vendor is-empty' role='status'>" +
-                  "<span class='ov-store-vendor__label'>Store owner preferred</span>" +
-                  "<span class='ov-store-vendor__value'>No vendor selected — choose one below</span>" +
-                  "</div>";
-              }
-              statusHtml += "<div class='actions ov-fulfill-actions'>";
+                "<p class='ov-vendor-fulfill__eyebrow'>Manual fallback</p>" +
+                "<h4>Place with a vendor</h4>" +
+                "<p class='ov-vendor-fulfill__lead'>Use only if automatic submit failed or was skipped. Store cheapest vendor: <strong>" +
+                esc(storeVendorLabel) +
+                "</strong></p>" +
+                "<div class='actions ov-fulfill-actions'>";
               fulfillVendors.forEach(function (v) {
                 var preferred = storeVendor && storeVendor === v.key;
-                var hint =
-                  v.key === "amazon"
-                    ? "Open Amazon catalog & checkout"
-                    : "Open G&T catalog & checkout";
                 statusHtml +=
                   "<button type='button' class='btn btn-fulfill" +
                   (preferred ? " is-preferred" : "") +
@@ -1969,16 +2156,375 @@
                   esc(v.label) +
                   (preferred ? " · recommended" : "") +
                   "</span>" +
-                  "<span class='btn-fulfill__hint'>" +
-                  esc(hint) +
-                  "</span>" +
                   "</button>";
               });
               statusHtml += "</div></div>";
             }
 
             statusHtml += "<div id='order-msg'></div></div>";
-            return statusHtml;
+
+            // --- Below status: calculation breakdown ---
+            var totals = data.totals || {};
+            var calcRows = "";
+            calcRows += dlRow("Currency", esc(totals.currency || "CAD"));
+            calcRows += dlRow("Item count", esc(String(totals.item_count != null ? totals.item_count : (data.items || []).length)));
+            calcRows += dlRow("Subtotal (before tax)", totals.subtotal_html || esc(String(totals.subtotal != null ? totals.subtotal : "—")));
+            if (totals.discount_total > 0) {
+              calcRows += dlRow("Discount", totals.discount_total_html || esc(String(totals.discount_total)));
+            }
+            calcRows += dlRow("Shipping", totals.shipping_total_html || esc(String(totals.shipping_total != null ? totals.shipping_total : "0")));
+            if (totals.shipping_tax > 0) {
+              calcRows += dlRow("Shipping tax", totals.shipping_tax_html || esc(String(totals.shipping_tax)));
+            }
+            if (totals.fee_total > 0) {
+              calcRows += dlRow("Fees", totals.fee_total_html || esc(String(totals.fee_total)));
+            }
+            calcRows += dlRow("Cart tax", totals.cart_tax_html || esc(String(totals.cart_tax != null ? totals.cart_tax : "0")));
+            calcRows += dlRow("Total tax", totals.total_tax_html || esc(String(totals.total_tax != null ? totals.total_tax : "0")));
+            calcRows += dlRow("Grand total", totals.grand_total_html || data.total_html || esc(String(totals.grand_total != null ? totals.grand_total : data.total || "—")));
+            if (totals.payment_method) {
+              calcRows += dlRow("Payment method", esc(totals.payment_method));
+            }
+
+            var taxLinesHtml = "";
+            if (Array.isArray(totals.tax_lines) && totals.tax_lines.length) {
+              taxLinesHtml =
+                "<div class='ov-table-wrap' style='margin-top:12px'>" +
+                "<table class='table ov-items-table'><thead><tr>" +
+                "<th>Tax</th><th>Rate %</th><th>Amount</th><th>Shipping tax</th>" +
+                "</tr></thead><tbody>" +
+                totals.tax_lines
+                  .map(function (t) {
+                    return (
+                      "<tr><td>" +
+                      esc(t.label || "Tax") +
+                      "</td><td>" +
+                      esc(t.rate_percent || "—") +
+                      "</td><td>" +
+                      (t.tax_total_html || esc(String(t.tax_total || 0))) +
+                      "</td><td>" +
+                      esc(String(t.shipping_tax_total != null ? t.shipping_tax_total : "0")) +
+                      "</td></tr>"
+                    );
+                  })
+                  .join("") +
+                "</tbody></table></div>";
+            }
+
+            var feeLinesHtml = "";
+            if (Array.isArray(totals.fee_lines) && totals.fee_lines.length) {
+              feeLinesHtml =
+                "<div class='ov-table-wrap' style='margin-top:12px'>" +
+                "<table class='table ov-items-table'><thead><tr>" +
+                "<th>Fee</th><th>Amount</th><th>Tax</th>" +
+                "</tr></thead><tbody>" +
+                totals.fee_lines
+                  .map(function (f) {
+                    return (
+                      "<tr><td>" +
+                      esc(f.name || "Fee") +
+                      "</td><td>" +
+                      (f.total_html || esc(String(f.total || 0))) +
+                      "</td><td>" +
+                      esc(String(f.total_tax != null ? f.total_tax : "0")) +
+                      "</td></tr>"
+                    );
+                  })
+                  .join("") +
+                "</tbody></table></div>";
+            }
+
+            var shippingLinesHtml = "";
+            if (Array.isArray(totals.shipping_lines) && totals.shipping_lines.length) {
+              shippingLinesHtml =
+                "<div class='ov-table-wrap' style='margin-top:12px'>" +
+                "<table class='table ov-items-table'><thead><tr>" +
+                "<th>Shipping method</th><th>Amount</th><th>Tax</th>" +
+                "</tr></thead><tbody>" +
+                totals.shipping_lines
+                  .map(function (s) {
+                    return (
+                      "<tr><td>" +
+                      esc(s.method || "Shipping") +
+                      "</td><td>" +
+                      (s.total_html || esc(String(s.total || 0))) +
+                      "</td><td>" +
+                      esc(String(s.total_tax != null ? s.total_tax : "0")) +
+                      "</td></tr>"
+                    );
+                  })
+                  .join("") +
+                "</tbody></table></div>";
+            }
+
+            var calculationHtml =
+              "<div class='ov-card ov-calc-card'>" +
+              "<h3>Order calculation</h3>" +
+              "<p class='ov-status-hint'>Breakdown of what was calculated on the store owner order (subtotal, tax, shipping, fees, and grand total).</p>" +
+              "<dl class='ov-dl'>" +
+              calcRows +
+              "</dl>" +
+              taxLinesHtml +
+              feeLinesHtml +
+              shippingLinesHtml +
+              "</div>";
+
+            // --- Vendor order details (Amazon / G&T) — full detail under status ---
+            function vendorDetailSection(kind, title, payload) {
+              if (!payload || !payload.found) {
+                return (
+                  "<div class='ov-card ov-vendor-detail is-empty'>" +
+                  "<h3>" +
+                  esc(title) +
+                  "</h3>" +
+                  "<p class='ov-muted'>No " +
+                  esc(kind) +
+                  " vendor order was placed for this requisition.</p>" +
+                  "</div>"
+                );
+              }
+              var rows = "";
+              rows += dlRow("Vendor", esc(kind));
+              rows += dlRow("Status", esc(payload.status || "—"));
+              rows += dlRow(
+                "Triggered by",
+                payload.auto ? "Automatic submit" : "Manual / prior flow"
+              );
+              if (payload.source) rows += dlRow("Source", esc(payload.source));
+              if (payload.po_id) rows += dlRow("PO / reference", esc(payload.po_id));
+              if (payload.amazon_request_id) {
+                rows += dlRow("Amazon request ID", esc(payload.amazon_request_id));
+              }
+              if (payload.sender) rows += dlRow("Sender", esc(payload.sender));
+              if (payload.trial_mode) rows += dlRow("Mode", "Amazon trial mode");
+              if (payload.stage_only) rows += dlRow("Environment", "Grand & Toy stage");
+              if (payload.order_total != null && payload.order_total !== "") {
+                rows += dlRow(
+                  "Vendor order total",
+                  esc(String(payload.order_total)) +
+                    " " +
+                    esc(payload.currency || "CAD")
+                );
+              }
+              if (payload.submitted_at || payload.placed_at) {
+                rows += dlRow(
+                  "Submitted at",
+                  esc(payload.submitted_at || payload.placed_at)
+                );
+              }
+              if (payload.message) rows += dlRow("Vendor message", esc(payload.message));
+
+              var ship = payload.shipping || payload.ship_to || null;
+              if (ship && typeof ship === "object" && Object.keys(ship).length) {
+                var shipBits = [];
+                ["name", "deliver_to", "company", "address_1", "city", "state", "postal_code", "postcode", "country", "email", "phone"].forEach(function (k) {
+                  if (ship[k]) shipBits.push(String(ship[k]));
+                });
+                if (Array.isArray(ship.streets) && ship.streets.length) {
+                  shipBits = ship.streets.map(String).concat(shipBits);
+                }
+                if (shipBits.length) {
+                  rows += dlRow("Ship to", esc(shipBits.join(", ")));
+                }
+              }
+
+              var items =
+                (Array.isArray(payload.cart_items) && payload.cart_items.length
+                  ? payload.cart_items
+                  : payload.intended_lines) || [];
+              var itemsTable = "";
+              if (items.length) {
+                itemsTable =
+                  "<div class='ov-table-wrap' style='margin-top:12px'>" +
+                  "<table class='table ov-items-table'><thead><tr>" +
+                  "<th>Item</th><th>Vendor ID</th><th>Qty</th><th>Unit price</th>" +
+                  "</tr></thead><tbody>" +
+                  items
+                    .map(function (it) {
+                      var name =
+                        it.name ||
+                        it.title ||
+                        it.description ||
+                        it.asin ||
+                        it.supplier_part_id ||
+                        "Item";
+                      var vid =
+                        it.vendor_id ||
+                        it.asin ||
+                        it.supplier_part_id ||
+                        it.productIdentifier ||
+                        "";
+                      var qty = it.qty || it.quantity || 1;
+                      var unit =
+                        it.unit_price != null
+                          ? it.unit_price
+                          : it.price != null
+                          ? it.price
+                          : it.amazon_price != null
+                          ? it.amazon_price
+                          : "—";
+                      return (
+                        "<tr><td>" +
+                        esc(name) +
+                        "</td><td>" +
+                        esc(vid) +
+                        "</td><td>" +
+                        esc(qty) +
+                        "</td><td>" +
+                        esc(unit) +
+                        "</td></tr>"
+                      );
+                    })
+                    .join("") +
+                  "</tbody></table></div>";
+              }
+
+              return (
+                "<div class='ov-card ov-vendor-detail'>" +
+                "<h3>" +
+                esc(title) +
+                "</h3>" +
+                "<dl class='ov-dl'>" +
+                rows +
+                "</dl>" +
+                itemsTable +
+                "</div>"
+              );
+            }
+
+            var vendorDetailsHtml =
+              "<div class='ov-vendor-details-block'>" +
+              "<h3 class='ov-section-title'>Vendor order details</h3>" +
+              "<p class='ov-status-hint'>Details of the order that was triggered to Amazon and/or Grand &amp; Toy for this store requisition.</p>" +
+              "<div class='ov-vendor-details-grid'>" +
+              vendorDetailSection("Amazon", "Amazon order details", amazon) +
+              vendorDetailSection("Grand & Toy", "Grand & Toy order details", gt) +
+              "</div>" +
+              "</div>";
+
+            // --- API response inspector ---
+            var triggerPayload =
+              data.trigger_payload ||
+              {
+                order_id: data.id || orderId,
+                order_number: data.number || "",
+                status: data.status_slug || data.status || "",
+                selected_vendors: data.vendors || [],
+                auto_submit: data.auto_submit_detail || data.auto_submit || null,
+                amazon_order: amazon && amazon.found ? amazon : null,
+                gt_order: gt && gt.found ? gt : null,
+                cart_vendor_summary: data.cart_vendor_summary || null,
+                totals: data.totals || null,
+              };
+
+            var apiJson = "";
+            try {
+              apiJson = JSON.stringify(triggerPayload, null, 2);
+            } catch (e) {
+              apiJson = String(triggerPayload);
+            }
+
+            var selectedVendorLabel =
+              auto && auto.winning_vendor
+                ? auto.winning_vendor === "gt"
+                  ? "Grand & Toy"
+                  : auto.winning_vendor === "amazon"
+                  ? "Amazon"
+                  : auto.winning_vendor === "mixed"
+                  ? "Mixed (per line)"
+                  : auto.winning_vendor
+                : data.vendor_label || "—";
+
+            var autoStatusLabel = autoStatus || (auto ? "recorded" : "not run");
+            var autoPillClass =
+              autoStatus === "submitted"
+                ? "is-success"
+                : autoStatus === "partial"
+                ? "is-warn"
+                : autoStatus === "failed"
+                ? "is-danger"
+                : autoStatus === "skipped" || autoStatusLabel === "not run"
+                ? "is-muted"
+                : "is-info";
+
+            var amazonTriggered = !!(amazon && amazon.found);
+            var gtTriggered = !!(gt && gt.found);
+
+            var apiResponseHtml =
+              "<div class='ov-card ov-api-response'>" +
+              "<div class='ov-api-head'>" +
+              "<div class='ov-api-head__text'>" +
+              "<h3>API response</h3>" +
+              "<p class='ov-api-lead'>Trigger summary for this requisition — selected vendor, what ran automatically, and the stored payload.</p>" +
+              "</div>" +
+              "<div class='ov-api-head__actions'>" +
+              "<a class='btn btn-xs ov-api-btn' href='" +
+              esc((WCSSM.rest || "/wp-json/wcss/v1/") + "orders/" + orderId) +
+              "' target='_blank' rel='noopener'>Open full API</a>" +
+              "</div>" +
+              "</div>" +
+              "<div class='ov-api-metrics'>" +
+              "<div class='ov-api-metric'>" +
+              "<span class='ov-api-metric__label'>Auto-submit</span>" +
+              "<span class='ov-api-pill " +
+              autoPillClass +
+              "'>" +
+              esc(autoStatusLabel) +
+              "</span>" +
+              "</div>" +
+              "<div class='ov-api-metric'>" +
+              "<span class='ov-api-metric__label'>Selected vendor</span>" +
+              "<span class='ov-api-metric__value'>" +
+              esc(selectedVendorLabel) +
+              "</span>" +
+              "</div>" +
+              "<div class='ov-api-metric'>" +
+              "<span class='ov-api-metric__label'>Amazon</span>" +
+              "<span class='ov-api-pill " +
+              (amazonTriggered ? "is-success" : "is-muted") +
+              "'>" +
+              (amazonTriggered
+                ? "Triggered · " + esc(amazon.status || "recorded")
+                : "Not triggered") +
+              "</span>" +
+              "</div>" +
+              "<div class='ov-api-metric'>" +
+              "<span class='ov-api-metric__label'>Grand &amp; Toy</span>" +
+              "<span class='ov-api-pill " +
+              (gtTriggered ? "is-success" : "is-muted") +
+              "'>" +
+              (gtTriggered
+                ? "Triggered · " + esc(gt.status || "recorded")
+                : "Not triggered") +
+              "</span>" +
+              "</div>" +
+              "</div>" +
+              (auto && auto.message
+                ? "<div class='ov-api-note'><strong>Trigger detail</strong><span>" +
+                  esc(auto.message) +
+                  "</span></div>"
+                : "") +
+              "<div class='ov-api-panel'>" +
+              "<div class='ov-api-panel__bar'>" +
+              "<button type='button' class='ov-api-toggle' id='ov-toggle-api-json' aria-expanded='false'>" +
+              "<span class='ov-api-toggle__chev' aria-hidden='true'></span>" +
+              "<span class='ov-api-toggle__label'>Show JSON payload</span>" +
+              "</button>" +
+              "<button type='button' class='btn btn-xs ov-api-btn' id='ov-copy-api-json' hidden>Copy JSON</button>" +
+              "</div>" +
+              "<pre class='ov-api-json is-collapsed' id='ov-api-json' hidden>" +
+              esc(apiJson) +
+              "</pre>" +
+              "</div>" +
+              "</div>";
+
+            return (
+              vendorOrdersHtml +
+              statusHtml +
+              calculationHtml +
+              vendorDetailsHtml +
+              apiResponseHtml
+            );
           })();
 
         // var html =
@@ -2052,33 +2598,25 @@
   (function ($) {
     // ===== Dashboard =====
     window.initDashboard = function () {
-      var $flash = $("#wcssm-flash");
+      var DAY = 864e5;
+      var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      var MONTHS_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      var PENDING_STATUSES = "pending,awaiting-approval,on-hold";
+      // Woo status slug → the three states managers act on.
+      var STATUS = {
+        pending: "pending", "awaiting-approval": "pending", "on-hold": "pending",
+        approved: "approved", processing: "approved", completed: "approved",
+        rejected: "rejected", cancelled: "rejected",
+      };
+      var LABEL = { pending: "Awaiting approval", approved: "Approved", rejected: "Rejected" };
+      var PERIOD_LABEL = { d7: "Last 7 days", d30: "Last 30 days", month: "This month", m6: "Last 6 months" };
 
-      function flash(msg, ok) {
-        $flash
-          .removeClass("is-ok is-err")
-          .addClass(ok ? "is-ok" : "is-err")
-          .text(msg)
-          .stop(true, true)
-          .fadeIn(120);
-        setTimeout(function () {
-          $flash.fadeOut(180);
-        }, 1800);
-      }
-
-      function money(n, ccy) {
-        try {
-          return new Intl.NumberFormat(undefined, {
-            style: "currency",
-            currency: ccy || "USD",
-          }).format(+n || 0);
-        } catch (e) {
-          return (ccy || "") + " " + (+n || 0).toFixed(2);
-        }
-      }
+      var api = WCSSM.rest || "/wp-json/wcss/v1/";
+      var base = (WCSSM.manager_base || "/manager/").replace(/\/+$/, "/");
+      var state = { period: "d30", report: null, orders: [], events: [], currency: "CAD" };
 
       function esc(s) {
-        return String(s || "").replace(
+        return String(s == null ? "" : s).replace(
           /[&<>"]/g,
           (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])
         );
@@ -2091,196 +2629,353 @@
         return el.value;
       }
 
-      function render(d) {
-        // ---- cards
-        var pendingAll =
-          (d.counts?.pending || 0) + (d.counts?.["awaiting-approval"] || 0);
-        $("#m-pending").text(pendingAll);
-        $("#m-approved").text(d.counts?.approved || 0);
-        $("#m-rejected").text(d.counts?.rejected || 0);
-        $("#m-revenue").text(money(d.sales?.revenue, d.sales?.currency));
+      function prefix() {
+        return state.currency === "CAD" ? "CA$" : state.currency + " ";
+      }
+      function money(n) {
+        return prefix() + Number(n || 0).toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+      function moneyShort(n) {
+        return prefix() + Number(n || 0).toLocaleString("en-CA", { maximumFractionDigits: 0 });
+      }
+      function dt(s) {
+        return new Date(String(s).replace(" ", "T"));
+      }
+      function fdt(s) {
+        if (!s) return "";
+        var d = dt(s);
+        var year = d.getFullYear() === new Date().getFullYear() ? "" : ", " + d.getFullYear();
+        return MONTHS[d.getMonth()] + " " + d.getDate() + year + ", " + String(s).slice(11, 16);
+      }
+      function nowHM() {
+        var d = new Date();
+        return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+      }
 
-        // ---- stores
-        $("#st-total").text(d.stores?.total || 0);
-        $("#st-active").text(d.stores?.active || 0);
+      var toastTimer;
+      function toast(msg) {
+        var $t = $("#ccm-toast");
+        $t.find("span").text(msg);
+        $t.prop("hidden", false);
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () {
+          $t.prop("hidden", true);
+        }, 2800);
+      }
 
-        // ---- vendors table (tbody of #v-table)
-        var vRows = (Array.isArray(d.vendors) ? d.vendors : [])
-          .map(function (v) {
-            return (
-              "<tr>" +
-              "<td>" +
-              esc(plainText(v.name || "Vendor #" + (v.id || ""))) +
-              "</td>" +
-              "<td>" +
-              (v.orders || 0) +
-              "</td>" +
-              "<td>" +
-              money(v.revenue || 0, d.sales?.currency) +
-              "</td>" +
-              "</tr>"
-            );
-          })
-          .join("");
-        $("#v-table tbody").html(
-          vRows ||
-            "<tr><td colspan='3' class='muted'>No vendor activity.</td></tr>"
+      function inRange(s, r, prev) {
+        var t = dt(s).getTime();
+        if (r === "month") {
+          var n = new Date();
+          var start = new Date(n.getFullYear(), n.getMonth(), 1).getTime();
+          var prevStart = new Date(n.getFullYear(), n.getMonth() - 1, 1).getTime();
+          return prev ? t >= prevStart && t < start : t >= start;
+        }
+        var now = Date.now(), days = { d7: 7, d30: 30, m6: 182 }[r];
+        return prev ? t >= now - 2 * days * DAY && t < now - days * DAY : t >= now - days * DAY;
+      }
+
+      function norm(o) {
+        var status = STATUS[o.status_slug] || "other";
+        var vendor = o.vendor_label && o.vendor_label !== "—" ? plainText(o.vendor_label) : "";
+        return {
+          id: o.id,
+          date: o.date || "",
+          total: +o.total || 0,
+          customer: plainText(o.customer || ""),
+          vendor: vendor,
+          status: status,
+          statusLabel: LABEL[status] || plainText(o.status || ""),
+          pillCls: "ccm-pill " + (LABEL[status] ? "p-" + status : "p-neutral"),
+        };
+      }
+
+      function orderUrl(id) {
+        return base + "orders/view/" + id;
+      }
+
+      /* ---------- render ---------- */
+
+      function renderKpis() {
+        var P = state.period, orders = state.orders;
+        var cur = orders.filter((o) => inRange(o.date, P));
+        var prev = orders.filter((o) => inRange(o.date, P, true));
+        var sum = (arr, st) => arr.filter((o) => o.status === st).reduce((a, o) => a + o.total, 0);
+        var cnt = (arr, st) => arr.filter((o) => o.status === st).length;
+        var d = cur.length - prev.length;
+        var lastMonth = MONTHS_FULL[(new Date().getMonth() + 11) % 12];
+        var vsLabel = { d7: "vs previous 7 days", d30: "vs previous 30 days", month: "vs " + lastMonth, m6: "vs previous 6 months" }[P];
+        var pending = (state.report && state.report.pending) || { count: 0, oldest: "" };
+
+        $("#k-orders").text(cur.length);
+        $("#k-orders-delta")
+          .attr("class", d > 0 ? "up" : d < 0 ? "down" : "flat")
+          .text(d > 0 ? "▲ " + d : d < 0 ? "▼ " + Math.abs(d) : "No change");
+        $("#k-vs").text(vsLabel);
+        $("#k-pending").text(pending.count);
+        $("#k-pending-sub").text(pending.count && pending.oldest ? "Oldest waiting since " + fdt(pending.oldest) : "You’re all caught up");
+        $("#k-spend").text(money(sum(cur, "approved")));
+        $("#k-spend-sub").text(PERIOD_LABEL[P] + " · " + cnt(cur, "approved") + " approved orders");
+        $("#k-rejected").text(cnt(cur, "rejected"));
+        $("#k-rejected-sub").text(PERIOD_LABEL[P] + " · " + money(sum(cur, "rejected")) + " declined");
+
+        $("#dash-alert").prop("hidden", !pending.count);
+        $("#dash-alert-t").text(
+          pending.count === 1 ? "1 order is waiting for your approval" : pending.count + " orders are waiting for your approval"
         );
+        var $badge = $(".ccm-navbtn .ccm-nbadge");
+        if (pending.count) $badge.text(pending.count);
+        else $badge.remove();
+      }
 
-        // ---- trend bars (container #trend, simple CSS bars)
-        // var max = Math.max.apply(
-        //   null,
-        //   (d.trend || [])
-        //     .map(function (x) {
-        //       return x.orders || 0;
-        //     })
-        //     .concat([1])
-        // );
-        // var bars = (d.trend || [])
-        //   .map(function (x) {
-        //     var pct = Math.round(((x.orders || 0) / max) * 100);
-        //     return (
-        //       "<div class='bar'>" +
-        //       "<span style='height:" +
-        //       pct +
-        //       "%'></span>" +
-        //       "<em>" +
-        //       esc(x.ym) +
-        //       "</em>" +
-        //       "</div>"
-        //     );
-        //   })
-        //   .join("");
-        // $("#trend").html(bars || "<p class='muted'>No recent orders.</p>");
+      function renderChart() {
+        var trend = (state.report && state.report.trend) || [];
+        var months = trend.map((x) => [MONTHS[parseInt(String(x.ym).slice(5), 10) - 1] || x.ym, +x.orders || 0]);
+        var max = Math.max.apply(null, months.map((m) => m[1]).concat([1]));
+        $("#dash-chart")
+          .attr("aria-label", "Orders per month: " + months.map((m) => m[0] + " " + m[1]).join(", "))
+          .html(
+            months
+              .map(function (m, i) {
+                var h = Math.max(3, Math.round((m[1] / max) * 170));
+                var cls = i === months.length - 1 ? "ccm-bar cur" : "ccm-bar";
+                return "<div class='ccm-col'><span class='ccm-colv'>" + m[1] + "</span><div class='" + cls + "' style='height:" + h + "px'></div></div>";
+              })
+              .join("")
+          );
+        $("#dash-xlabels").html(months.map((m) => "<div>" + esc(m[0]) + "</div>").join(""));
+        $("#chart-sub").text("Last 6 months · " + MONTHS_FULL[new Date().getMonth()] + " is month-to-date");
+      }
 
-        // trend bars
-        var trend = Array.isArray(d.trend) ? d.trend : [];
-        var max = Math.max.apply(
-          null,
-          trend
-            .map(function (x) {
-              return +x.orders || 0;
-            })
-            .concat([1])
-        );
+      function renderAttention() {
+        var r = state.report || {};
+        var a = r.attention || {};
+        var pendingCount = (r.pending && r.pending.count) || 0;
+        var noVendorOrders = state.orders.filter((o) => !o.vendor && o.status !== "rejected").length;
+        var noVendor = a.products_no_vendor || 0, zero = a.products_zero_price || 0;
+        var items = [
+          { n: pendingCount, label: "Orders awaiting approval", hint: "Stores are waiting on these", cta: "Review", sev: "high", url: base + "orders?status=" + PENDING_STATUSES },
+          { n: noVendorOrders, label: "Orders with no vendor", hint: "Assign a vendor so they can be fulfilled", cta: "Assign", sev: "high", url: base + "orders" },
+          { n: (r.store_summary && r.store_summary.issues) || 0, label: "Stores with data issues", hint: "Duplicate codes, test stores, mismatched users", cta: "Fix", sev: "med", url: base + "stores" },
+          { n: noVendor + zero, label: "Products need fixing", hint: noVendor + " without a vendor · " + zero + " priced at " + money(0), cta: "Fix", sev: "med", url: base + "products" },
+          { n: a.vendors_no_email || 0, label: "Vendors missing contact email", hint: "Orders can’t be sent to them automatically", cta: "Update", sev: "low", url: base + "vendorslist" },
+          { n: a.gt_unsynced || 0, label: "Grand & Toy prices not synced", hint: "Price comparison is incomplete", cta: "Sync", sev: "low", url: (WCSSM.home || "/") + "gt-catalog/" },
+        ].filter((x) => x.n > 0);
 
-        var bars = trend
-          .map(function (x) {
-            var orders = +x.orders || 0;
-            var pct = max > 0 ? Math.round((orders / max) * 100) : 0;
-            var tone = orders <= 1 ? "is-low" : "is-high";
-            return (
-              "<div class='bar " +
-              tone +
-              "' data-orders='" +
-              orders +
-              "'>" +
-              "<i class='val'>Orders: " +
-              orders +
-              "</i>" +
-              "<span style='--h:" +
-              pct +
-              "%;height:" +
-              pct +
-              "%'>" +
-              "</span>" +
-              "<em>" +
-              (x.ym || "") +
-              "</em>" +
-              "</div>"
-            );
-          })
-          .join("");
-
-        $("#trend").html(
-          bars || "<p class='muted'>No orders in recent months.</p>"
-        );
-
-        // ---- ledger (tbody of #ledger-tbl)
-        // JSON sample had: { store_id, store, orders, spend, quota?, budget? }
-
-        var lrows = Array.isArray(d.ledger) ? d.ledger : [];
-
-        var lrows = (d.ledger || [])
-          .map(function (r) {
-            console.log(r);
-            return (
-              "<tr><td>" +
-              (r.store || "" + (r.store || "")) +
-              "</td>" +
-              "<td>" +
-              (r.store || "#" + (r.store_id || "")) +
-              "</td>" +
-              "<td>" +
-              (r.orders || 0) +
-              "</td>" +
-              "<td>" +
-              (typeof r.quota !== "undefined" ? r.quota : "∞") +
-              "</td>" +
-              "<td>" +
-              money(r.spend || 0, d.sales?.currency) +
-              "</td>" +
-              "<td>" +
-              (typeof r.budget !== "undefined"
-                ? money(r.budget, d.sales?.currency)
-                : "∞") +
-              "</td></tr>"
-            );
-          })
-          .join("");
-
-        // var lrows = (Array.isArray(d.ledger) ? d.ledger : [])
-        //   .map(function (r) {
-        //     return (
-        //       "<tr>" +
-        //       "<td>" +
-        //       esc(r.store || "#" + (r.store_id || "")) +
-        //       "</td>" +
-        //       "<td>" +
-        //       (r.orders || 0) +
-        //       "</td>" +
-        //       "<td>" +
-        //       (typeof r.quota !== "undefined" ? r.quota : "∞") +
-        //       "</td>" +
-        //       "<td>" +
-        //       money(r.spend || 0, d.sales?.currency) +
-        //       "</td>" +
-        //       "<td>" +
-        //       (typeof r.budget !== "undefined"
-        //         ? money(r.budget, d.sales?.currency)
-        //         : "∞") +
-        //       "</td>" +
-        //       "</tr>"
-        //     );
-        //   })
-        //   .join("");
-
-        $("#ledger-tbl tbody").html(
-          lrows ||
-            "<tr><td colspan='5' class='muted'>No store activity.</td></tr>"
+        $("#dash-attention").html(
+          items.length
+            ? items
+                .map(function (x) {
+                  return (
+                    "<div class='ccm-attn'>" +
+                    "<span class='ccm-attn-n sev-" + x.sev + "'>" + x.n + "</span>" +
+                    "<div style='flex:1;min-width:0'><div class='ccm-strong'>" + esc(x.label) + "</div><div class='ccm-muted ccm-small'>" + esc(x.hint) + "</div></div>" +
+                    "<a class='ccm-link' href='" + esc(x.url) + "'>" + esc(x.cta) + " →</a>" +
+                    "</div>"
+                  );
+                })
+                .join("")
+            : "<div class='ccm-empty'><strong>All clear</strong>Nothing needs action right now.</div>"
         );
       }
 
+      function renderRecent() {
+        var rows = state.orders.slice(0, 5).map(function (o) {
+          var act =
+            o.status === "pending"
+              ? "<span class='ccm-actions' style='justify-content:flex-end;flex-wrap:nowrap'>" +
+                "<button type='button' class='ccm-btn ok sm dash-approve' data-id='" + o.id + "'>Approve</button>" +
+                "<button type='button' class='ccm-btn danger sm dash-reject' data-id='" + o.id + "'>Reject</button></span>"
+              : "<a class='ccm-btn sm' href='" + orderUrl(o.id) + "' data-ccm-order='" + o.id + "'>View</a>";
+          return (
+            "<tr>" +
+            "<td><a class='ccm-idlink' href='" + orderUrl(o.id) + "' data-ccm-order='" + o.id + "'>#" + o.id + "</a><div class='ccm-muted ccm-small'>" + esc(fdt(o.date)) + "</div></td>" +
+            "<td style='white-space:normal;min-width:180px;overflow-wrap:anywhere'>" + esc(o.customer) + "</td>" +
+            "<td class='num'>" + money(o.total) + "</td>" +
+            "<td><span class='" + o.pillCls + "'>" + esc(o.statusLabel) + "</span></td>" +
+            "<td class='num'>" + act + "</td>" +
+            "</tr>"
+          );
+        });
+        $("#dash-recent").html(rows.join("") || "<tr><td colspan='5' class='ccm-empty'>No orders yet.</td></tr>");
+      }
+
+      function renderFeed() {
+        var submitted = state.orders.slice(0, 7).map(function (o) {
+          return { label: fdt(o.date), text: "Order #" + o.id + " submitted · " + money(o.total), who: o.customer, kind: "new" };
+        });
+        var feed = state.events.concat(submitted).slice(0, 7);
+        $("#dash-feed").html(
+          feed
+            .map(function (e) {
+              return (
+                "<div class='ccm-ev'><span class='ccm-evdot ev-" + e.kind + "' aria-hidden='true'></span><div>" +
+                "<div class='ccm-evt'>" + esc(e.text) + "</div><div class='ccm-evm'>" + esc(e.label) + " · " + esc(e.who) + "</div></div></div>"
+              );
+            })
+            .join("") || "<div class='ccm-empty'><strong>No activity yet</strong>New orders will show up here.</div>"
+        );
+      }
+
+      function renderVendors() {
+        var vmap = {};
+        state.orders
+          .filter((o) => inRange(o.date, state.period) && o.status !== "rejected")
+          .forEach(function (o) {
+            var n = o.vendor || "Not assigned";
+            vmap[n] = vmap[n] || { name: n, total: 0, count: 0 };
+            vmap[n].total += o.total;
+            vmap[n].count++;
+          });
+        var list = Object.keys(vmap).map((k) => vmap[k]).sort((a, b) => b.total - a.total);
+        var vmax = list.length ? list[0].total || 1 : 1;
+        $("#vendor-period").text(PERIOD_LABEL[state.period]);
+        $("#dash-vendors").html(
+          list
+            .map(function (v) {
+              var pct = Math.max(2, Math.round((v.total / vmax) * 100));
+              return (
+                "<div class='ccm-hbar'><div class='ccm-hbar-top'><span class='ccm-strong'>" + esc(v.name) + "</span>" +
+                "<span style='font-variant-numeric:tabular-nums'>" + money(v.total) + " <span class='ccm-muted ccm-small'>· " + v.count + " orders</span></span></div>" +
+                "<div class='ccm-progress'><div style='width:" + pct + "%'></div></div></div>"
+              );
+            })
+            .join("") || "<div class='ccm-empty'><strong>No spend in this period</strong>Try a longer period above.</div>"
+        );
+      }
+
+      function renderBudgets() {
+        var r = state.report || {};
+        var ss = r.store_summary || { budget_sum: 0, top: [] };
+        $("#st-total").text((r.stores && r.stores.total) || 0);
+        $("#st-active").text((r.stores && r.stores.active) || 0);
+        $("#st-budget").text(moneyShort(ss.budget_sum));
+        $("#dash-budgets").html(
+          (ss.top || [])
+            .map(function (s) {
+              var pct = s.budget > 0 ? Math.min(100, Math.round((s.spend / s.budget) * 100)) : 0;
+              return (
+                "<div class='ccm-hbar'><div class='ccm-hbar-top'><span>" + esc(s.name) + (s.code ? " <span class='ccm-muted ccm-small'>#" + esc(s.code) + "</span>" : "") + "</span>" +
+                "<span class='ccm-muted ccm-small' style='font-variant-numeric:tabular-nums'>" + moneyShort(s.spend) + " of " + moneyShort(s.budget) + "</span></div>" +
+                "<div class='ccm-progress'><div style='width:" + pct + "%'></div></div></div>"
+              );
+            })
+            .join("")
+        );
+      }
+
+      function renderPeriod() {
+        $(".ccm-seg [data-period]").each(function () {
+          $(this).toggleClass("on", $(this).data("period") === state.period);
+        });
+        renderKpis();
+        renderVendors();
+      }
+
+      function renderAll() {
+        renderPeriod();
+        renderChart();
+        renderAttention();
+        renderRecent();
+        renderFeed();
+        renderBudgets();
+        $(".ccm-updated").text(nowHM());
+      }
+
+      /* ---------- data ---------- */
+
+      function fetchOrders() {
+        // A year back covers the 6-month period and the 6 months before it.
+        var from = new Date(Date.now() - 366 * DAY).toISOString().slice(0, 10);
+        var items = [];
+        function page(n) {
+          return $.ajax({
+            url: api + "orders?" + $.param({ page: n, per_page: 100, date_from: from }),
+            headers: { "X-WP-Nonce": WCSSM.nonce },
+            dataType: "json",
+          }).then(function (d) {
+            items = items.concat(d.items || []);
+            // total_pages from this endpoint isn't reliable; a full page means there may be more.
+            if ((d.items || []).length === 100 && n < 5) return page(n + 1);
+            return items;
+          });
+        }
+        return page(1);
+      }
+
       function load() {
-        $.ajax({
-          url: (WCSSM.rest || "/wp-json/wcss/v1/") + "reports/overview",
+        var report = $.ajax({
+          url: api + "reports/overview",
           headers: { "X-WP-Nonce": WCSSM.nonce },
           dataType: "json",
-        })
-          .done(function (d) {
-            render(d);
+        });
+        $.when(report, fetchOrders())
+          .done(function (repRes, orders) {
+            state.report = repRes[0];
+            state.currency = (state.report.sales && state.report.sales.currency) || "CAD";
+            state.orders = (orders || []).map(norm);
+            renderAll();
           })
           .fail(function (x) {
-            flash(
-              x.responseJSON?.message ||
-                x.statusText ||
-                "Failed to load dashboard",
-              false
+            toast((x && x.responseJSON && x.responseJSON.message) || "Failed to load dashboard");
+          });
+      }
+
+      function setStatus(id, status) {
+        // Shared helper (ccm-screens.js) also handles the over-limit "Approve anyway" confirm.
+        if (window.ccm && window.ccm.setOrderStatus) {
+          window.ccm.setOrderStatus(id, status).done(function (txt) {
+            state.events.unshift({ label: "Today, " + nowHM(), text: txt, who: $(".ccm-me .ccm-strong").first().text(), kind: status });
+            load();
+          });
+          return;
+        }
+        $.ajax({
+          url: api + "orders/" + id + "/status",
+          method: "POST",
+          headers: { "X-WP-Nonce": WCSSM.nonce, "Content-Type": "application/json" },
+          data: JSON.stringify({ status: status }),
+          dataType: "json",
+        })
+          .done(function () {
+            var txt = status === "approved" ? "You approved order #" + id : "You rejected order #" + id;
+            state.events.unshift({ label: "Today, " + nowHM(), text: txt, who: $(".ccm-me .ccm-strong").first().text(), kind: status });
+            toast(txt);
+            load();
+          })
+          .fail(function (x) {
+            toast(
+              (x.status === 409 ? "Order #" + id + " is over the store’s limits — open it to override. " : "") +
+                ((x.responseJSON && x.responseJSON.message) || x.statusText)
             );
           });
       }
 
-      $("#dash-refresh").off("click").on("click", load);
+      /* ---------- events ---------- */
+
+      var hour = new Date().getHours();
+      $("#dash-greeting").text(hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening");
+
+      $(".ccm-seg").on("click", "[data-period]", function () {
+        state.period = $(this).data("period");
+        renderPeriod();
+      });
+
+      $("#dash-recent")
+        .on("click", ".dash-approve", function () {
+          setStatus($(this).data("id"), "approved");
+        })
+        .on("click", ".dash-reject", function () {
+          setStatus($(this).data("id"), "rejected");
+        });
+
+      // Topbar Refresh reloads data in place on the dashboard.
+      window.ccmRefresh = function () {
+        load();
+        toast("Dashboard refreshed");
+      };
+      // Silent reload after a change made in the order drawer.
+      window.ccmReload = load;
 
       $("#dash-export-csv")
         .off("click")
@@ -3001,4 +3696,89 @@
         });
     });
   };
+})(jQuery);
+
+// ===== Manager shell: topbar search + refresh (every /manager page) =====
+(function ($) {
+  $(function () {
+    var $q = $("#ccm-gq");
+    if (!$q.length) return;
+    var $res = $("#ccm-gresults");
+    var api = WCSSM.rest || "/wp-json/wcss/v1/";
+    var base = (WCSSM.manager_base || "/manager/").replace(/\/+$/, "/");
+    var timer, seq = 0;
+
+    function esc(s) {
+      return String(s == null ? "" : s).replace(
+        /[&<>"]/g,
+        (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])
+      );
+    }
+
+    function get(path, params) {
+      return $.ajax({
+        url: api + path + "?" + $.param(params),
+        headers: { "X-WP-Nonce": WCSSM.nonce },
+        dataType: "json",
+      }).then(
+        (d) => (d && d.items) || [],
+        () => $.Deferred().resolve([])
+      );
+    }
+
+    function show(results) {
+      $res
+        .html(
+          results
+            .slice(0, 7)
+            .map(function (r) {
+              return (
+                "<a class='ccm-gres' href='" + esc(r.url) + "'><span><span class='ccm-strong'>" + esc(r.label) +
+                "</span> <span class='ccm-muted ccm-small'>" + esc(r.meta) + "</span></span><span class='ccm-pill p-neutral'>" + r.kind + "</span></a>"
+              );
+            })
+            .join("") || "<div class='ccm-empty' style='padding:16px'>No matches</div>"
+        )
+        .prop("hidden", false);
+    }
+
+    function search(q) {
+      var mine = ++seq;
+      var orders = /^#?\d+$/.test(q)
+        ? [{ label: "Order #" + q.replace("#", ""), meta: "Open order", kind: "Order", url: base + "orders/view/" + q.replace("#", "") }]
+        : [];
+      $.when(get("products", { search: q, per_page: 5 }), get("stores", { search: q, per_page: 5 })).done(function (products, stores) {
+        if (mine !== seq) return;
+        show(
+          orders
+            .concat(products.map((p) => ({ label: p.name, meta: p.sku ? "SKU " + p.sku : "", kind: "Product", url: base + "products/edit/" + p.id })))
+            .concat(stores.map((s) => ({ label: s.name, meta: [s.city, s.code ? "code " + s.code : ""].filter(Boolean).join(" · "), kind: "Store", url: base + "stores/edit/" + s.id })))
+        );
+      });
+    }
+
+    $q.on("input", function () {
+      var q = $.trim($q.val());
+      clearTimeout(timer);
+      if (q.length < 2) {
+        seq++;
+        $res.prop("hidden", true);
+        return;
+      }
+      timer = setTimeout(function () {
+        search(q);
+      }, 250);
+    }).on("keydown", function (e) {
+      if (e.key === "Escape") $res.prop("hidden", true);
+    });
+
+    $(document).on("click", function (e) {
+      if (!$(e.target).closest(".ccm-gsearch").length) $res.prop("hidden", true);
+    });
+
+    $("#ccm-refresh").on("click", function () {
+      if (typeof window.ccmRefresh === "function") window.ccmRefresh();
+      else window.location.reload();
+    });
+  });
 })(jQuery);

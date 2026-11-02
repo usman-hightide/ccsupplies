@@ -14,6 +14,25 @@ class WCSS_Store_CPT {
     const META_POSTCODE = '_wcss_store_postcode';
     const META_COUNTRY  = '_wcss_store_country';
 
+    /**
+     * Read a store field. Stores are saved under the META_* keys; a few old
+     * records only have the legacy _store_* keys, so fall back to those.
+     *
+     * @param string $field quota|budget|code|city|state
+     */
+    public static function get_field( int $store_id, string $field ) {
+        $keys = [
+            'quota'  => [ self::META_QUOTA,  '_store_quota' ],
+            'budget' => [ self::META_BUDGET, '_store_budget' ],
+            'code'   => [ self::META_CODE,   '_store_code' ],
+            'city'   => [ self::META_CITY,   '_store_city' ],
+            'state'  => [ self::META_STATE,  '_store_state' ],
+        ];
+        if ( ! $store_id || ! isset( $keys[ $field ] ) ) return '';
+        $v = get_post_meta( $store_id, $keys[ $field ][0], true );
+        return $v === '' ? get_post_meta( $store_id, $keys[ $field ][1], true ) : $v;
+    }
+
     public function __construct() {
         add_action( 'init', [ $this, 'register_cpt' ] );
         add_action( 'add_meta_boxes', [ $this, 'add_metabox' ] );

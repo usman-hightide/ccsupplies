@@ -34,7 +34,7 @@ class WCSS_Route_Manager {
         add_rewrite_tag( '%wcss_id%',     '([0-9]+)' );
 
         // Allowed sections under /manager
-        $sections = '(products|stores|orders|reports|dashboard)';
+        $sections = '(products|stores|orders|reports|dashboard|amazon|gt)';
         
         add_rewrite_rule(
             '^manager/vendorslist/?$',
@@ -98,10 +98,17 @@ class WCSS_Route_Manager {
         error_log('WCSS enqueue firing for view: ' . get_query_var('wcss'));
     
         wp_enqueue_style(
+            'wcss-manager-font',
+            'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
+            [],
+            null
+        );
+
+        wp_enqueue_style(
             'wcss-manager',
             plugins_url( 'frontend/assets/css/manager.css', WCSS_FILE ),
-            [],
-            '1.0.12'
+            [ 'wcss-manager-font' ],
+            '1.2.0'
         );
     
         wp_enqueue_script(
@@ -112,6 +119,15 @@ class WCSS_Route_Manager {
             true
         );
     
+        // Redesigned list screens (orders, products, vendors, stores, users, amazon, gt).
+        wp_enqueue_script(
+            'wcss-manager-screens',
+            plugins_url( 'frontend/assets/js/ccm-screens.js', WCSS_FILE ),
+            [ 'jquery', 'wcss-manager' ],
+            '1.2.0',
+            true
+        );
+
         if ( in_array( get_query_var('wcss'), ['products','products-create','products-edit'], true ) ) {
             wp_enqueue_media();
         }
@@ -353,6 +369,12 @@ class WCSS_Route_Manager {
             case 'users':
                 if ( $action === null || $action === '' ) return $base . 'users.php';
                 return $base . 'users.php';
+
+            case 'amazon':
+                return ( $action === null || $action === '' ) ? $base . 'amazon.php' : false;
+
+            case 'gt':
+                return ( $action === null || $action === '' ) ? $base . 'gt.php' : false;
 
             case 'vendorslist':
                 // die("vendors view coming soon!");

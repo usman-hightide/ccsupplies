@@ -243,3 +243,90 @@
   $(enhance);
   $(document.body).on("updated_cart_totals updated_wc_div wc_fragments_refreshed", enhance);
 })(jQuery);
+
+/* ---- Checkout: "placing your order" overlay ----
+ * Replaces Woo's grey blockUI with a progress card while the requisition is
+ * created and (when in policy) auto-submitted to the supplier, which can take
+ * several seconds. Closes on checkout_error; on success Woo redirects. */
+(function ($) {
+  var STEPS = [
+    "Creating your requisition",
+    "Checking your monthly budget",
+    "Sending to the supplier",
+    "Confirming your order",
+  ];
+  var timers = [];
+  var $ov = null;
+
+  function build() {
+    if ($ov) return $ov;
+    $ov = $(
+      '<div class="cc-placing" role="dialog" aria-modal="true" aria-labelledby="cc-placing-title" hidden>' +
+        '<div class="cc-placing__card">' +
+        '<div class="cc-placing__spinner" aria-hidden="true"></div>' +
+        '<h2 class="cc-placing__title" id="cc-placing-title">Placing your order</h2>' +
+        '<p class="cc-placing__sub" aria-live="polite"></p>' +
+        '<div class="cc-placing__bar" aria-hidden="true"><span></span></div>' +
+        '<ol class="cc-placing__steps"></ol>' +
+        '<p class="cc-placing__slow" hidden>Still working — suppliers can take a little longer to respond. Please don’t close or refresh this page.</p>' +
+        "</div></div>"
+    );
+    $ov.find(".cc-placing__steps").html(
+      STEPS.map(function (s) {
+        return '<li><span class="cc-placing__dot" aria-hidden="true"></span>' + s + "</li>";
+      }).join("")
+    );
+    $("body").append($ov);
+    return $ov;
+  }
+
+  function setStep(i) {
+    var $li = $ov.find(".cc-placing__steps li");
+    $li.each(function (n) {
+      $(this).toggleClass("is-done", n < i).toggleClass("is-active", n === i);
+    });
+    $ov.find(".cc-placing__sub").text(STEPS[i] + "…");
+    // Bar eases toward 90% and only completes when the page redirects.
+    $ov.find(".cc-placing__bar span").css("width", Math.min(90, 18 + i * 24) + "%");
+  }
+
+  function show() {
+    build();
+    clear();
+    $ov.find(".cc-placing__slow").prop("hidden", true);
+    $ov.prop("hidden", false);
+    $("html").addClass("cc-placing-open");
+    setStep(0);
+    [1800, 4200, 7500].forEach(function (ms, n) {
+      timers.push(setTimeout(function () { setStep(n + 1); }, ms));
+    });
+    timers.push(setTimeout(function () {
+      $ov.find(".cc-placing__slow").prop("hidden", false);
+    }, 12000));
+  }
+
+  function clear() {
+    timers.forEach(clearTimeout);
+    timers = [];
+  }
+
+  function hide() {
+    clear();
+    if (!$ov) return;
+    $ov.prop("hidden", true);
+    $("html").removeClass("cc-placing-open");
+  }
+
+  $(document.body).on("checkout_error", hide);
+  $(function () {
+    // Woo triggers checkout_place_order before posting; returning true lets it continue.
+    $("form.checkout").on("checkout_place_order", function () {
+      show();
+      return true;
+    });
+  });
+  // Back/forward cache restores the page with the overlay still open.
+  window.addEventListener("pageshow", function (e) {
+    if (e.persisted) hide();
+  });
+})(jQuery);

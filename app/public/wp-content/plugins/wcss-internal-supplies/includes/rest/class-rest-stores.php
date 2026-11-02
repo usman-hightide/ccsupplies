@@ -28,6 +28,19 @@ class WCSS_REST_Stores {
                 'password'   => ['required'=>false, 'sanitize_callback'=>'sanitize_text_field'],
             ],
         ]);
+        register_rest_route( self::NS, '/users/(?P<id>\d+)', [
+            'methods'  => 'PUT',
+            'permission_callback' => [ $this, 'can_manage' ],
+            'callback' => [ $this, 'update_user' ],
+        ]);
+
+        // Removes portal ordering access; the WP account and its order history are kept.
+        register_rest_route( self::NS, '/users/(?P<id>\d+)/remove', [
+            'methods'  => 'POST',
+            'permission_callback' => [ $this, 'can_manage' ],
+            'callback' => [ $this, 'remove_user' ],
+        ]);
+
         register_rest_route( self::NS, '/stores', [
             'methods'  => 'GET',
             'permission_callback' => [ $this, 'can_manage' ],
@@ -526,8 +539,8 @@ class WCSS_REST_Stores {
         $store_id = (int) $req['id'];
         $ym = $req->get_param('month') ?: gmdate('Y-m');
 
-        $quota  = (int) get_post_meta( $store_id, '_store_quota',  true );
-        $budget = (float) get_post_meta( $store_id, '_store_budget', true );
+        $quota  = (int) WCSS_Store_CPT::get_field( $store_id, 'quota' );
+        $budget = (float) WCSS_Store_CPT::get_field( $store_id, 'budget' );
 
         $row = class_exists('WCSS_Ledger') ? WCSS_Ledger::get( $store_id, $ym ) : ['orders_count'=>0,'spend_total'=>0];
         $used_count = (int) ($row['orders_count'] ?? 0);
@@ -744,6 +757,67 @@ class WCSS_REST_Stores {
         // return rest_ensure_response( $out );
     }
     
+    private function store_employee( int $id ) {
+        $u = get_userdata( $id );
+        if ( ! $u || ! in_array( 'store_employee', (array) $u->roles, true ) ) {
+            return new WP_Error( 'not_found', 'Store employee not found', [ 'status' => 404 ] );
+        }
+        return $u;
+    }
+
+    public function update_user( WP_REST_Request $req ) {
+        $u = $this->store_employee( (int) $req['id'] );
+        if ( is_wp_error( $u ) ) return $u;
+
+        $body  = $req->get_json_params() ?: [];
+        $name  = trim( sanitize_text_field( (string) ( $body['name'] ?? '' ) ) );
+        $email = sanitize_email( (string) ( $body['email'] ?? '' ) );
+        if ( $name === '' || ! $email ) {
+            return new WP_Error( 'wcss_bad_input', 'Full name and a valid email are required.', [ 'status' => 400 ] );
+        }
+        $owner = email_exists( $email );
+        if ( $owner && (int) $owner !== (int) $u->ID ) {
+            return new WP_Error( 'wcss_email_exists', 'That email is already registered.', [ 'status' => 409 ] );
+        }
+
+        $parts = preg_split( '/\s+/', $name, 2 );
+        $res = wp_update_user([
+            'ID'           => $u->ID,
+            'user_email'   => $email,
+            'display_name' => $name,
+            'first_name'   => $parts[0],
+            'last_name'    => $parts[1] ?? '',
+        ]);
+        if ( is_wp_error( $res ) ) return $res;
+
+        if ( array_key_exists( 'store_id', $body ) ) {
+            $store_id = (int) $body['store_id'];
+            if ( $store_id ) {
+                $p = get_post( $store_id );
+                if ( ! $p || $p->post_type !== 'store_location' ) {
+                    return new WP_Error( 'not_found', 'Store not found', [ 'status' => 404 ] );
+                }
+                // One user per store: unassign whoever had it.
+                foreach ( get_users([ 'meta_key' => '_wcss_store_id', 'meta_value' => $store_id, 'fields' => 'ID' ]) as $other ) {
+                    if ( (int) $other !== (int) $u->ID ) delete_user_meta( (int) $other, '_wcss_store_id' );
+                }
+                update_user_meta( $u->ID, '_wcss_store_id', $store_id );
+            } else {
+                delete_user_meta( $u->ID, '_wcss_store_id' );
+            }
+        }
+
+        return rest_ensure_response([ 'ok' => true, 'id' => (int) $u->ID ]);
+    }
+
+    public function remove_user( WP_REST_Request $req ) {
+        $u = $this->store_employee( (int) $req['id'] );
+        if ( is_wp_error( $u ) ) return $u;
+        delete_user_meta( $u->ID, '_wcss_store_id' );
+        $u->set_role( 'customer' );
+        return rest_ensure_response([ 'ok' => true ]);
+    }
+
     public function create_user( WP_REST_Request $req ) {
 
         $first = trim( (string) $req->get_param('first_name') );

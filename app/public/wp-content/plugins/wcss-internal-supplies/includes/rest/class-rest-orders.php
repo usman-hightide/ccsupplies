@@ -240,8 +240,8 @@ class WCSS_REST_Orders {
                 $quota_used  = (int) ($row['orders_count'] ?? 0);
                 $budget_used = (float) ($row['spend_total'] ?? 0);
     
-                $quota   = (int) get_post_meta( $store_id, '_store_quota',  true );
-                $budget  = (float) get_post_meta( $store_id, '_store_budget', true );
+                $quota   = (int) WCSS_Store_CPT::get_field( $store_id, 'quota' );
+                $budget  = (float) WCSS_Store_CPT::get_field( $store_id, 'budget' );
                 $order_total = (float) $o->get_total();
     
                 $will_orders = $quota_used + 1;
@@ -337,9 +337,9 @@ class WCSS_REST_Orders {
             $store = [
                 'id'    => $sid ?: null,
                 'name'  => $sid ? ( get_the_title($sid) ?: '' ) : '',
-                'code'  => $sid ? (string) get_post_meta($sid, '_store_code',  true)  : '',
-                'city'  => $sid ? (string) get_post_meta($sid, '_store_city',  true)  : '',
-                'state' => $sid ? (string) get_post_meta($sid, '_store_state', true)  : '',
+                'code'  => (string) WCSS_Store_CPT::get_field( $sid, 'code' ),
+                'city'  => (string) WCSS_Store_CPT::get_field( $sid, 'city' ),
+                'state' => (string) WCSS_Store_CPT::get_field( $sid, 'state' ),
             ];
 
 
@@ -386,8 +386,30 @@ class WCSS_REST_Orders {
             'shipment' => $shipment,
             'has_amazon_order' => (bool) $o->get_meta( '_wcss_amazon_order_data' ),
             'has_gt_order'     => (bool) $o->get_meta( '_wcss_gt_order_data' ),
+            'auto_submit'      => $this->dto_auto_submit_summary( $o ),
         ];
 
+    }
+
+    /**
+     * Compact auto-submit status for list + detail.
+     *
+     * @param WC_Order $o Order.
+     * @return array<string,mixed>|null
+     */
+    private function dto_auto_submit_summary( $o ) {
+        $raw = $o->get_meta( '_wcss_auto_vendor_submit', true );
+        if ( ! is_array( $raw ) || empty( $raw ) ) {
+            return null;
+        }
+        return [
+            'status'         => (string) ( $raw['status'] ?? '' ),
+            'winning_vendor' => (string) ( $raw['winning_vendor'] ?? '' ),
+            'vendors'        => array_values( (array) ( $raw['vendors'] ?? [] ) ),
+            'message'        => (string) ( $raw['message'] ?? '' ),
+            'attempted'      => ! empty( $raw['attempted'] ),
+            'completed_at'   => (string) ( $raw['completed_at'] ?? $raw['updated_at'] ?? '' ),
+        ];
     }
 
     /**
@@ -514,8 +536,8 @@ class WCSS_REST_Orders {
         if ( ! empty( $dto['store']['id'] ) && class_exists( 'WCSS_Ledger' ) ) {
             $ym  = gmdate('Y-m');
             $row = WCSS_Ledger::get( (int) $dto['store']['id'], $ym ) ?: [ 'orders_count'=>0, 'spend_total'=>0 ];
-            $quota  = (int) get_post_meta( (int) $dto['store']['id'], '_store_quota',  true );
-            $budget = (float) get_post_meta( (int) $dto['store']['id'], '_store_budget', true );
+            $quota  = (int) WCSS_Store_CPT::get_field( (int) $dto['store']['id'], 'quota' );
+            $budget = (float) WCSS_Store_CPT::get_field( (int) $dto['store']['id'], 'budget' );
 
             $dto['ledger'] = [
                 'month'            => $ym,
@@ -528,6 +550,126 @@ class WCSS_REST_Orders {
                 'currency'         => get_woocommerce_currency(),
             ];
         }
+
+        // Totals breakdown (subtotal, discounts, shipping, fees, tax, grand total).
+        $currency = $o->get_currency() ?: get_woocommerce_currency();
+        $dto['totals'] = [
+            'currency'           => $currency,
+            'subtotal'           => (float) $o->get_subtotal(),
+            'subtotal_html'      => wc_price( (float) $o->get_subtotal(), [ 'currency' => $currency ] ),
+            'discount_total'     => (float) $o->get_discount_total(),
+            'discount_total_html'=> wc_price( (float) $o->get_discount_total(), [ 'currency' => $currency ] ),
+            'shipping_total'     => (float) $o->get_shipping_total(),
+            'shipping_total_html'=> wc_price( (float) $o->get_shipping_total(), [ 'currency' => $currency ] ),
+            'shipping_tax'       => (float) $o->get_shipping_tax(),
+            'shipping_tax_html'  => wc_price( (float) $o->get_shipping_tax(), [ 'currency' => $currency ] ),
+            'cart_tax'           => (float) $o->get_cart_tax(),
+            'cart_tax_html'      => wc_price( (float) $o->get_cart_tax(), [ 'currency' => $currency ] ),
+            'total_tax'          => (float) $o->get_total_tax(),
+            'total_tax_html'     => wc_price( (float) $o->get_total_tax(), [ 'currency' => $currency ] ),
+            'fee_total'          => (float) $o->get_total_fees(),
+            'fee_total_html'     => wc_price( (float) $o->get_total_fees(), [ 'currency' => $currency ] ),
+            'grand_total'        => (float) $o->get_total(),
+            'grand_total_html'   => $o->get_formatted_order_total(),
+            'item_count'         => (int) $o->get_item_count(),
+            'payment_method'     => (string) $o->get_payment_method_title(),
+            'tax_lines'          => [],
+            'fee_lines'          => [],
+            'shipping_lines'     => [],
+        ];
+
+        foreach ( $o->get_items( 'tax' ) as $tax_item ) {
+            if ( ! $tax_item instanceof WC_Order_Item_Tax ) {
+                continue;
+            }
+            $dto['totals']['tax_lines'][] = [
+                'label'            => (string) $tax_item->get_label(),
+                'rate_percent'     => (string) $tax_item->get_rate_percent(),
+                'tax_total'        => (float) $tax_item->get_tax_total(),
+                'shipping_tax_total' => (float) $tax_item->get_shipping_tax_total(),
+                'tax_total_html'   => wc_price( (float) $tax_item->get_tax_total(), [ 'currency' => $currency ] ),
+            ];
+        }
+        foreach ( $o->get_items( 'fee' ) as $fee_item ) {
+            if ( ! $fee_item instanceof WC_Order_Item_Fee ) {
+                continue;
+            }
+            $dto['totals']['fee_lines'][] = [
+                'name'       => (string) $fee_item->get_name(),
+                'total'      => (float) $fee_item->get_total(),
+                'total_tax'  => (float) $fee_item->get_total_tax(),
+                'total_html' => wc_price( (float) $fee_item->get_total(), [ 'currency' => $currency ] ),
+            ];
+        }
+        foreach ( $o->get_items( 'shipping' ) as $ship_item ) {
+            if ( ! $ship_item instanceof WC_Order_Item_Shipping ) {
+                continue;
+            }
+            $dto['totals']['shipping_lines'][] = [
+                'method'     => (string) $ship_item->get_name(),
+                'total'      => (float) $ship_item->get_total(),
+                'total_tax'  => (float) $ship_item->get_total_tax(),
+                'total_html' => wc_price( (float) $ship_item->get_total(), [ 'currency' => $currency ] ),
+            ];
+        }
+
+        // Full auto-submit + vendor order snapshots for Manager View.
+        $auto_full = $o->get_meta( '_wcss_auto_vendor_submit', true );
+        $dto['auto_submit_detail'] = is_array( $auto_full ) ? $auto_full : null;
+
+        $amazon_data = $o->get_meta( '_wcss_amazon_order_data', true );
+        $dto['amazon_order'] = is_array( $amazon_data ) && ! empty( $amazon_data )
+            ? [
+                'found'             => true,
+                'status'            => (string) ( $amazon_data['status'] ?? '' ),
+                'source'            => (string) ( $amazon_data['source'] ?? '' ),
+                'auto'              => ! empty( $amazon_data['auto'] ),
+                'trial_mode'        => ! empty( $amazon_data['trial_mode'] ),
+                'placed_at'         => (string) ( $amazon_data['placed_at'] ?? '' ),
+                'order_total'       => $amazon_data['order_total'] ?? null,
+                'currency'          => (string) ( $amazon_data['currency'] ?? 'CAD' ),
+                'cart_items'        => array_values( (array) ( $amazon_data['cart_items'] ?? [] ) ),
+                'intended_lines'    => array_values( (array) ( $amazon_data['intended_lines'] ?? [] ) ),
+                'shipping'          => is_array( $amazon_data['shipping'] ?? null ) ? $amazon_data['shipping'] : [],
+                'amazon_request_id' => (string) ( $amazon_data['amazon_request_id'] ?? '' ),
+                'message'           => (string) ( $amazon_data['amazon_response']['message'] ?? ( $amazon_data['message'] ?? '' ) ),
+                'amazon_response'   => is_array( $amazon_data['amazon_response'] ?? null ) ? $amazon_data['amazon_response'] : null,
+                'raw'               => $amazon_data,
+            ]
+            : [ 'found' => false ];
+
+        $gt_data = $o->get_meta( '_wcss_gt_order_data', true );
+        $dto['gt_order'] = is_array( $gt_data ) && ! empty( $gt_data )
+            ? [
+                'found'        => true,
+                'status'       => (string) ( $gt_data['status'] ?? '' ),
+                'source'       => (string) ( $gt_data['source'] ?? '' ),
+                'auto'         => ! empty( $gt_data['auto'] ),
+                'po_id'        => (string) ( $gt_data['po_id'] ?? '' ),
+                'sender'       => (string) ( $gt_data['sender'] ?? '' ),
+                'submitted_at' => (string) ( $gt_data['submitted_at'] ?? '' ),
+                'stage_only'   => ! empty( $gt_data['stage_only'] ),
+                'cart_items'   => array_values( (array) ( $gt_data['cart_items'] ?? [] ) ),
+                'ship_to'      => is_array( $gt_data['ship_to'] ?? null ) ? $gt_data['ship_to'] : [],
+                'gt_result'    => is_array( $gt_data['gt_result'] ?? null ) ? $gt_data['gt_result'] : [],
+                'raw'          => $gt_data,
+            ]
+            : [ 'found' => false ];
+
+        $dto['cart_vendor_summary'] = $o->get_meta( '_cc_cart_vendor_summary', true );
+
+        // Compact payload for the on-page "API response" inspector (English labels in UI).
+        $dto['trigger_payload'] = [
+            'order_id'             => (int) $o->get_id(),
+            'order_number'         => (string) $o->get_order_number(),
+            'status'               => (string) $o->get_status(),
+            'selected_vendors'     => $dto['vendors'] ?? [],
+            'auto_submit'          => $dto['auto_submit_detail'],
+            'amazon_order'         => ! empty( $dto['amazon_order']['found'] ) ? $dto['amazon_order'] : null,
+            'gt_order'             => ! empty( $dto['gt_order']['found'] ) ? $dto['gt_order'] : null,
+            'cart_vendor_summary'  => $dto['cart_vendor_summary'],
+            'totals'               => $dto['totals'],
+        ];
 
         return rest_ensure_response( $dto );
     }

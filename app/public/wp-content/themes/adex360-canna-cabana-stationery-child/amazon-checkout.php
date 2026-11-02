@@ -1238,6 +1238,11 @@ function wcss_amazon_checkout_price_block( $cart_items ) {
 	);
 }
 
+// Allow other theme modules (auto-submit) to load checkout helpers without rendering this page.
+if ( defined( 'WCSS_AMAZON_API_BOOTSTRAP_ONLY' ) && WCSS_AMAZON_API_BOOTSTRAP_ONLY ) {
+	return;
+}
+
 /*                                                                       
 --------------------------------------------------------------------------
 Handle Checkout POST                                                      

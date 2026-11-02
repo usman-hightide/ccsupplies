@@ -28,6 +28,20 @@ class WCSS_REST_Reports {
             'args' => ['month'=>['sanitize_callback'=>'sanitize_text_field']],
           ]);
           
+          // Vendor price cache (child theme cc-vendor-prices-sync.php).
+          register_rest_route( self::NS, '/prices/sync', [
+            [
+              'methods'  => 'GET',
+              'permission_callback' => [ $this, 'can_manage' ],
+              'callback' => [ $this, 'prices_sync_status' ],
+            ],
+            [
+              'methods'  => 'POST',
+              'permission_callback' => [ $this, 'can_manage' ],
+              'callback' => [ $this, 'prices_sync_run' ],
+            ],
+          ]);
+
           register_rest_route(self::NS, '/reports/overview.pdf', [
             'methods' => 'GET',
             'permission_callback' => [ $this, 'can_manage' ],
@@ -459,17 +473,12 @@ class WCSS_REST_Reports {
             $orders_page = is_object($scan2) ? $scan2->orders : [];
             foreach ( $orders_page as $o ) {
 
-                // $sid = (int) $o->get_meta('_wcss_store_id');
-
-                // $sid = (int) $o->get_meta('_wcss_store_id');
-
-
-                $store_name = get_the_title( $sid );
+                $sid = (int) $o->get_meta('_wcss_store_id');
                 if ( ! $sid ) continue;
 
                 if ( empty($ledger_map[$sid]) ) {
-                    $quota  = (int) get_post_meta( $sid, '_store_quota',  true );
-                    $budget = (float) get_post_meta( $sid, '_store_budget', true );
+                    $quota  = (int) WCSS_Store_CPT::get_field( $sid, 'quota' );
+                    $budget = (float) WCSS_Store_CPT::get_field( $sid, 'budget' );
 
                     $ledger_map[$sid] = [
                         'store_id' => $sid,
@@ -500,7 +509,178 @@ class WCSS_REST_Reports {
             'trend'  => $trend,
             'vendors'=> $vendors,
             'ledger' => $ledger,
+            'pending'   => $this->pending_summary(),
+            'attention' => $this->attention_summary(),
+            'store_summary' => $this->store_summary( $ledger ),
         ]);
+    }
+
+    public function prices_sync_status() {
+        $log = defined( 'CC_VENDOR_PRICES_SYNC_LOG' ) ? (array) get_option( CC_VENDOR_PRICES_SYNC_LOG, [] ) : [];
+        $at  = ! empty( $log['finished_at'] ) ? strtotime( $log['finished_at'] ) : 0;
+        return rest_ensure_response([
+            'available'   => function_exists( 'cc_vendor_prices_run_sync' ),
+            'last_sync'   => $at ? wp_date( 'Y-m-d H:i', $at ) : '',
+            'message'     => (string) ( $log['message'] ?? '' ),
+        ]);
+    }
+
+    public function prices_sync_run() {
+        if ( ! function_exists( 'cc_vendor_prices_run_sync' ) ) {
+            return new WP_Error( 'wcss_sync_unavailable', 'Price sync is not installed on this site.', [ 'status' => 501 ] );
+        }
+        $res = cc_vendor_prices_run_sync( CC_VENDOR_PRICES_BATCH, false );
+        if ( empty( $res['ok'] ) ) {
+            return new WP_Error( 'wcss_sync_failed', (string) ( $res['message'] ?? 'Sync failed.' ), [ 'status' => 409 ] );
+        }
+        return $this->prices_sync_status();
+    }
+
+    /**
+     * All-time orders waiting on a manager decision (not limited to the report month).
+     */
+    public static function pending_summary(): array {
+        $q = wc_get_orders([
+            'type'     => 'shop_order',
+            'status'   => [ 'pending', 'awaiting-approval', 'on-hold' ],
+            'orderby'  => 'date',
+            'order'    => 'ASC',
+            'paginate' => true,
+            'limit'    => 1,
+            'return'   => 'objects',
+        ]);
+        $oldest = ( is_object($q) && ! empty($q->orders) ) ? $q->orders[0] : null;
+        return [
+            'count'  => (int) ( is_object($q) ? $q->total : 0 ),
+            'oldest' => ( $oldest && $oldest->get_date_created() ) ? $oldest->get_date_created()->date_i18n('Y-m-d H:i') : '',
+        ];
+    }
+
+    /**
+     * Catalog / vendor data problems shown in the dashboard "Needs your attention" card.
+     */
+    private function attention_summary(): array {
+        $statuses = [ 'publish', 'draft', 'pending' ];
+
+        $products_no_vendor = (int) ( new WP_Query([
+            'post_type'      => 'product',
+            'post_status'    => $statuses,
+            'posts_per_page' => 1,
+            'fields'         => 'ids',
+            'tax_query'      => [ [ 'taxonomy' => 'wcss_vendor', 'operator' => 'NOT EXISTS' ] ],
+        ]) )->found_posts;
+
+        $products_zero_price = (int) ( new WP_Query([
+            'post_type'      => 'product',
+            'post_status'    => $statuses,
+            'posts_per_page' => 1,
+            'fields'         => 'ids',
+            'meta_query'     => [
+                'relation' => 'OR',
+                [ 'key' => '_price', 'value' => [ '', '0', '0.00' ], 'compare' => 'IN' ],
+                [ 'key' => '_price', 'compare' => 'NOT EXISTS' ],
+            ],
+        ]) )->found_posts;
+
+        $vendors_no_email = 0;
+        $vendor_terms = get_terms([ 'taxonomy' => 'wcss_vendor', 'hide_empty' => false ]);
+        if ( ! is_wp_error( $vendor_terms ) ) {
+            foreach ( $vendor_terms as $t ) {
+                if ( trim( (string) get_term_meta( $t->term_id, 'wcss_vendor_email', true ) ) === '' ) {
+                    $vendors_no_email++;
+                }
+            }
+        }
+
+        // Grand & Toy products without a synced G&T price row.
+        $gt_unsynced = 0;
+        if ( function_exists( 'cc_vendor_prices_get_for_product' ) ) {
+            $gt_ids = get_posts([
+                'post_type'      => 'product',
+                'post_status'    => $statuses,
+                'posts_per_page' => -1,
+                'fields'         => 'ids',
+                'tax_query'      => [ [ 'taxonomy' => 'wcss_vendor', 'field' => 'slug', 'terms' => [ 'grand-toy' ] ] ],
+            ]);
+            foreach ( $gt_ids as $pid ) {
+                $has = false;
+                foreach ( cc_vendor_prices_get_for_product( $pid ) as $row ) {
+                    $vkey = function_exists( 'cc_vendor_prices_normalize_vendor' )
+                        ? cc_vendor_prices_normalize_vendor( (string) $row->vendor )
+                        : sanitize_key( (string) $row->vendor );
+                    if ( $vkey === 'gt' && (string) $row->status === 'ok' && is_numeric( $row->price ) ) { $has = true; break; }
+                }
+                if ( ! $has ) $gt_unsynced++;
+            }
+        }
+
+        return [
+            'products_no_vendor'  => $products_no_vendor,
+            'products_zero_price' => $products_zero_price,
+            'vendors_no_email'    => $vendors_no_email,
+            'vendors_total'       => is_wp_error( $vendor_terms ) ? 0 : count( $vendor_terms ),
+            'gt_unsynced'         => $gt_unsynced,
+        ];
+    }
+
+    /**
+     * Store data issues + biggest monthly budgets (with this month's spend from the ledger).
+     */
+    private function store_summary( array $ledger ): array {
+        $ids = get_posts([
+            'post_type'      => 'store_location',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+        ]);
+
+        $spend = [];
+        foreach ( $ledger as $row ) { $spend[ (int) $row['store_id'] ] = (float) $row['spend']; }
+
+        $stores = [];
+        $codes  = [];
+        $meta = function ( int $id, string $key, string $legacy ) {
+            $v = get_post_meta( $id, $key, true );
+            return $v === '' ? get_post_meta( $id, $legacy, true ) : $v;
+        };
+        foreach ( $ids as $id ) {
+            $code = (string) $meta( $id, WCSS_Store_CPT::META_CODE, '_store_code' );
+            $uids = get_users([ 'meta_key' => '_wcss_store_id', 'meta_value' => $id, 'fields' => 'ID', 'number' => 1 ]);
+            $user = $uids ? get_userdata( (int) $uids[0] ) : null;
+            $stores[] = [
+                'id'     => (int) $id,
+                'name'   => html_entity_decode( get_the_title( $id ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ),
+                'code'   => $code,
+                'budget' => (float) $meta( $id, WCSS_Store_CPT::META_BUDGET, '_store_budget' ),
+                'user'   => $user ? ( $user->display_name ?: $user->user_login ) : '',
+            ];
+            if ( $code !== '' ) $codes[ $code ] = ( $codes[ $code ] ?? 0 ) + 1;
+        }
+
+        $issues     = 0;
+        $budget_sum = 0.0;
+        $top        = [];
+        foreach ( $stores as $s ) {
+            $budget_sum += $s['budget'];
+            $flag = ( $s['code'] !== '' && $codes[ $s['code'] ] > 1 ) || preg_match( '/test/i', $s['name'] );
+            if ( ! $flag && preg_match( '/(\d{3})\s*$/', $s['user'], $m ) && $m[1] !== $s['code'] ) $flag = true;
+            if ( $flag ) $issues++;
+            if ( ! preg_match( '/test/i', $s['name'] ) ) {
+                $top[] = [ 'id' => $s['id'], 'name' => $s['name'], 'code' => $s['code'], 'budget' => $s['budget'], 'spend' => $spend[ $s['id'] ] ?? 0.0 ];
+            }
+        }
+        // Stores that spent the biggest share of budget first, then the biggest budgets.
+        usort( $top, function ( $a, $b ) {
+            $pa = $a['budget'] > 0 ? $a['spend'] / $a['budget'] : 0;
+            $pb = $b['budget'] > 0 ? $b['spend'] / $b['budget'] : 0;
+            return [ $pb, $b['budget'] ] <=> [ $pa, $a['budget'] ];
+        } );
+
+        return [
+            'issues'     => $issues,
+            'budget_sum' => $budget_sum,
+            'top'        => array_slice( $top, 0, 4 ),
+        ];
     }
 
 } 

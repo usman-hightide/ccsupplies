@@ -116,55 +116,57 @@ add_action( 'woocommerce_before_calculate_totals', 'cc_cart_vendor_apply_prices'
 /* Manual cart vendor picker removed — see cc-vendor-cheapest.php (auto cheapest). */
 
 /**
- * Expose vendor choice in cart item data (checkout / emails / order UI helpers).
+ * Storefront must never show which vendor fulfills an item (29 Oct Ops / Aman).
+ * Manager portal uses hidden `_cc_vendor*` meta via REST — not these labels.
+ *
+ * @return bool
+ */
+function cc_cart_vendor_hide_from_storefront() {
+	// WP Admin order screens can still show meta if needed.
+	if ( is_admin() && ! wp_doing_ajax() ) {
+		return false;
+	}
+	// Supply Manager portal (/manager/...).
+	if ( function_exists( 'get_query_var' ) && (string) get_query_var( 'wcss' ) !== '' ) {
+		return false;
+	}
+	return true;
+}
+
+/**
+ * Visible meta labels that must not appear to store owners.
+ *
+ * @return array<int,string>
+ */
+function cc_cart_vendor_storefront_hidden_labels() {
+	return array(
+		'Vendor',
+		'Vendor unit price',
+		'ASIN',
+		'G&T part',
+		__( 'Vendor', 'adex360' ),
+		__( 'Vendor unit price', 'adex360' ),
+		__( 'ASIN', 'adex360' ),
+		__( 'G&T part', 'adex360' ),
+	);
+}
+
+/**
+ * Do not expose vendor choice in cart/checkout/thank-you item data for stores.
  *
  * @param array $item_data Item data rows.
  * @param array $cart_item Cart item.
  * @return array
  */
 function cc_cart_vendor_get_item_data( $item_data, $cart_item ) {
-	if ( empty( $cart_item['cc_vendor'] ) ) {
-		return $item_data;
-	}
-
-	$vendor = sanitize_key( (string) $cart_item['cc_vendor'] );
-	if ( ! in_array( $vendor, cc_cart_vendor_allowed_keys(), true ) ) {
-		return $item_data;
-	}
-
-	// Cart has the vendor dropdown; checkout review table has Vendor / Unit columns.
-	if ( ( function_exists( 'is_cart' ) && is_cart() ) || ( function_exists( 'is_checkout' ) && is_checkout() ) ) {
-		return $item_data;
-	}
-
-	$item_data[] = array(
-		'key'     => __( 'Vendor', 'adex360' ),
-		'value'   => cc_cart_vendor_label( $vendor ),
-		'display' => '',
-	);
-
-	if ( ! empty( $cart_item['cc_vendor_id'] ) ) {
-		$item_data[] = array(
-			'key'     => $vendor === 'amazon' ? __( 'ASIN', 'adex360' ) : __( 'G&T part', 'adex360' ),
-			'value'   => (string) $cart_item['cc_vendor_id'],
-			'display' => '',
-		);
-	}
-
-	if ( isset( $cart_item['cc_vendor_price'] ) && $cart_item['cc_vendor_price'] !== '' && empty( $cart_item['cc_vendor_error'] ) ) {
-		$item_data[] = array(
-			'key'     => __( 'Vendor unit price', 'adex360' ),
-			'value'   => wp_strip_all_tags( wc_price( (float) $cart_item['cc_vendor_price'] ) ),
-			'display' => wc_price( (float) $cart_item['cc_vendor_price'] ),
-		);
-	}
-
+	// Stores never see vendor — Ops sees it on Manager Order View only.
 	return $item_data;
 }
 add_filter( 'woocommerce_get_item_data', 'cc_cart_vendor_get_item_data', 20, 2 );
 
 /**
- * Copy vendor choice onto order line items (forward to manager / thank-you / emails).
+ * Copy vendor choice onto order line items for Manager / auto-submit.
+ * Display labels (Vendor / ASIN / unit price) are saved for Ops, but filtered off storefront.
  *
  * @param WC_Order_Item_Product $item          Order item.
  * @param string                $cart_item_key Cart key.
@@ -180,7 +182,9 @@ function cc_cart_vendor_checkout_line_item( $item, $cart_item_key, $values, $ord
 		return;
 	}
 
+	// Machine keys for Manager REST + auto-submit.
 	$item->add_meta_data( '_cc_vendor', $vendor, true );
+	// Human labels for Manager / Ops (hidden from store thank-you via formatted-meta filter).
 	$item->add_meta_data( __( 'Vendor', 'adex360' ), cc_cart_vendor_label( $vendor ), true );
 
 	if ( isset( $values['cc_vendor_price'] ) && $values['cc_vendor_price'] !== '' && empty( $values['cc_vendor_error'] ) ) {
@@ -199,6 +203,30 @@ function cc_cart_vendor_checkout_line_item( $item, $cart_item_key, $values, $ord
 	}
 }
 add_action( 'woocommerce_checkout_create_order_line_item', 'cc_cart_vendor_checkout_line_item', 20, 4 );
+
+/**
+ * Hide vendor labels on existing orders (thank-you, My Account, customer emails).
+ *
+ * @param array<int,object> $formatted_meta Formatted meta.
+ * @param WC_Order_Item     $item           Order item.
+ * @return array<int,object>
+ */
+function cc_cart_vendor_hide_formatted_order_item_meta( $formatted_meta, $item ) {
+	if ( ! cc_cart_vendor_hide_from_storefront() || empty( $formatted_meta ) || ! is_array( $formatted_meta ) ) {
+		return $formatted_meta;
+	}
+
+	$hidden = array_map( 'strtolower', cc_cart_vendor_storefront_hidden_labels() );
+	foreach ( $formatted_meta as $meta_id => $meta ) {
+		$label = isset( $meta->display_key ) ? strtolower( wp_strip_all_tags( (string) $meta->display_key ) ) : '';
+		$key   = isset( $meta->key ) ? strtolower( (string) $meta->key ) : '';
+		if ( in_array( $label, $hidden, true ) || in_array( $key, $hidden, true ) ) {
+			unset( $formatted_meta[ $meta_id ] );
+		}
+	}
+	return $formatted_meta;
+}
+add_filter( 'woocommerce_order_item_get_formatted_meta_data', 'cc_cart_vendor_hide_formatted_order_item_meta', 20, 2 );
 
 /**
  * Persist a compact vendor summary on the order for manager tooling.

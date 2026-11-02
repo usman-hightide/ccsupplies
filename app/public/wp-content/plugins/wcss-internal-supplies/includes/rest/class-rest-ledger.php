@@ -36,8 +36,8 @@ class WCSS_REST_Ledger {
         $ym = $req->get_param('month') ?: gmdate('Y-m');
 
         // Get store limits from CPT meta
-        $quota  = (int) get_post_meta( $store_id, '_store_quota',  true );
-        $budget = (float) get_post_meta( $store_id, '_store_budget', true );
+        $quota  = (int) WCSS_Store_CPT::get_field( $store_id, 'quota' );
+        $budget = (float) WCSS_Store_CPT::get_field( $store_id, 'budget' );
 
         $row = WCSS_Ledger::get( $store_id, $ym );
         $used_count = (int) $row['orders_count'];

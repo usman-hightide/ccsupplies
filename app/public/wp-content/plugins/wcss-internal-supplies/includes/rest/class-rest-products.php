@@ -114,7 +114,7 @@ class WCSS_REST_Products {
 
     public function list_products( WP_REST_Request $req ) {
         $page   = max( 1, (int) ($req->get_param('page') ?: 1) );
-        $per    = min( 20, max( 100, (int) ($req->get_param('per_page') ?: 20) ) );
+        $per    = min( 100, max( 1, (int) ($req->get_param('per_page') ?: 20) ) );
         $search = sanitize_text_field( (string) $req->get_param('search') );
         $vendor = sanitize_key( (string) $req->get_param('vendor') );
     
@@ -227,13 +227,54 @@ class WCSS_REST_Products {
         $featured = (int) $p->get_image_id();
         $gallery  = array_map( 'intval', (array) $p->get_gallery_image_ids() );
         $images   = array_values( array_filter( array_unique( array_merge( $featured ? [ $featured ] : [], $gallery ) ) ) );
+
+        // Woo catalog unit price (avoid cheapest-display filter via 'edit' context).
+        $woo_price = null;
+        if ( function_exists( 'cc_vendor_prices_woo_unit_price' ) ) {
+            $woo_price = cc_vendor_prices_woo_unit_price( $p );
+        } else {
+            $raw = $p->get_price( 'edit' );
+            if ( $raw === '' || $raw === null ) {
+                $raw = $p->get_regular_price( 'edit' );
+            }
+            if ( $raw !== '' && $raw !== null && is_numeric( $raw ) ) {
+                $woo_price = (float) $raw;
+            }
+        }
+
+        $amazon_price = null;
+        $gt_price     = null;
+        if ( function_exists( 'cc_vendor_prices_get_for_product' ) ) {
+            foreach ( cc_vendor_prices_get_for_product( $p->get_id() ) as $row ) {
+                if ( ! $row || (string) $row->status !== 'ok' ) {
+                    continue;
+                }
+                if ( $row->price === null || $row->price === '' || ! is_numeric( $row->price ) ) {
+                    continue;
+                }
+                $vkey = function_exists( 'cc_vendor_prices_normalize_vendor' )
+                    ? cc_vendor_prices_normalize_vendor( (string) $row->vendor )
+                    : sanitize_key( (string) $row->vendor );
+                if ( $vkey === 'amazon' ) {
+                    $amazon_price = (float) $row->price;
+                } elseif ( $vkey === 'gt' ) {
+                    $gt_price = (float) $row->price;
+                }
+            }
+        }
     
         return [
             'id'                => $p->get_id(),
             'name'              => $p->get_name(),
             'sku'               => $p->get_sku(),
-            'price'             => (float) $p->get_price(),
-            'price_html'        => wc_price( (float) $p->get_price() ),
+            'price'             => $woo_price !== null ? (float) $woo_price : (float) $p->get_price( 'edit' ),
+            'price_html'        => $woo_price !== null ? wc_price( (float) $woo_price ) : '',
+            'woo_price'         => $woo_price,
+            'woo_price_html'    => $woo_price !== null ? wc_price( (float) $woo_price ) : '—',
+            'amazon_price'      => $amazon_price,
+            'amazon_price_html' => $amazon_price !== null ? wc_price( (float) $amazon_price ) : '—',
+            'gt_price'          => $gt_price,
+            'gt_price_html'     => $gt_price !== null ? wc_price( (float) $gt_price ) : '—',
             'short_description' => $p->get_short_description(),
             'manage_stock'      => (bool) $p->get_manage_stock(),
             'stock'             => $p->get_stock_quantity(),

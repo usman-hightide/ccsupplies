@@ -14,10 +14,14 @@ require_once get_stylesheet_directory() . '/cc-cart-vendor.php';
 require_once get_stylesheet_directory() . '/cc-vendor-prices.php';
 require_once get_stylesheet_directory() . '/cc-vendor-prices-sync.php';
 require_once get_stylesheet_directory() . '/cc-vendor-cheapest.php';
+// Auto-approve + auto-submit cheapest vendor after store requisition.
+require_once get_stylesheet_directory() . '/cc-auto-vendor-submit.php';
 // Header search relevance (backend only).
 require_once get_stylesheet_directory() . '/cc-product-search.php';
 // Shop Product Categories sidebar card (approved design).
 require_once get_stylesheet_directory() . '/cc-shop-categories.php';
+// Single product page polish + add-to-cart toast.
+require_once get_stylesheet_directory() . '/cc-product-ui.php';
 
 
 

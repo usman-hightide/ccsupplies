@@ -12,9 +12,15 @@ defined( 'ABSPATH' ) || exit;
 |--------------------------------------------------------------------------
 */
 
-define( 'AMAZON_CART_ID', 'cart-wxXmutF5kiXGRb9J' );
-define( 'AMAZON_CART_REGION', 'CA' );
-define( 'AMAZON_USER_EMAIL', 'ecom@hightideinc.com' );
+if ( ! defined( 'AMAZON_CART_ID' ) ) {
+	define( 'AMAZON_CART_ID', 'cart-wxXmutF5kiXGRb9J' );
+}
+if ( ! defined( 'AMAZON_CART_REGION' ) ) {
+	define( 'AMAZON_CART_REGION', 'CA' );
+}
+if ( ! defined( 'AMAZON_USER_EMAIL' ) ) {
+	define( 'AMAZON_USER_EMAIL', 'ecom@hightideinc.com' );
+}
 
 
 /*
@@ -325,6 +331,11 @@ function wp_amazon_modify_cart_item( $item_id, $quantity ) {
 			: 'Cart quantity updated successfully.',
 		'data'        => $data,
 	);
+}
+
+// Allow other theme modules (auto-submit) to load cart helpers without rendering this page.
+if ( defined( 'WCSS_AMAZON_API_BOOTSTRAP_ONLY' ) && WCSS_AMAZON_API_BOOTSTRAP_ONLY ) {
+	return;
 }
 
 

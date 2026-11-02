@@ -1,47 +1,36 @@
 <?php if ( ! defined('ABSPATH') ) exit; ?>
-<div class="wcssm-wrap wcssm-products">
+<div class="wcssm-wrap wcssm-products ccm-content" data-ccm-screen="products">
   <?php include WCSS_DIR . 'frontend/pages/partials/manager-nav.php'; ?>
 
-
-  <div id="wcssm-flash" class="wcssm-flash" style="display:none;"></div>
-
-  
-
-
-  <div class="wcssm-header">
-    <h2>Products</h2>
-
-    <div class="actions">
-      <div class="wcssm-products-search" role="search">
-        <input id="p-search" class="input" type="search" placeholder="Search name or SKU…" aria-label="Search products" />
-        <select id="p-vendor" class="input wcssm-vendor-filter" aria-label="Filter by vendor">
-          <option value="">All vendors</option>
-          <option value="amazon">Amazon</option>
-          <option value="grand-toy">Grand &amp; Toy</option>
-        </select>
-        <button id="p-refresh" class="btn btn-light" type="button">Search</button>
-      </div>
-      <a
-        id="p-export"
-        class="btn btn-primary"
-        href="<?php echo esc_url( admin_url( 'edit.php?post_type=product&page=product_exporter' ) ); ?>"
-        target="_blank" rel="noopener"
-        >Export Products</a>
-    </div>
-
-    <a href="<?php echo esc_url( home_url('/manager/products/create') ); ?>" class="btn btn-primary">+ Create Product</a>
+  <div class="ccm-phead">
+    <div><h1 class="ccm-h1">Products</h1><p class="ccm-sub">Everything stores can order, with each supplier’s price side by side.</p></div>
+    <div class="ccm-actions"><button type="button" class="ccm-btn" data-ccm-export>Export</button><a class="ccm-btn primary" href="<?php echo esc_url( home_url( '/manager/products/create' ) ); ?>">+ Add product</a></div>
   </div>
-
-  <div id="wcssm-products-grid" class="tablelike"></div>
+  <div class="ccm-tablewrap">
+    <div class="ccm-toolbar">
+      <label class="ccm-field grow">Search
+        <input class="ccm-input" type="search" placeholder="Product name or SKU…" id="p-q">
+      </label>
+      <label class="ccm-field fixed">Vendor
+        <select class="ccm-select" id="pl-vendor">
+          <option value="all">All vendors</option>
+          <option value="none">No vendor</option>
+        </select>
+      </label>
+      <label class="ccm-field fixed">Show
+        <select class="ccm-select" id="p-filter">
+          <option value="all">All products</option>
+          <option value="issues">Needs fixing</option>
+          <option value="compare">Has price comparison</option>
+        </select>
+      </label>
+    </div>
+    <table class="ccm-table">
+      <thead><tr><th>Product</th><th>SKU</th><th>Vendor</th><th class="num">Website</th><th class="num">Amazon</th><th class="num">Grand &amp; Toy</th><th>Notes</th><th class="num">Actions</th></tr></thead>
+      <tbody id="p-rows"><tr><td colspan="8" class="ccm-empty">Loading products…</td></tr></tbody>
+    </table>
+    <div class="ccm-empty" id="p-empty" hidden><strong>No products found</strong>Try another name, SKU or vendor.</div>
+    <div class="ccm-listfoot"><span id="p-foot"></span><span>Green = lowest price available</span></div>
+  </div>
 </div>
-
-
-<script>
-jQuery(function($){
-  // Page initializer is in manager.js (initProductsList)
-  if (window.WCSSM && WCSSM.view==='products' && !WCSSM.action) {
-    if (typeof window.initProductsList === 'function') window.initProductsList();
-  }
-});
-
-</script>
+<?php include WCSS_DIR . 'frontend/pages/partials/ccm-overlays.php'; ?>
