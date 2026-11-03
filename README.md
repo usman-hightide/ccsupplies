@@ -20,6 +20,19 @@ Custom WordPress theme/plugin code + the **Knowledge/** pack (status, meetings, 
 
 ## Local site setup (WordPress + this repo)
 
+**What was built + setup + testing (2 Nov 2026):** [`Knowledge/IMPLEMENTATION_GUIDE_2026-11-02.md`](Knowledge/IMPLEMENTATION_GUIDE_2026-11-02.md)  
+
+**Supply Manager portal (`/manager`) — where things are:**
+
+| Feature | URL | Docs |
+|---------|-----|------|
+| Dashboard (Amazon vs G&T this month, stores not ordered) | `/manager` | guide §4 |
+| Reports + Excel / CSV / PDF export, presets | `/manager/reports` | guide §5.4 |
+| Email Management (recipients, manual send, templates, sent log) | `/manager/emails` | guide §5.3 |
+| Ordering policy ($125 / 1 order / window) | `/manager/stores` → *Ordering policy* | guide §5.1 |
+
+Automated tests (local only, block all email): `php tests/policy-test.php`, `tests/amazon-reliability-test.php`, `tests/email-test.php`, `tests/reports-test.php`.
+
 **Full analysis context:** paste `Knowledge/ANALYZE_PROJECT_PROMPT.md` into Cursor.  
 **DB:** not in GitHub — use USB portable zip or local gitignored dumps (`Knowledge/db-backups/README.md`).
 

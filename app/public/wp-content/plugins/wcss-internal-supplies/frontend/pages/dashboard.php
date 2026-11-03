@@ -2,7 +2,7 @@
 $ccm_user  = wp_get_current_user();
 $ccm_first = $ccm_user->first_name ?: strtok( $ccm_user->display_name ?: $ccm_user->user_login, ' ' );
 ?>
-<div class="wcssm-wrap wcssm-dashboard ccm-content">
+<div class="wcssm-wrap wcssm-dashboard ccm-content" data-ccm-screen="dashboard">
   <?php include WCSS_DIR . 'frontend/pages/partials/manager-nav.php'; ?>
 
   <div class="ccm-phead">
@@ -17,8 +17,8 @@ $ccm_first = $ccm_user->first_name ?: strtok( $ccm_user->display_name ?: $ccm_us
         <button type="button" data-period="month">This month</button>
         <button type="button" data-period="m6">6 months</button>
       </div>
-      <button id="dash-export-csv" class="ccm-btn" type="button">Export CSV</button>
-      <button id="dash-export-pdf" class="ccm-btn" type="button">Export PDF</button>
+      <a class="ccm-btn" href="<?php echo esc_url( home_url( '/manager/reports' ) ); ?>">Reports</a>
+      <a class="ccm-btn primary" href="<?php echo esc_url( home_url( '/manager/reports/export/?format=xlsx&type=vendors&range=this_month' ) ); ?>" title="This month’s vendor spend report as an Excel file">Export Excel</a>
     </div>
   </div>
 
@@ -50,6 +50,8 @@ $ccm_first = $ccm_user->first_name ?: strtok( $ccm_user->display_name ?: $ccm_us
       <div class="ccm-kpi-d" id="k-rejected-sub"></div>
     </div>
   </div>
+
+  <section class="ccm-card ccm-vsplit" id="dash-split" aria-live="polite"><div class="ccm-empty">Loading this month’s vendor split…</div></section>
 
   <div class="ccm-grid2">
     <section class="ccm-card">
@@ -86,8 +88,8 @@ $ccm_first = $ccm_user->first_name ?: strtok( $ccm_user->display_name ?: $ccm_us
 
   <div class="ccm-grid2">
     <section class="ccm-card">
-      <div class="ccm-card-h"><div><h2 class="ccm-card-t">Spend by vendor</h2><p class="ccm-card-s"><span id="vendor-period">Last 30 days</span> · approved and pending orders</p></div><a class="ccm-link" href="<?php echo esc_url( home_url( '/manager/vendorslist' ) ); ?>">Vendors →</a></div>
-      <div id="dash-vendors"></div>
+      <div class="ccm-card-h"><div><h2 class="ccm-card-t">Ordering this month</h2><p class="ccm-card-s">Stores that have placed an order, and the ones that haven’t yet</p></div><a class="ccm-link" href="<?php echo esc_url( home_url( '/manager/reports?type=coverage&range=this_month&coverage=not_ordered' ) ); ?>">Full list →</a></div>
+      <div id="dash-coverage"><div class="ccm-empty">Loading…</div></div>
     </section>
 
     <section class="ccm-card">

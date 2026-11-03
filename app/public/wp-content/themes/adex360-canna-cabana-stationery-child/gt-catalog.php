@@ -155,7 +155,7 @@ get_header();
 					<span id="gtc-cart-count"><?php echo $woo_count ? '(' . (int) $woo_count . ')' : ''; ?></span>
 				</a>
 			<?php else : ?>
-				<a class="gtc-btn secondary" href="<?php echo esc_url( home_url( '/manager/orders' ) ); ?>">← Manager orders</a>
+				<a class="gtc-btn secondary" href="<?php echo esc_url( home_url( '/manager/orders' ) ); ?>">← Supply Manager orders</a>
 				<a class="gtc-btn" href="<?php echo esc_url( $cart_url ); ?>">
 					View G&amp;T cart
 					<span id="gtc-cart-count"><?php echo $cart_count ? '(' . (int) $cart_count . ')' : ''; ?></span>

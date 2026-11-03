@@ -109,67 +109,21 @@ class WCSS_Order_Quota {
         return $msgs;
     }
     */
+    /**
+     * Checkout gate. Limits live in WCSS_Order_Policy:
+     *  - review mode (default): never block — over-limit orders are placed and wait for Supply Ops.
+     *  - block mode: refuse checkout when outside the window / over quota / over budget.
+     */
     private function evaluate_limits(): array {
-        $store_id = WCSS_User_Store_Map::get_user_store_id();
-        if ( ! $store_id ) { return []; }
-    
-        $count_statuses_opt = (array) wcss_get_option( 'count_statuses', ['wc-awaiting-approval','wc-approved'] );
-        $count_statuses     = array_map( fn($s) => ltrim( preg_replace('/^wc-/', '', $s ), '-' ), $count_statuses_opt );
-    
-        $tz    = wp_timezone();
-        $now   = new DateTimeImmutable( 'now', $tz );
-        $start = $now->modify('first day of this month')->setTime(0,0,0);
-        $end   = $now->modify('last day of this month')->setTime(23,59,59);
-    
-        // QUOTA (count): CPT value takes precedence; empty falls back to plugin default
-        $quota_meta = get_post_meta( $store_id, WCSS_Store_CPT::META_QUOTA, true );
-        $quota_count = ($quota_meta === '') ? (int) wcss_get_option( 'default_monthly_quota', 0 )
-                                            : (int) $quota_meta;
-        $has_count_limit = $quota_count > 0;
-    
-        // BUDGET (amount): enforced only if positive + enforcement enabled
-        $budget_enforced = (bool) wcss_get_option( 'budget_enforcement', 1 );
-        $budget_meta     = get_post_meta( $store_id, WCSS_Store_CPT::META_BUDGET, true );
-        $has_budget_limit = $budget_enforced && $budget_meta !== '' && (float) $budget_meta > 0;
-        $budget_monthly   = $has_budget_limit ? (float) $budget_meta : 0.0;
-    
-        // Exempt product IDs for budget
-        $exempt_ids_raw = (string) wcss_get_option( 'exempt_product_ids', '' );
-        $exempt_ids = array_filter( array_map( 'intval',
-            array_filter( array_map( 'trim', explode(',', $exempt_ids_raw ) ) )
-        ) );
-    
-        // Aggregate month usage
-        [ $used_count, $used_amount ] = $this->aggregate_orders(
-            $store_id, $count_statuses,
-            $start, $end, $exempt_ids
-        );
-        $cart_amount = $this->cart_amount_exempt_aware( $exempt_ids );
-    
-        // ---- Evaluate each limit (independently) ----
-        $msgs = [];
-        $count_violation  = false;
-        $budget_violation = false;
-    
-        if ( $has_count_limit && $used_count >= $quota_count ) {
-            $count_violation = true;
-            $msgs[] = $this->msg_count( $used_count, $quota_count, $now );
+        if ( ! class_exists( 'WCSS_Order_Policy' ) || WCSS_Order_Policy::mode() !== 'block' ) {
+            return [];
         }
-    
-        if ( $has_budget_limit ) {
-            $projected = $used_amount + $cart_amount;
-            if ( $projected > $budget_monthly + 0.00001 ) {
-                $budget_violation = true;
-                $msgs[] = $this->msg_budget( $budget_monthly, $used_amount, $cart_amount );
-            }
+        $res = WCSS_Order_Policy::evaluate_cart();
+        if ( $res['in_policy'] ) {
+            return [];
         }
-    
-        // If both are hit, prepend a header (optional)
-        if ( $count_violation && $budget_violation ) {
-            array_unshift( $msgs, __( 'Your order can’t be placed because monthly limits have been exceeded:', 'wcss' ) );
-        }
-    
-        // Returning ANY messages means "block" (logical OR)
+        $msgs = array_values( array_filter( array_map( [ 'WCSS_Order_Policy', 'store_facing' ], $res['reasons'] ) ) );
+        $msgs[] = __( 'Please contact Supply Ops if you need an exception.', 'wcss' );
         return $msgs;
     }
 

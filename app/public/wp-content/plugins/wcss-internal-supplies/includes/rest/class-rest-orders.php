@@ -230,51 +230,40 @@ class WCSS_REST_Orders {
             return new WP_Error('bad_status','Status not allowed',[ 'status'=>400 ]);
         }
     
-        // If moving to "approved", enforce limits unless override=1
-        if ( $status === 'approved' ) {
+        // If moving to "approved", check the store policy (window / quota / budget) unless override=1.
+        if ( $status === 'approved' && class_exists( 'WCSS_Order_Policy' ) ) {
             $store_id = (int) $o->get_meta('_wcss_store_id');
-            if ( $store_id ) {
-                $ym  = gmdate('Y-m');
-                $row = class_exists('WCSS_Ledger') ? WCSS_Ledger::get( $store_id, $ym ) : ['orders_count'=>0,'spend_total'=>0];
-    
-                $quota_used  = (int) ($row['orders_count'] ?? 0);
-                $budget_used = (float) ($row['spend_total'] ?? 0);
-    
-                $quota   = (int) WCSS_Store_CPT::get_field( $store_id, 'quota' );
-                $budget  = (float) WCSS_Store_CPT::get_field( $store_id, 'budget' );
-                $order_total = (float) $o->get_total();
-    
-                $will_orders = $quota_used + 1;
-                $will_spend  = $budget_used + $order_total;
-    
-                $exceeds_count  = ($quota > 0)  && ($will_orders > $quota);
-                $exceeds_budget = ($budget > 0) && ($will_spend  > $budget);
-    
-                if ( ($exceeds_count || $exceeds_budget) && ! $override ) {
-                    // 409 with flat payload (WP REST puts these under response.data)
-                    return new WP_Error(
-                        'wcss_limit_block',
-                        __( 'Approving this order exceeds the store’s monthly limit.', 'wcss' ),
-                        [
-                            'status'        => 409,
-                            'store_id'      => $store_id,
-                            'month'         => $ym,
-                            'quota'         => $quota,
-                            'quota_used'    => $quota_used,
-                            'will_orders'   => $will_orders,
-                            'budget'        => $budget,
-                            'budget_used'   => $budget_used,
-                            'order_total'   => $order_total,
-                            'will_spend'    => $will_spend,
-                            'currency'      => get_woocommerce_currency(),
-                        ]
-                    );
-                }
+            $policy   = WCSS_Order_Policy::evaluate_order( $o );
+            if ( $store_id && ! $policy['in_policy'] && ! $override ) {
+                $c = $policy['checks'];
+                // 409 with flat payload (WP REST puts these under response.data)
+                return new WP_Error(
+                    'wcss_limit_block',
+                    __( 'Approving this order is outside the store’s ordering policy: ', 'wcss' ) . implode( ' ', $policy['messages'] ),
+                    [
+                        'status'        => 409,
+                        'store_id'      => $store_id,
+                        'month'         => wp_date( 'Y-m' ),
+                        'reasons'       => $policy['reasons'],
+                        'messages'      => $policy['messages'],
+                        'quota'         => $c['quota'],
+                        'quota_used'    => $c['used_orders'],
+                        'will_orders'   => $c['used_orders'] + 1,
+                        'budget'        => $c['budget'],
+                        'budget_used'   => $c['used_amount'],
+                        'order_total'   => $c['order_amount'],
+                        'will_spend'    => $c['used_amount'] + $c['order_amount'],
+                        'currency'      => get_woocommerce_currency(),
+                    ]
+                );
             }
+            // A manager approval is the exception decision: lets auto-submit send it to the vendor.
+            $o->update_meta_data( '_wcss_policy_override', [ 'by' => get_current_user_id(), 'at' => current_time( 'mysql' ), 'reasons' => $policy['reasons'] ] );
+            $o->save();
         }
-        
+
             // proceed
-        $o->update_status( $status, $note ? $note : __( 'Status updated (Manager)', 'wcss' ), true );
+        $o->update_status( $status, $note ? $note : __( 'Status updated (Supply Manager)', 'wcss' ), true );
         WCSS_Order_Events::log( $o->get_id(), 'status_change', [ 'new'=>$status, 'note'=>$note, 'override'=>$override ] );
     
         return rest_ensure_response([ 'ok'=>true ]);
@@ -387,6 +376,7 @@ class WCSS_REST_Orders {
             'has_amazon_order' => (bool) $o->get_meta( '_wcss_amazon_order_data' ),
             'has_gt_order'     => (bool) $o->get_meta( '_wcss_gt_order_data' ),
             'auto_submit'      => $this->dto_auto_submit_summary( $o ),
+            'policy'           => $this->dto_policy( $o ),
         ];
 
     }
@@ -397,6 +387,20 @@ class WCSS_REST_Orders {
      * @param WC_Order $o Order.
      * @return array<string,mixed>|null
      */
+    /** Ordering-policy verdict recorded at checkout (WCSS_Order_Policy). */
+    private function dto_policy( $o ) {
+        $p = $o->get_meta( '_wcss_policy', true );
+        if ( ! is_array( $p ) || ! isset( $p['in_policy'] ) ) {
+            return null;
+        }
+        return [
+            'in_policy'  => (bool) $p['in_policy'],
+            'reasons'    => array_values( (array) ( $p['reasons'] ?? [] ) ),
+            'messages'   => array_values( (array) ( $p['messages'] ?? [] ) ),
+            'overridden' => (bool) $o->get_meta( '_wcss_policy_override', true ),
+        ];
+    }
+
     private function dto_auto_submit_summary( $o ) {
         $raw = $o->get_meta( '_wcss_auto_vendor_submit', true );
         if ( ! is_array( $raw ) || empty( $raw ) ) {

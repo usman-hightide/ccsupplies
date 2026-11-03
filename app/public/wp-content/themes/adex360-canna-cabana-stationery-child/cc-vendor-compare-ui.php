@@ -431,7 +431,7 @@ get_header();
 		</div>
 		<div class="vc-header-actions">
 			<a class="vc-link-btn" href="<?php echo esc_url( $catalog_url ); ?>">Amazon catalog</a>
-			<a class="vc-link-btn secondary" href="<?php echo esc_url( $manager_url ); ?>">Manager products</a>
+			<a class="vc-link-btn secondary" href="<?php echo esc_url( $manager_url ); ?>">Supply Manager products</a>
 		</div>
 	</header>
 

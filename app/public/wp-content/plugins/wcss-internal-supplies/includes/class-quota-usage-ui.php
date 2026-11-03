@@ -24,14 +24,13 @@ class WCSS_Quota_Usage_UI {
         $end   = $now->modify('last day of this month')->setTime(23,59,59);
 
         // Limits
-        $quota_meta   = get_post_meta( $store_id, WCSS_Store_CPT::META_QUOTA, true );
-        $quota_count  = ($quota_meta === '') ? (int) wcss_get_option( 'default_monthly_quota', 0 ) : (int) $quota_meta;
+        // Store meta wins; empty → plugin defaults ($125 / 1 order), see WCSS_Order_Policy.
+        $limits       = WCSS_Order_Policy::store_limits( (int) $store_id );
+        $quota_count  = (int) $limits['quota'];
         $quota_label  = $quota_count > 0 ? (string) $quota_count : __( '∞', 'wcss' );
 
-        $budget_enf   = (bool) wcss_get_option( 'budget_enforcement', 1 );
-        $budget_meta  = get_post_meta( $store_id, WCSS_Store_CPT::META_BUDGET, true );
-        $has_budget   = $budget_enf && $budget_meta !== '' && (float) $budget_meta > 0;
-        $budget_month = $has_budget ? (float) $budget_meta : 0.0;
+        $has_budget   = $limits['budget'] > 0;
+        $budget_month = (float) $limits['budget'];
 
         // Exempt product IDs for budget
         $exempt_ids_raw = (string) wcss_get_option( 'exempt_product_ids', '' );

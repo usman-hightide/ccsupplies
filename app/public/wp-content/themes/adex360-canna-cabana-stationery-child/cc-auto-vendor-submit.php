@@ -3,6 +3,10 @@
  * Auto-approve + auto-submit store requisitions to the cheapest vendor.
  *
  * After Internal Requisition creates an order (awaiting-approval), this module:
+ * 0) Asks the store ordering policy (`cc_auto_vendor_submit_policy` filter, answered by
+ *    WCSS_Order_Policy in the wcss plugin). Outside the window / over quota / over budget
+ *    → stays awaiting approval as "needs_approval" for Supply Ops. When Ops approves it,
+ *    the submit runs (see cc_auto_vendor_submit_on_approved).
  * 1) Reads line `_cc_vendor` / `_cc_vendor_id` / `_cc_vendor_price` (cheapest winner).
  * 2) Auto-approves the Woo order.
  * 3) Submits to Grand & Toy (stage cXML) and/or Amazon Business (trial when possible).
@@ -524,6 +528,15 @@ function cc_auto_vendor_submit_amazon_fill_cart( array $lines ) {
 		);
 
 		$result = wp_amazon_business_cart_request( 'POST', $url, $token, $body );
+		for ( $try = 2; $try <= 3 && is_wp_error( $result ); $try++ ) {
+			$err  = $result->get_error_data();
+			$http = (int) ( is_array( $err ) ? ( $err['status'] ?? 0 ) : 0 );
+			if ( $http !== 429 && ( $http < 500 || $http > 599 ) ) {
+				break; // only throttling / server errors are worth another try
+			}
+			sleep( $try === 2 ? 2 : 5 );
+			$result = wp_amazon_business_cart_request( 'POST', $url, $token, $body );
+		}
 		if ( is_wp_error( $result ) ) {
 			$errors[] = $result->get_error_message();
 			continue;
@@ -579,13 +592,44 @@ function cc_auto_vendor_submit_amazon_place( $order, array $ship, array $added )
 			'message' => (string) ( $cart_result['message'] ?? 'Unable to read Amazon cart.' ),
 		);
 	}
-	if ( empty( $cart_result['items'] ) ) {
+
+	// The Business cart is shared (one AMAZON_CART_ID) and keeps items from manual sessions and
+	// earlier orders. Order only this requisition's lines, at this requisition's quantities; the
+	// cart entry is reused when present so Amazon's price expectations stay attached.
+	$cart_by_asin = array();
+	foreach ( (array) $cart_result['items'] as $ci ) {
+		$ci_asin = strtoupper( (string) ( $ci['productIdentifier'] ?? ( $ci['asin'] ?? '' ) ) );
+		if ( $ci_asin !== '' && ! isset( $cart_by_asin[ $ci_asin ] ) ) {
+			$cart_by_asin[ $ci_asin ] = $ci;
+		}
+	}
+	$place_items = array();
+	$qty_by_asin = array();
+	foreach ( $added as $line ) {
+		$a = strtoupper( (string) $line['asin'] );
+		$qty_by_asin[ $a ] = ( $qty_by_asin[ $a ] ?? 0 ) + max( 1, (int) ( $line['qty'] ?? 1 ) );
+	}
+	foreach ( $added as $line ) {
+		$a = strtoupper( (string) $line['asin'] );
+		if ( ! isset( $qty_by_asin[ $a ] ) ) {
+			continue; // same ASIN on two lines: placed once with the summed quantity
+		}
+		$item = isset( $cart_by_asin[ $a ] ) ? $cart_by_asin[ $a ] : array(
+			'productIdentifier'      => $a,
+			'buyingOptionIdentifier' => (string) ( $line['buying_option_id'] ?? '' ),
+		);
+		$item['quantity'] = $qty_by_asin[ $a ];
+		unset( $qty_by_asin[ $a ] );
+		$place_items[] = $item;
+	}
+	if ( ! $place_items ) {
 		return array(
 			'ok'      => false,
 			'status'  => 'failed',
-			'message' => 'Amazon cart is empty after auto-add.',
+			'message' => 'No Amazon lines to place for this order.',
 		);
 	}
+	$ignored_cart_items = max( 0, count( (array) $cart_result['items'] ) - count( array_intersect_key( $cart_by_asin, array_flip( array_map( 'strtoupper', wp_list_pluck( $added, 'asin' ) ) ) ) ) );
 
 	// Buyer email must be the Amazon Business authorized user (not the store employee).
 	$amazon_buyer_email = defined( 'AMAZON_USER_EMAIL' ) ? (string) AMAZON_USER_EMAIL : 'ecom@hightideinc.com';
@@ -618,7 +662,9 @@ function cc_auto_vendor_submit_amazon_place( $order, array $ship, array $added )
 		}
 	}
 
-	$payload = wp_amazon_checkout_build_order_payload( $cart_result['items'], $form_data );
+	$payload = wp_amazon_checkout_build_order_payload( $place_items, $form_data );
+	// Stable per order + item set, so a retried POST carries the same external ID as the first try.
+	$payload['externalId'] = 'CC-' . $order->get_id() . '-' . substr( md5( wp_json_encode( $payload['lineItems'] ?? array() ) ), 0, 10 );
 	if ( empty( $payload['lineItems'] ) ) {
 		return array(
 			'ok'      => false,
@@ -627,12 +673,28 @@ function cc_auto_vendor_submit_amazon_place( $order, array $ship, array $added )
 		);
 	}
 
-	// Force trial attribute when helper supports it via form_data already set.
-	$result = wp_amazon_ordering_request(
-		'POST',
-		'https://na.business-api.amazon.com/ordering/2022-10-30/orders',
-		$payload
-	);
+	// Retry only answers that mean "not processed": 429 (throttled) and 5xx, same externalId each time.
+	// A transport error (no HTTP status) is NOT retried — the order may already exist on Amazon.
+	$attempts = array();
+	for ( $try = 1; $try <= 3; $try++ ) {
+		$result = wp_amazon_ordering_request(
+			'POST',
+			'https://na.business-api.amazon.com/ordering/2022-10-30/orders',
+			$payload
+		);
+		$code       = (int) ( $result['status_code'] ?? 0 );
+		$attempts[] = array(
+			'try'        => $try,
+			'http'       => $code,
+			'request_id' => (string) ( $result['request_id'] ?? '' ),
+			'at'         => gmdate( 'c' ),
+		);
+		$retryable = ( $code === 429 || ( $code >= 500 && $code < 600 ) );
+		if ( ! empty( $result['success'] ) || ! $retryable || $try === 3 ) {
+			break;
+		}
+		sleep( $try === 1 ? 2 : 5 );
+	}
 
 	$ok = ! empty( $result['success'] );
 	$normalized_items = function_exists( 'wcss_amazon_normalize_cart_items' )
@@ -663,6 +725,9 @@ function cc_auto_vendor_submit_amazon_place( $order, array $ship, array $added )
 		'shipping'        => array_merge( $form_data, array( 'country' => 'CA' ) ),
 		'cart_items'      => $normalized_items,
 		'intended_lines'  => $added,
+		'placed_items'    => $place_items,
+		'ignored_cart_items' => $ignored_cart_items,
+		'attempts'        => $attempts,
 		'order_payload'   => $payload,
 		'amazon_response' => $result,
 		'message'         => $ok ? 'Amazon order placed (trial mode).' : $fail_message,
@@ -682,6 +747,29 @@ function cc_auto_vendor_submit_amazon_place( $order, array $ship, array $added )
 		'message'  => $snapshot['message'],
 		'snapshot' => $snapshot,
 	);
+}
+
+/**
+ * One Amazon fill + place at a time: the Business cart is shared, so two orders must not
+ * add to it concurrently. add_option() is atomic; a lock older than 10 minutes is stale.
+ *
+ * @return bool True when acquired.
+ */
+function cc_auto_vendor_submit_amazon_lock() {
+	$key = 'cc_amazon_place_lock';
+	if ( add_option( $key, time(), '', 'no' ) ) {
+		return true;
+	}
+	$since = (int) get_option( $key, 0 );
+	if ( $since && time() - $since > 10 * MINUTE_IN_SECONDS ) {
+		delete_option( $key );
+		return add_option( $key, time(), '', 'no' );
+	}
+	return false;
+}
+
+function cc_auto_vendor_submit_amazon_unlock() {
+	delete_option( 'cc_amazon_place_lock' );
 }
 
 /**
@@ -706,7 +794,8 @@ function cc_auto_vendor_submit_run( $order_id ) {
 	if ( is_array( $existing ) && ! empty( $existing['attempted'] ) ) {
 		$prev_status = (string) ( $existing['status'] ?? '' );
 		$force       = (bool) apply_filters( 'cc_auto_vendor_submit_force_retry', false, $order_id, $existing );
-		if ( ! $force && ! in_array( $prev_status, array( 'failed', 'processing' ), true ) ) {
+		$approved_exception = $prev_status === 'needs_approval' && $order->get_meta( '_wcss_policy_override' );
+		if ( ! $force && ! $approved_exception && ! in_array( $prev_status, array( 'failed', 'processing' ), true ) ) {
 			return $existing;
 		}
 	}
@@ -723,6 +812,23 @@ function cc_auto_vendor_submit_run( $order_id ) {
 	);
 	$order = wc_get_order( $order_id );
 
+	// Store ordering policy: only in-policy orders are auto-approved and sent to a vendor.
+	$gate = apply_filters( 'cc_auto_vendor_submit_policy', array( 'allowed' => true, 'reasons' => array(), 'messages' => array() ), $order );
+	if ( empty( $gate['allowed'] ) ) {
+		$summary = array(
+			'attempted' => true,
+			'status'    => 'needs_approval',
+			'reasons'   => (array) ( $gate['reasons'] ?? array() ),
+			'message'   => 'Needs Supply Ops approval: ' . implode( ' ', (array) ( $gate['messages'] ?? array() ) ),
+			'results'   => array(),
+		);
+		cc_auto_vendor_submit_save_meta( $order, $summary );
+		if ( class_exists( 'WCSS_Order_Events' ) ) {
+			WCSS_Order_Events::log( $order_id, 'auto_vendor_submit', array( 'status' => 'needs_approval', 'reasons' => $summary['reasons'] ) );
+		}
+		return $summary;
+	}
+
 	$collected = cc_auto_vendor_submit_collect_lines( $order );
 	$vendors   = $collected['vendors'];
 
@@ -737,6 +843,26 @@ function cc_auto_vendor_submit_run( $order_id ) {
 		);
 		cc_auto_vendor_submit_save_meta( $order, $summary );
 		return $summary;
+	}
+
+	// Take the Amazon lock before any vendor call, so a busy lock never leaves G&T half-sent.
+	$amazon_locked = false;
+	if ( in_array( 'amazon', $vendors, true ) ) {
+		$amazon_locked = cc_auto_vendor_submit_amazon_lock();
+		if ( ! $amazon_locked ) {
+			cc_auto_vendor_submit_save_meta(
+				$order,
+				array(
+					'attempted' => true,
+					'status'    => 'processing',
+					'message'   => 'Waiting for another Amazon order to finish — retrying in 1 minute.',
+				)
+			);
+			if ( function_exists( 'as_schedule_single_action' ) ) {
+				as_schedule_single_action( time() + MINUTE_IN_SECONDS, 'cc_auto_vendor_submit_async', array( 'order_id' => $order_id ), 'cc-auto-vendor' );
+			}
+			return null;
+		}
 	}
 
 	cc_auto_vendor_submit_approve( $order );
@@ -779,6 +905,10 @@ function cc_auto_vendor_submit_run( $order_id ) {
 		}
 	}
 
+	if ( $amazon_locked ) {
+		cc_auto_vendor_submit_amazon_unlock();
+	}
+
 	$winning = count( $vendors ) === 1 ? $vendors[0] : 'mixed';
 	$status  = 'failed';
 	if ( $ok_any && ! $fail ) {
@@ -816,6 +946,9 @@ function cc_auto_vendor_submit_run( $order_id ) {
 		);
 	}
 
+	// Supply Manager → Emails: "Vendor accepted order" / "Vendor rejected / failed".
+	do_action( 'cc_auto_vendor_submit_done', $order_id, $summary );
+
 	return $summary;
 }
 
@@ -843,6 +976,29 @@ function cc_auto_vendor_submit_on_awaiting_approval( $order_id ) {
 	cc_auto_vendor_submit_run( $order_id );
 }
 add_action( 'woocommerce_order_status_awaiting-approval', 'cc_auto_vendor_submit_on_awaiting_approval', 30, 1 );
+
+/**
+ * Supply Ops approved an order that was held as "needs_approval" → send it to the vendor now.
+ *
+ * @param int $order_id Order ID.
+ */
+function cc_auto_vendor_submit_on_approved( $order_id ) {
+	$order = wc_get_order( (int) $order_id );
+	if ( ! $order ) {
+		return;
+	}
+	$meta = $order->get_meta( WCSS_AUTO_VENDOR_SUBMIT_META, true );
+	if ( ! is_array( $meta ) || ( $meta['status'] ?? '' ) !== 'needs_approval' ) {
+		return;
+	}
+	if ( ! $order->get_meta( '_wcss_policy_override' ) ) {
+		// Approved outside the manager portal (e.g. wp-admin): the approval itself is the override.
+		$order->update_meta_data( '_wcss_policy_override', array( 'by' => get_current_user_id(), 'at' => current_time( 'mysql' ), 'source' => 'status_change' ) );
+		$order->save();
+	}
+	cc_auto_vendor_submit_on_awaiting_approval( (int) $order_id );
+}
+add_action( 'woocommerce_order_status_approved', 'cc_auto_vendor_submit_on_approved', 30, 1 );
 
 /**
  * Async runner (Action Scheduler).

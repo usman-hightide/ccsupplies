@@ -35,6 +35,11 @@ require_once WCSS_DIR . 'includes/class-private-portal.php';
 require_once WCSS_DIR . 'includes/class-checkout-store-lock.php';
 require_once WCSS_DIR . 'includes/class-myaccount-customize.php';
 require_once WCSS_DIR . 'includes/class-order-quota.php';
+require_once WCSS_DIR . 'includes/class-order-policy.php';
+require_once WCSS_DIR . 'includes/class-email-template.php';
+require_once WCSS_DIR . 'includes/class-email-center.php';
+require_once WCSS_DIR . 'includes/class-xlsx.php';
+require_once WCSS_DIR . 'includes/class-reports.php';
 require_once WCSS_DIR . 'includes/class-notifications.php';
 require_once WCSS_DIR . 'includes/class-quota-usage-ui.php';
 require_once WCSS_DIR . 'includes/class-store-admin-columns.php';
@@ -129,6 +134,11 @@ function wcss_get_option( $key, $default = null ) {
         'exempt_product_ids'     => '',
         'bypass_method'          => 'internal_requisition', // internal_requisition | cod | coupon
         'count_statuses'         => ['wc-awaiting-approval','wc-approved'],
+        // Ordering policy (class-order-policy.php)
+        'default_monthly_budget' => 125,
+        'order_window_start'     => 1,
+        'order_window_end'       => 31,
+        'limit_mode'             => 'review', // review = over-limit orders go to Supply Ops; block = refuse at checkout
     ];
     $opts = wp_parse_args( get_option( 'wcss_settings', [] ), $defaults );
     return array_key_exists( $key, $opts ) ? $opts[ $key ] : $default;
@@ -185,7 +195,10 @@ add_action( 'wcss_bootstrap', function () {
     new WCSS_Checkout_Store_Lock();
     new WCSS_MyAccount_Customize();
     new WCSS_Order_Quota();
+    new WCSS_Order_Policy();
     new WCSS_Notifications();
+    new WCSS_Email_Center();
+    new WCSS_Reports();
     new WCSS_Quota_Usage_UI();
     new WCSS_Store_Admin_Columns();
     new WCSS_Store_Admin_Highlight(); 

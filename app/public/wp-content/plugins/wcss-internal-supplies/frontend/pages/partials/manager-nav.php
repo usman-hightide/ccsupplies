@@ -28,6 +28,12 @@ $nav_groups = array(
 			'active' => ( $view === 'dashboard' || $view === '' || preg_match( '#/manager/?$#', $path ) ),
 			'icon'   => $svg( '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>' ),
 		),
+		array(
+			'label'  => 'Reports',
+			'url'    => home_url( '/manager/reports' ),
+			'active' => ( $view === 'reports' ),
+			'icon'   => $svg( '<path d="M3 3v18h18"/><path d="M7 15v3M12 10v8M17 6v12"/>' ),
+		),
 	),
 	'Operations' => array(
 		array(
@@ -48,6 +54,12 @@ $nav_groups = array(
 			'url'    => home_url( '/manager/users' ),
 			'active' => ( $view === 'users' ),
 			'icon'   => $svg( '<circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0"/><path d="M17 4a4 4 0 0 1 0 8"/><path d="M22 21a7 7 0 0 0-4-6.3"/>' ),
+		),
+		array(
+			'label'  => 'Emails',
+			'url'    => home_url( '/manager/emails' ),
+			'active' => ( $view === 'emails' ),
+			'icon'   => $svg( '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/>' ),
 		),
 	),
 	'Catalog' => array(
@@ -85,7 +97,7 @@ $nav_groups = array(
   <a class="ccm-brand" href="<?php echo esc_url( home_url( '/manager' ) ); ?>">
     <span class="ccm-brand-mark">CANNA</span><span class="ccm-brand-script">Cabana</span>
   </a>
-  <div class="ccm-brand-sub">Supplies · Manager console</div>
+  <div class="ccm-brand-sub">Supply Manager</div>
 
   <?php foreach ( $nav_groups as $group_label => $items ) : ?>
     <div class="ccm-navlabel"><?php echo esc_html( $group_label ); ?></div>
@@ -117,7 +129,7 @@ $nav_groups = array(
   </button>
   <div class="ccm-me">
     <div class="ccm-avatar" aria-hidden="true"><?php echo esc_html( $initials ); ?></div>
-    <div><div class="ccm-strong"><?php echo esc_html( $display_name ); ?></div><div class="ccm-muted ccm-small">Manager</div></div>
+    <div><div class="ccm-strong"><?php echo esc_html( $display_name ); ?></div><div class="ccm-muted ccm-small">Supply Manager</div></div>
   </div>
   <a class="ccm-btn sm danger" href="<?php echo esc_url( $logout_url ); ?>">Log out</a>
 </header>

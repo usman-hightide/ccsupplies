@@ -94,7 +94,7 @@ get_header();
 		<?php if ( $order ) : ?>
 			Results save on Woo order <strong>#<?php echo esc_html( $order->get_order_number() ); ?></strong>.
 		<?php else : ?>
-			Tip: open this from Manager → <em>G&amp;T Test Order</em> so results attach to a Woo order.
+			Tip: open this from Supply Manager → <em>G&amp;T Test Order</em> so results attach to a Woo order.
 		<?php endif; ?>
 	</p>
 

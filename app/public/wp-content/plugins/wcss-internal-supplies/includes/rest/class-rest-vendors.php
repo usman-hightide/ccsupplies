@@ -99,6 +99,7 @@ class WCSS_REST_Vendors {
         }
         ksort( $budgets );
         update_term_meta( $id, 'wcss_vendor_budgets', $budgets );
+        do_action( 'wcss_vendor_changed', 'budget', $id, $t->name, [ 'month' => $month, 'monthly_budget' => ( $amount === null || $amount === '' ) ? 'Removed' : WCSS_Email_Template::money( $amount ) ] );
 
         if ( ! empty( $body['as_default'] ) ) {
             if ( $amount === null || $amount === '' ) {
@@ -256,6 +257,26 @@ class WCSS_REST_Vendors {
         'notes'      => 'wcss_vendor_notes',
     ];
 
+    /**
+     * Fields that differ from what is saved, for the "Vendor details changed" email.
+     * Without a vendor id (create) every filled field counts.
+     */
+    private function change_summary( array $data, int $id = 0, string $name = '' ): array {
+        $out = [];
+        if ( $id && isset( $data['name'] ) && $this->clean_name( (string) $data['name'] ) !== $this->clean_name( $name ) ) {
+            $out['name'] = $this->clean_name( $name ) . ' → ' . $this->clean_name( (string) $data['name'] );
+        }
+        foreach ( self::FIELDS as $k => $meta ) {
+            if ( ! array_key_exists( $k, $data ) ) continue;
+            $new = trim( (string) $data[ $k ] );
+            $old = $id ? trim( (string) get_term_meta( $id, $meta, true ) ) : '';
+            if ( $new !== $old ) {
+                $out[ $k ] = $new === '' ? 'Cleared' : $new;
+            }
+        }
+        return $out;
+    }
+
     /** @return WP_Error|null */
     private function validate_fields( array $data ) {
         if ( ! empty( $data['email'] ) && ! is_email( trim( (string) $data['email'] ) ) ) {
@@ -299,6 +320,7 @@ class WCSS_REST_Vendors {
 
         $term_id = (int) $res['term_id'];
         $this->save_meta_array( $term_id, $data );
+        do_action( 'wcss_vendor_changed', 'created', $term_id, $name, $this->change_summary( $data ) );
         return rest_ensure_response( $this->dto( get_term( $term_id ) ) );
     }
 
@@ -312,6 +334,7 @@ class WCSS_REST_Vendors {
             return new WP_Error( 'bad_name', 'Vendor name is required.', [ 'status' => 400 ] );
         }
         if ( $err = $this->validate_fields( $data ) ) return $err;
+        $changes = $this->change_summary( $data, $id, $t->name );
         if ( isset($data['name']) && trim($data['name']) !== '' ) {
             $ren = wp_update_term( $id, 'wcss_vendor', [
                 'name' => sanitize_text_field( $this->clean_name( (string) $data['name'] ) ),
@@ -320,13 +343,20 @@ class WCSS_REST_Vendors {
         }
         $this->save_meta_array( $id, $data );
         $t = get_term( $id, 'wcss_vendor' );
+        if ( $changes ) {
+            do_action( 'wcss_vendor_changed', 'updated', $id, $t->name, $changes );
+        }
         return rest_ensure_response( $this->dto( $t ) );
     }
 
     public function delete( WP_REST_Request $req ) {
         $id = (int) $req['id'];
+        $old = get_term( $id, 'wcss_vendor' );
         $del = wp_delete_term( $id, 'wcss_vendor' );
         if ( is_wp_error( $del ) ) return $del;
+        if ( $del && $old && ! is_wp_error( $old ) ) {
+            do_action( 'wcss_vendor_changed', 'deleted', $id, $old->name, [] );
+        }
         return rest_ensure_response([ 'ok' => true ]);
     }
 

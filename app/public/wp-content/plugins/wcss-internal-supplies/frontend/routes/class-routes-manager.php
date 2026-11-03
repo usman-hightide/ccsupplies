@@ -9,6 +9,7 @@ class WCSS_Route_Manager {
         // add_filter( 'query_vars',          [ $this, 'add_qv' ] );
         add_action( 'template_redirect',   [ $this, 'maybe_render' ] );
         add_action( 'wp_enqueue_scripts',  [ $this, 'enqueue_assets' ] );
+        add_filter( 'document_title_parts', [ $this, 'page_title' ] );
         add_filter('query_vars', function($vars){
             $vars[] = 'wcss';
             $vars[] = 'wcss_action';
@@ -34,7 +35,7 @@ class WCSS_Route_Manager {
         add_rewrite_tag( '%wcss_id%',     '([0-9]+)' );
 
         // Allowed sections under /manager
-        $sections = '(products|stores|orders|reports|dashboard|amazon|gt)';
+        $sections = '(products|stores|orders|reports|dashboard|amazon|gt|emails)';
         
         add_rewrite_rule(
             '^manager/vendorslist/?$',
@@ -84,6 +85,35 @@ class WCSS_Route_Manager {
         
     }
 
+    /**
+     * Browser tab title for portal pages, e.g. "Orders · Supply Manager · Canna Cabana – Stationery Store".
+     */
+    public function page_title( $parts ) {
+        $view = (string) get_query_var( 'wcss' );
+        if ( $view === '' ) return $parts;
+
+        $labels = [
+            'dashboard'   => 'Dashboard',
+            'orders'      => 'Orders',
+            'products'    => 'Products',
+            'vendorslist' => 'Vendors',
+            'stores'      => 'Stores',
+            'users'       => 'Users',
+            'reports'     => 'Reports',
+            'amazon'      => 'Amazon catalog',
+            'gt'          => 'Grand & Toy',
+            'emails'      => 'Emails',
+        ];
+        $page = $labels[ $view ] ?? '';
+        $id   = absint( get_query_var( 'wcss_id' ) );
+        if ( $view === 'orders' && $id ) {
+            $page = 'Order #' . $id;
+        }
+
+        $parts['title'] = trim( ( $page ? $page . ' · ' : '' ) . 'Supply Manager' );
+        return $parts;
+    }
+
     public function add_qv( $vars ) {
         $vars[] = 'wcss'; $vars[] = 'wcss_action'; $vars[] = 'wcss_id'; return $vars;
     }
@@ -108,7 +138,7 @@ class WCSS_Route_Manager {
             'wcss-manager',
             plugins_url( 'frontend/assets/css/manager.css', WCSS_FILE ),
             [ 'wcss-manager-font' ],
-            '1.2.0'
+            '1.4.1'
         );
     
         wp_enqueue_script(
@@ -124,7 +154,7 @@ class WCSS_Route_Manager {
             'wcss-manager-screens',
             plugins_url( 'frontend/assets/js/ccm-screens.js', WCSS_FILE ),
             [ 'jquery', 'wcss-manager' ],
-            '1.2.0',
+            '1.4.1',
             true
         );
 
@@ -222,7 +252,7 @@ class WCSS_Route_Manager {
         if ( file_exists( $not_found ) ) {
             include $not_found;
         } else {
-            echo '<div class="wcssm-wrap"><div class="panel"><h1>Not found</h1><p>This page doesn’t exist in the manager portal.</p><p><a class="btn" href="' . esc_url( home_url('/manager') ) . '">← Back to Dashboard</a></p></div></div>';
+            echo '<div class="wcssm-wrap"><div class="panel"><h1>Not found</h1><p>This page doesn’t exist in the Supply Manager portal.</p><p><a class="btn" href="' . esc_url( home_url('/manager') ) . '">← Back to Dashboard</a></p></div></div>';
         }
         $content = ob_get_clean();
         ?>
@@ -308,7 +338,7 @@ class WCSS_Route_Manager {
             if ( file_exists( $file_404 ) ) {
                 include $file_404;
             } else {
-                echo '<div class="wcssm-wrap"><h1>Manager</h1><p>Page not found.</p></div>';
+                echo '<div class="wcssm-wrap"><h1>Supply Manager</h1><p>Page not found.</p></div>';
             }
         }
         $content = ob_get_clean();
@@ -372,6 +402,9 @@ class WCSS_Route_Manager {
 
             case 'amazon':
                 return ( $action === null || $action === '' ) ? $base . 'amazon.php' : false;
+
+            case 'emails':
+                return ( $action === null || $action === '' ) ? $base . 'emails.php' : false;
 
             case 'gt':
                 return ( $action === null || $action === '' ) ? $base . 'gt.php' : false;

@@ -35,6 +35,9 @@ class WCSS_Admin_Settings {
 
         add_settings_field( 'visibility_mode', __( 'Visibility Mode', 'wcss' ), [ $this, 'field_visibility' ], 'wcss-settings', 'wcss_main' );
         add_settings_field( 'default_monthly_quota', __( 'Default Monthly Order Quota (per store)', 'wcss' ), [ $this, 'field_quota' ], 'wcss-settings', 'wcss_main' );
+        add_settings_field( 'default_monthly_budget', __( 'Default Monthly Budget (CAD, per store)', 'wcss' ), [ $this, 'field_default_budget' ], 'wcss-settings', 'wcss_main' );
+        add_settings_field( 'order_window', __( 'Ordering Window (day of month)', 'wcss' ), [ $this, 'field_window' ], 'wcss-settings', 'wcss_main' );
+        add_settings_field( 'limit_mode', __( 'Over-limit Orders', 'wcss' ), [ $this, 'field_limit_mode' ], 'wcss-settings', 'wcss_main' );
         add_settings_field( 'budget_enforcement', __( 'Enforce Budgets', 'wcss' ), [ $this, 'field_budget' ], 'wcss-settings', 'wcss_main' );
         add_settings_field( 'exempt_product_ids', __( 'Exempt Product IDs (comma-separated)', 'wcss' ), [ $this, 'field_exempt' ], 'wcss-settings', 'wcss_main' );
         add_settings_field( 'bypass_method', __( 'Bypass Method', 'wcss' ), [ $this, 'field_bypass' ], 'wcss-settings', 'wcss_main' );
@@ -50,6 +53,10 @@ class WCSS_Admin_Settings {
 
         $out['default_monthly_quota'] = max( 0, intval( $input['default_monthly_quota'] ?? 1 ) );
         $out['budget_enforcement'] = isset( $input['budget_enforcement'] ) ? 1 : 0;
+        $out['default_monthly_budget'] = max( 0, round( (float) ( $input['default_monthly_budget'] ?? 125 ), 2 ) );
+        $out['order_window_start'] = max( 1, min( 31, intval( $input['order_window_start'] ?? 1 ) ) );
+        $out['order_window_end']   = max( 1, min( 31, intval( $input['order_window_end'] ?? 31 ) ) );
+        $out['limit_mode'] = ( $input['limit_mode'] ?? 'review' ) === 'block' ? 'block' : 'review';
 
         $exempt = isset( $input['exempt_product_ids'] ) ? sanitize_text_field( $input['exempt_product_ids'] ) : '';
         // normalize: digits + commas only
@@ -82,6 +89,10 @@ class WCSS_Admin_Settings {
             'visibility_mode' => 'public_catalog',
             'default_monthly_quota' => 1,
             'budget_enforcement' => 1,
+            'default_monthly_budget' => 125,
+            'order_window_start' => 1,
+            'order_window_end' => 31,
+            'limit_mode' => 'review',
             'exempt_product_ids' => '',
             'bypass_method' => 'internal_requisition',
             'count_statuses' => ['wc-awaiting-approval','wc-approved'],
@@ -123,6 +134,32 @@ class WCSS_Admin_Settings {
         <?php
     }
 
+    public function field_default_budget() {
+        $opts = $this->get_opts();
+        ?>
+        <input type="number" min="0" step="0.01" name="wcss_settings[default_monthly_budget]" value="<?php echo esc_attr( $opts['default_monthly_budget'] ); ?>" />
+        <p class="description"><?php esc_html_e( 'Used when a store has no budget of its own. Managers can still set each store’s budget.', 'wcss' ); ?></p>
+        <?php
+    }
+    public function field_window() {
+        $opts = $this->get_opts();
+        ?>
+        <?php esc_html_e( 'From day', 'wcss' ); ?>
+        <input type="number" min="1" max="31" name="wcss_settings[order_window_start]" value="<?php echo esc_attr( $opts['order_window_start'] ); ?>" style="width:70px" />
+        <?php esc_html_e( 'to day', 'wcss' ); ?>
+        <input type="number" min="1" max="31" name="wcss_settings[order_window_end]" value="<?php echo esc_attr( $opts['order_window_end'] ); ?>" style="width:70px" />
+        <p class="description"><?php esc_html_e( 'Orders placed outside this window need Supply Ops approval. 1 to 31 = always open.', 'wcss' ); ?></p>
+        <?php
+    }
+    public function field_limit_mode() {
+        $opts = $this->get_opts();
+        ?>
+        <select name="wcss_settings[limit_mode]">
+            <option value="review" <?php selected( $opts['limit_mode'], 'review' ); ?>><?php esc_html_e( 'Place the order and send it to Supply Ops for approval', 'wcss' ); ?></option>
+            <option value="block" <?php selected( $opts['limit_mode'], 'block' ); ?>><?php esc_html_e( 'Block at checkout', 'wcss' ); ?></option>
+        </select>
+        <?php
+    }
     public function field_budget() {
         $opts = $this->get_opts();
         ?>

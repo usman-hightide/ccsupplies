@@ -9,7 +9,7 @@
 
   <div class="wcssm-header aov-header">
     <div>
-      <p class="aov-eyebrow">Manager · Orders</p>
+      <p class="aov-eyebrow">Supply Manager · Orders</p>
       <h1>Amazon Order View</h1>
     </div>
     <a href="<?php echo esc_url( home_url('/manager/orders') ); ?>" class="btn btn-light">← Back to Orders</a>
