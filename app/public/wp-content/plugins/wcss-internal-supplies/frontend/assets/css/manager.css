@@ -2865,9 +2865,13 @@ html:has(body.wcss-manager-body){margin-top:0 !important}
 
 /* ---- list screens, drawer, modals ---- */
 .wcss-manager-body .ccm-tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid #E4E7EC}
-.wcss-manager-body .ccm-tab{height:42px;padding:0 14px;border:0;background:transparent;font-size:14px;font-weight:600;color:#5B6270;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;gap:8px;align-items:center;border-radius:0}
-.wcss-manager-body .ccm-tab:hover{color:#16181D;background:transparent}
-.wcss-manager-body .ccm-tab.on{color:#16181D;border-bottom-color:#C8372D}
+.wcss-manager-body .ccm-tab{height:42px;padding:0 14px;border:0;background:transparent;font-size:14px;font-weight:600;color:#5B6270;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;gap:8px;align-items:center;border-radius:8px 8px 0 0;transition:background .15s ease,color .15s ease,border-color .15s ease}
+.wcss-manager-body .ccm-tab:hover{color:#fff;background:#16181D;border-bottom-color:#16181D}
+.wcss-manager-body .ccm-tab.on{color:#C8372D;background:#FDECEA;border-bottom-color:#C8372D}
+.wcss-manager-body .ccm-tab.on:hover{color:#fff;background:#C8372D;border-bottom-color:#C8372D}
+.wcss-manager-body .ccm-tab .ccm-nbadge,.wcss-manager-body .ccm-tab .ccm-count{transition:background .15s ease,color .15s ease}
+.wcss-manager-body .ccm-tab:hover .ccm-nbadge,.wcss-manager-body .ccm-tab:hover .ccm-count,.wcss-manager-body .ccm-tab.on:hover .ccm-nbadge,.wcss-manager-body .ccm-tab.on:hover .ccm-count{background:rgba(255,255,255,.22);color:#fff}
+.wcss-manager-body .ccm-tab.on .ccm-nbadge,.wcss-manager-body .ccm-tab.on .ccm-count{background:#F0C4BF;color:#A8261C}
 .ccm-count{background:#EEF0F3;color:#4A515C;font-size:12px;border-radius:999px;padding:1px 8px;font-variant-numeric:tabular-nums}
 .wcss-manager-body .ccm-toolbar{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;padding:16px;border-bottom:1px solid #E4E7EC;margin:0;background:none;border-radius:0;box-shadow:none}
 .wcss-manager-body .ccm-field{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:600;color:#4A515C;margin:0}

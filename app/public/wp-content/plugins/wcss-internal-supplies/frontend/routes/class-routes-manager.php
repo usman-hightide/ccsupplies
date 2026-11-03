@@ -138,7 +138,7 @@ class WCSS_Route_Manager {
             'wcss-manager',
             plugins_url( 'frontend/assets/css/manager.css', WCSS_FILE ),
             [ 'wcss-manager-font' ],
-            '1.4.3'
+            '1.4.4'
         );
     
         wp_enqueue_script(
