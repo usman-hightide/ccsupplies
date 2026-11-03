@@ -1,7 +1,7 @@
 # CC Supplies: what was built, how to set it up, how to test it
 
 **Last updated:** 3 November 2026 (evening)
-**Branch:** `feature/auto-vendor-submit-manager-ux-2026-11-02` (tip `b349205` on GitHub)
+**Branch:** `feature/auto-vendor-submit-manager-ux-2026-11-02` (tip `28fd603` on GitHub)
 **Demo runbook (call script):** [DEMO_SCRIPT_2026-11-04.md](DEMO_SCRIPT_2026-11-04.md)
 **Requirements source:** [MEETING_2026-10-29_INTERNAL_DEMO.md](client-shared/meetings/MEETING_2026-10-29_INTERNAL_DEMO.md) and [PLAN_Aman_Requirements_Post_Demo_2026-10-29.md](plans-audits/PLAN_Aman_Requirements_Post_Demo_2026-10-29.md). Task IDs below (A1, B2, C1…) come from that plan.
 **Stakeholder demo:** Wednesday 4 November 2026. Use the [demo script](DEMO_SCRIPT_2026-11-04.md) on the call; this guide is the full setup + QA reference.
