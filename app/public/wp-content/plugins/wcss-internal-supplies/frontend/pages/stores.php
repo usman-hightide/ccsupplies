@@ -4,7 +4,7 @@
 
   <div class="ccm-phead">
     <div><h1 class="ccm-h1">Stores</h1><p class="ccm-sub">Each store’s monthly order quota, budget and the employee who orders for it.</p></div>
-    <div class="ccm-actions"><button type="button" class="ccm-btn" id="s-policy">Ordering policy</button><button type="button" class="ccm-btn" id="s-apply">Apply to all stores</button><button type="button" class="ccm-btn" data-ccm-export>Export</button><a class="ccm-btn primary" href="<?php echo esc_url( home_url( '/manager/stores/create' ) ); ?>">+ Add store</a></div>
+    <div class="ccm-actions"><button type="button" class="ccm-btn" id="s-policy">Ordering policy</button><button type="button" class="ccm-btn" data-ccm-export>Export</button><a class="ccm-btn primary" href="<?php echo esc_url( home_url( '/manager/stores/create' ) ); ?>">+ Add store</a></div>
   </div>
   <div class="ccm-minis">
     <div class="ccm-card"><div class="ccm-mini-v" id="s-total">–</div><div class="ccm-mini-l">Total stores</div></div>

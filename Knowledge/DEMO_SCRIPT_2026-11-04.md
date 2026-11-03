@@ -1,11 +1,11 @@
 # Demo script — Supply Manager (4 November 2026)
 
 **Branch:** `feature/auto-vendor-submit-manager-ux-2026-11-02`  
-**Full reference:** [IMPLEMENTATION_GUIDE_2026-11-02.md](IMPLEMENTATION_GUIDE_2026-11-02.md)  
+**Full reference:** [IMPLEMENTATION_GUIDE_2026-11-02.md](IMPLEMENTATION_GUIDE_2026-11-02.md) — setup, QA, policy, emails, reports, and **how to link any user to a store**  
 **Local URL:** https://ccsupplies.local/manager  
-**Login:** `Supply_Manager` / `localadmin` (Supply Ops) · `storeowner.gt` (store)
+**Login:** `Supply_Manager` / `localadmin` (Supply Ops) · `storeowner.gt` or **`uzahid`** (store — both temporarily on **Test store** 8177 for this local demo)
 
-> Before any live click-through: confirm local mail redirect is installed, and preferably disable auto-submit (`cc_auto_vendor_submit_enabled` → false) so Amazon is not hit during the call. Details in the implementation guide §3.4.
+> Before any live click-through: confirm local mail redirect is installed, and preferably disable auto-submit (`cc_auto_vendor_submit_enabled` → false) so Amazon is not hit during the call. Details in the implementation guide §3.4. User↔store linking steps are in the same guide under **How a user is connected to a store**.
 
 ---
 
@@ -39,12 +39,13 @@
 2. Mention **Apply to all stores** already run locally (223 × $125 / 1).
 3. Open **Test store** → Edit: show per-store budget/quota still editable.
 
-### 3. Store places an order (3 min) — `storeowner.gt`
+### 3. Store places an order (3 min) — `storeowner.gt` or `uzahid`
 
-1. Shop → Thermal roll ($57) → cart → checkout.
-2. Point out: **no Vendor column**; first order → no amber notice.
-3. Place order → loader → thank-you.
-4. Switch to Supply Manager → order shows **Within store policy** / auto-approved (or awaiting if auto-submit disabled for the demo).
+1. Log in as **`storeowner.gt`** or **`uzahid`** (both linked to **Test store** for this local demo — see implementation guide).
+2. Shop → Thermal roll ($57) → cart → checkout.
+3. Point out: **no Vendor column**; first order → no amber notice.
+4. Place order → loader → thank-you.
+5. Switch to Supply Manager → order shows **Within store policy** / auto-approved (or awaiting if auto-submit disabled for the demo). Share of Test store’s **1 order / month** counts for either login.
 
 ### 4. Second order = exception (3 min)
 

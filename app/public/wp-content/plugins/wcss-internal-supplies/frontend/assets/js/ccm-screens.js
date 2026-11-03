@@ -225,10 +225,15 @@
     if (lastFocus && lastFocus.focus) lastFocus.focus();
   }
   $(document).on("click", "[data-ccm-close]", function () {
-    closeLayer($(this).closest("#ccm-drawer,#ccm-modal,#ccm-confirm,#ccm-info").attr("id"));
+    var id = $(this).closest("#ccm-drawer,#ccm-modal,#ccm-confirm,#ccm-info").attr("id");
+    if (id === "ccm-modal" && $("#ccm-modal .ccm-modal").hasClass("is-busy")) return;
+    closeLayer(id);
   });
   $(document).on("keydown", "#ccm-drawer,#ccm-modal,#ccm-confirm,#ccm-info", function (e) {
-    if (e.key === "Escape") closeLayer(this.id);
+    if (e.key === "Escape") {
+      if (this.id === "ccm-modal" && $("#ccm-modal .ccm-modal").hasClass("is-busy")) return;
+      closeLayer(this.id);
+    }
   });
 
   var confirmOk = null;
@@ -248,20 +253,35 @@
   });
 
   var modalSave = null;
+  var modalBusyText = null;
+  function setModalBusy(on, copy) {
+    var $form = $("#ccm-modal .ccm-modal");
+    $form.toggleClass("is-busy", !!on);
+    $("#md-busy").prop("hidden", !on);
+    if (copy) {
+      $("#md-busy-title").text(copy.title || "Saving…");
+      $("#md-busy-sub").text(copy.sub || "Please wait a moment.");
+    }
+    $("#md-save, #ccm-modal [data-ccm-close]").prop("disabled", !!on);
+  }
   /**
    * fields: [{k, l, type, req, full, ph, options:[{v,l}]}]
    * onSave(values) must return a promise; a rejection message is shown in the modal.
+   * busyText(values) optional → {title, sub} shown while saving.
    */
   function formModal(opts) {
     $("#md-title").text(opts.title);
     $("#md-sub").text(opts.sub || "");
     $("#md-save").text(opts.saveLabel).prop("disabled", false);
     $("#md-err").prop("hidden", true).text("");
+    setModalBusy(false);
+    modalBusyText = opts.busyText || null;
     var vals = opts.values || {};
     $("#md-fields").html(
       opts.fields
         .map(function (f) {
           var v = vals[f.k] == null ? "" : String(vals[f.k]);
+          var checked = !!vals[f.k] && vals[f.k] !== "0" && vals[f.k] !== "false";
           var control = f.options
             ? "<select class='ccm-select' name='" + f.k + "'>" +
               f.options.map(function (o) {
@@ -269,7 +289,13 @@
               }).join("") + "</select>"
             : f.type === "textarea"
             ? "<textarea class='ccm-input ccm-textarea' name='" + f.k + "' rows='3' placeholder='" + esc(f.ph || "") + "'>" + esc(v) + "</textarea>"
+            : f.type === "checkbox"
+            ? "<span class='ccm-check'><input type='checkbox' name='" + f.k + "' value='1'" + (checked ? " checked" : "") + ">" + (f.hint ? "<span><span class='ccm-check-l'>" + esc(f.l) + "</span><span class='ccm-check-h'>" + esc(f.hint) + "</span></span>" : "") + "</span>"
             : "<input class='ccm-input' name='" + f.k + "' type='" + (f.type || "text") + "'" + (f.type === "number" ? " min='0' step='0.01'" : "") + " placeholder='" + esc(f.ph || "") + "' value='" + esc(v) + "'>";
+          // Checkbox already shows its own label inside .ccm-check; skip the outer field label text.
+          if (f.type === "checkbox") {
+            return "<label class='ccm-field'" + (f.full ? " style='grid-column: 1 / -1'" : "") + ">" + control + "</label>";
+          }
           return "<label class='ccm-field'" + (f.full ? " style='grid-column: 1 / -1'" : "") + ">" + esc(f.l + (f.req ? " *" : "")) + control + "</label>";
         })
         .join("")
@@ -277,28 +303,29 @@
     modalSave = function () {
       var out = {};
       opts.fields.forEach(function (f) {
-        out[f.k] = $.trim($("#md-fields [name='" + f.k + "']").val() || "");
+        var $el = $("#md-fields [name='" + f.k + "']");
+        out[f.k] = f.type === "checkbox" ? ($el.is(":checked") ? "1" : "") : $.trim($el.val() || "");
       });
       for (var i = 0; i < opts.fields.length; i++) {
         if (opts.fields[i].req && !out[opts.fields[i].k]) return $.Deferred().reject(opts.fields[i].l + " is required.");
       }
+      var busy = typeof modalBusyText === "function" ? modalBusyText(out) : modalBusyText;
+      setModalBusy(true, busy || { title: "Saving…", sub: "Please wait a moment." });
       return opts.onSave(out);
     };
     openLayer("ccm-modal");
   }
   $(document).on("submit", "#ccm-modal form", function (e) {
     e.preventDefault();
-    if (!modalSave) return;
-    var $b = $("#md-save").prop("disabled", true);
+    if (!modalSave || $("#ccm-modal .ccm-modal").hasClass("is-busy")) return;
     $.when(modalSave())
       .done(function () {
+        setModalBusy(false);
         closeLayer("ccm-modal");
       })
       .fail(function (m) {
+        setModalBusy(false);
         $("#md-err").text(typeof m === "string" ? m : errMsg(m, "Couldn’t save.")).prop("hidden", false);
-      })
-      .always(function () {
-        $b.prop("disabled", false);
       });
   });
   $(document).on("input change", "#md-fields", function () {
@@ -1036,6 +1063,7 @@
     window.ccmRefresh = window.ccmReload = function () { loadAll(); };
 
     // Store ordering policy (WCSS_Order_Policy): defaults, window, over-limit handling.
+    // Optional: apply the default budget + quota to every store (was a separate header button).
     $("#s-policy").on("click", function () {
       get("policy").done(function (pol) {
         var days = [];
@@ -1044,6 +1072,11 @@
           title: "Ordering policy",
           sub: "Orders inside the window, within budget and the monthly limit are approved and sent to the vendor automatically. Others wait for Supply Ops. Today is " + (pol.in_window_today ? "inside" : "outside") + " the window.",
           saveLabel: "Save policy",
+          busyText: function (f) {
+            return f.apply_all
+              ? { title: "Applying policy to all stores…", sub: "Updating defaults on " + S.stores.length + " stores. This can take a few seconds." }
+              : { title: "Saving ordering policy…", sub: "Updating budget, order limit and window." };
+          },
           fields: [
             { k: "default_monthly_budget", l: "Default monthly budget (CA$)", type: "number", ph: "125" },
             { k: "default_monthly_quota", l: "Default orders per month", type: "number", ph: "1" },
@@ -1053,6 +1086,7 @@
               { v: "review", l: "Place them and send to Supply Ops for approval" },
               { v: "block", l: "Block them at checkout" },
             ] },
+            { k: "apply_all", l: "Apply to all stores", type: "checkbox", full: true, hint: "Also set this budget and orders/month on every store (" + S.stores.length + "). Individual stores stay editable afterwards." },
           ],
           values: pol,
           onSave: function (f) {
@@ -1064,35 +1098,22 @@
               order_window_start: +f.order_window_start,
               order_window_end: +f.order_window_end,
               limit_mode: f.limit_mode,
-            }).then(function () { toast("Ordering policy saved"); });
+            }).then(function () {
+              if (!f.apply_all) {
+                toast("Ordering policy saved");
+                return;
+              }
+              return req("POST", "stores/apply-limits", {
+                budget: +f.default_monthly_budget,
+                quota: +f.default_monthly_quota,
+              }).then(function (r) {
+                toast("Policy saved · updated " + r.stores + " stores");
+                loadAll();
+              });
+            });
           },
         });
       }).fail(function (x) { toast(errMsg(x, "Couldn’t load the ordering policy")); });
-    });
-
-    // B1/B2: one budget + order limit for every store; each store stays editable afterwards.
-    $("#s-apply").on("click", function () {
-      formModal({
-        title: "Apply limits to all stores",
-        sub: "Sets these values on every store (" + S.stores.length + "). You can still change any store individually afterwards.",
-        saveLabel: "Apply to all stores",
-        fields: [
-          { k: "budget", l: "Monthly budget (CA$)", type: "number", ph: "125" },
-          { k: "quota", l: "Orders per month", type: "number", ph: "1" },
-        ],
-        values: { budget: 125, quota: 1 },
-        onSave: function (f) {
-          if (f.budget === "" && f.quota === "") return $.Deferred().reject("Enter a budget, an order limit, or both.");
-          if ((f.budget !== "" && +f.budget < 0) || (f.quota !== "" && +f.quota < 0)) return $.Deferred().reject("Values must be 0 or more.");
-          return req("POST", "stores/apply-limits", {
-            budget: f.budget === "" ? null : +f.budget,
-            quota: f.quota === "" ? null : +f.quota,
-          }).then(function (r) {
-            toast("Updated " + r.stores + " stores");
-            loadAll();
-          });
-        },
-      });
     });
 
     $("#s-q").on("input", function () { S.q = $.trim(this.value); render(); });

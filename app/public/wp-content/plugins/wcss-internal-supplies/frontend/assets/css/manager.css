@@ -2964,6 +2964,16 @@ html:has(body.wcss-manager-body){margin-top:0 !important}
 .ccm-formgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
 .ccm-err{color:#A8261C;font-size:13px;font-weight:500}
 .ccm-err[hidden]{display:none}
+.ccm-modal-busy{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(255,255,255,.82);backdrop-filter:blur(2px);border-radius:14px}
+.ccm-modal-busy[hidden]{display:none}
+.ccm-modal-busy-card{display:flex;align-items:center;gap:14px;max-width:360px;padding:16px 18px;background:#fff;border:1px solid #E4E7EC;border-radius:12px;box-shadow:0 10px 28px rgba(16,24,40,.12)}
+.ccm-modal-busy-copy{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ccm-modal-busy-copy strong{font-size:14px;font-weight:700;color:#16181D;line-height:1.3}
+.ccm-modal-busy-copy span{font-size:12px;color:#5B6270;line-height:1.4}
+.ccm-spinner{width:22px;height:22px;border:2.5px solid #E4E7EC;border-top-color:#16181D;border-radius:50%;flex:none;animation:ccm-spin .7s linear infinite}
+@keyframes ccm-spin{to{transform:rotate(360deg)}}
+.ccm-modal.is-busy{overflow:hidden}
+.ccm-modal.is-busy .ccm-actions .ccm-btn{pointer-events:none}
 @media (max-width:720px){.ccm-formgrid{grid-template-columns:1fr}.ccm-dl{grid-template-columns:110px minmax(0,1fr)}}
 
 /* ---- legacy screens: same type, surfaces and controls as the design ---- */

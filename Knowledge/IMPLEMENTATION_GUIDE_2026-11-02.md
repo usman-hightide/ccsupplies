@@ -65,9 +65,43 @@ wp user update storeowner.gt --user_pass='choose-a-local-password'
 |---------|-------|------|-------|
 | Supply Manager portal | `Supply_Manager` (store@manager.com) | shop_manager | Any administrator also works (e.g. `localadmin`) |
 | Ordering as a store | `storeowner.gt` (storeowner.gt@ccsupplies.local) | store_employee | Linked to **Test store** (ID 8177) |
+| Ordering as a store (local demo) | `uzahid` (uzahid@basecampconsulting.co) | administrator | **Temporary** local link to **Test store** (ID 8177) for the 4 Nov demo — not for production |
 | WP admin settings | `localadmin` | administrator | |
 
 **Test data:** store **Test store** (ID 8177; after Apply-to-all: quota **1**, budget **CA$125**). Product **Thermal roll** (ID 8176, $57). Amazon test product ID 7654 (ASIN B07FDHJ73F).
+
+### How a user is connected to a store
+
+Every order needs a store. At checkout the site reads the logged-in user’s meta `_wcss_store_id` and copies it onto the order as `_wcss_store_id`. If that meta is empty, policy shows **account not linked to a store** and the order stays awaiting approval (`no_store`).
+
+**Where to link (preferred — Supply Manager UI)**
+
+1. Open **https://ccsupplies.local/manager/users** (or `/manager/users` on the live host).
+2. Find the person → **Edit**.
+3. Set **Assigned store** to the store (e.g. **Test store**) → **Save changes**.
+4. Confirm the Users table shows that store name (not “Not assigned”).
+
+**Alternate — from the store side**
+
+1. Open **`/manager/stores`** → **Edit** on the store.
+2. Choose the **Store Employee** / assigned user → save.
+3. Note: saving a store’s primary employee can **unassign other users** previously tied to that same store (one primary assignee in the store editor). For a temporary extra demo login (e.g. `uzahid` alongside `storeowner.gt`), prefer **Users → Edit** so you do not knock `storeowner.gt` off Test store.
+
+**What gets stored**
+
+| Place | Key | Example |
+|-------|-----|---------|
+| User meta | `_wcss_store_id` | `8177` (Test store) |
+| Order meta (set at checkout) | `_wcss_store_id` | same ID |
+
+**Local demo assignment (3–4 Nov 2026):** `uzahid` (user ID **240**) → Test store **8177**. Same store already has `storeowner.gt` (243) and `alyshia` (238). Remove Usman’s link after the demo if you no longer need it: Users → Edit → Assigned store → **Choose a store** (empty) → Save, or delete user meta `_wcss_store_id` for user 240.
+
+**CLI (optional, Local site shell):**
+
+```bash
+wp user meta update 240 _wcss_store_id 8177
+wp user meta get 240 _wcss_store_id
+```
 
 ---
 
@@ -357,12 +391,13 @@ Product page: the − / + stepper is aligned and the add-to-cart toast has no bl
 
 ## 7. Pending tasks and known issues
 
-### Done on local (3 Nov 2026)
+### Done on local (3–4 Nov 2026)
 
 1. **Apply to all stores** with **$125 / 1** — verified in UI and DB (223 stores).
 2. **Default orders per month = 1** (and default budget 125) in Ordering policy / `wcss_settings`.
 3. Dashboard Custom date period + card reorder; Emails tab hover/active styles — on GitHub (`b349205`).
 4. Local email path verified: Office 365 SMTP accepts; 9 `[TEST]` templates received at `uzahid@basecampconsulting.co`.
+5. **Temporary:** linked `uzahid` (240) → Test store **8177** so Usman can place store orders on local for the demo (documented under Test accounts / How a user is connected to a store).
 
 ### Decisions needed before production deploy
 

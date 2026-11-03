@@ -39,6 +39,15 @@
     <div class="ccm-formgrid" id="md-fields"></div>
     <div class="ccm-err" role="alert" id="md-err" hidden></div>
     <div class="ccm-actions" style="justify-content:flex-end"><button type="button" class="ccm-btn" data-ccm-close>Cancel</button><button type="submit" class="ccm-btn primary" id="md-save"></button></div>
+    <div class="ccm-modal-busy" id="md-busy" hidden aria-live="polite">
+      <div class="ccm-modal-busy-card">
+        <span class="ccm-spinner" aria-hidden="true"></span>
+        <div class="ccm-modal-busy-copy">
+          <strong id="md-busy-title">Saving…</strong>
+          <span id="md-busy-sub">Please wait a moment.</span>
+        </div>
+      </div>
+    </div>
   </form>
 </div>
 
