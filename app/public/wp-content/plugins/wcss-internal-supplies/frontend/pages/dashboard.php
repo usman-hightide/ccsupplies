@@ -16,6 +16,13 @@ $ccm_first = $ccm_user->first_name ?: strtok( $ccm_user->display_name ?: $ccm_us
         <button type="button" data-period="d30" class="on">30 days</button>
         <button type="button" data-period="month">This month</button>
         <button type="button" data-period="m6">6 months</button>
+        <button type="button" data-period="custom">Custom</button>
+      </div>
+      <div class="ccm-dash-dates" id="dash-dates" hidden>
+        <input class="ccm-input" type="date" id="dash-from" aria-label="From date" title="From" autocomplete="off">
+        <span class="ccm-dash-dates-sep" aria-hidden="true">–</span>
+        <input class="ccm-input" type="date" id="dash-to" aria-label="To date" title="To" autocomplete="off">
+        <button type="button" class="ccm-btn primary" id="dash-dates-apply">Apply</button>
       </div>
       <a class="ccm-btn" href="<?php echo esc_url( home_url( '/manager/reports' ) ); ?>">Reports</a>
       <a class="ccm-btn primary" href="<?php echo esc_url( home_url( '/manager/reports/export/?format=xlsx&type=vendors&range=this_month' ) ); ?>" title="This month’s vendor spend report as an Excel file">Export Excel</a>
@@ -64,25 +71,13 @@ $ccm_first = $ccm_user->first_name ?: strtok( $ccm_user->display_name ?: $ccm_us
     </section>
 
     <section class="ccm-card">
-      <div class="ccm-card-h"><div><h2 class="ccm-card-t">Needs your attention</h2><p class="ccm-card-s">Issues that block orders or make reports wrong</p></div></div>
-      <div id="dash-attention"></div>
-    </section>
-  </div>
-
-  <div class="ccm-grid2">
-    <section class="ccm-card" style="padding:0">
-      <div class="ccm-card-h" style="padding:20px 20px 0"><div><h2 class="ccm-card-t">Recent orders</h2><p class="ccm-card-s">Approve or reject without leaving the dashboard</p></div><a class="ccm-link" href="<?php echo esc_url( home_url( '/manager/orders' ) ); ?>">Open orders →</a></div>
-      <div class="ccm-tablewrap flush">
-        <table class="ccm-table">
-          <thead><tr><th>Order</th><th>Requested by</th><th class="num">Total</th><th>Status</th><th></th></tr></thead>
-          <tbody id="dash-recent"></tbody>
-        </table>
+      <div class="ccm-card-h"><div><h2 class="ccm-card-t">Store budgets</h2><p class="ccm-card-s">Monthly budget used by each store this month</p></div><a class="ccm-link" href="<?php echo esc_url( home_url( '/manager/stores' ) ); ?>">All stores →</a></div>
+      <div class="ccm-minis" style="margin-bottom:12px">
+        <div><div class="ccm-mini-v" id="st-total">–</div><div class="ccm-mini-l">Stores</div></div>
+        <div><div class="ccm-mini-v" id="st-active">–</div><div class="ccm-mini-l">Ordered this month</div></div>
+        <div><div class="ccm-mini-v" id="st-budget">–</div><div class="ccm-mini-l">Budget, listed stores</div></div>
       </div>
-    </section>
-
-    <section class="ccm-card">
-      <div class="ccm-card-h"><div><h2 class="ccm-card-t">Live activity</h2><p class="ccm-card-s">Every order, approval and catalog change, newest first</p></div></div>
-      <div id="dash-feed"></div>
+      <div id="dash-budgets"></div>
     </section>
   </div>
 
@@ -92,14 +87,26 @@ $ccm_first = $ccm_user->first_name ?: strtok( $ccm_user->display_name ?: $ccm_us
       <div id="dash-coverage"><div class="ccm-empty">Loading…</div></div>
     </section>
 
-    <section class="ccm-card">
-      <div class="ccm-card-h"><div><h2 class="ccm-card-t">Store budgets</h2><p class="ccm-card-s">Monthly budget used by each store this month</p></div><a class="ccm-link" href="<?php echo esc_url( home_url( '/manager/stores' ) ); ?>">All stores →</a></div>
-      <div class="ccm-minis" style="margin-bottom:12px">
-        <div><div class="ccm-mini-v" id="st-total">–</div><div class="ccm-mini-l">Stores</div></div>
-        <div><div class="ccm-mini-v" id="st-active">–</div><div class="ccm-mini-l">Ordered this month</div></div>
-        <div><div class="ccm-mini-v" id="st-budget">–</div><div class="ccm-mini-l">Budget, listed stores</div></div>
+    <section class="ccm-card" style="padding:0">
+      <div class="ccm-card-h" style="padding:20px 20px 0"><div><h2 class="ccm-card-t">Recent orders</h2><p class="ccm-card-s">Approve or reject without leaving the dashboard</p></div><a class="ccm-link" href="<?php echo esc_url( home_url( '/manager/orders' ) ); ?>">Open orders →</a></div>
+      <div class="ccm-tablewrap flush">
+        <table class="ccm-table">
+          <thead><tr><th>Order</th><th>Requested by</th><th class="num">Total</th><th>Status</th><th></th></tr></thead>
+          <tbody id="dash-recent"></tbody>
+        </table>
       </div>
-      <div id="dash-budgets"></div>
+    </section>
+  </div>
+
+  <div class="ccm-grid2">
+    <section class="ccm-card">
+      <div class="ccm-card-h"><div><h2 class="ccm-card-t">Live activity</h2><p class="ccm-card-s">Every order, approval and catalog change, newest first</p></div></div>
+      <div id="dash-feed"></div>
+    </section>
+
+    <section class="ccm-card">
+      <div class="ccm-card-h"><div><h2 class="ccm-card-t">Needs your attention</h2><p class="ccm-card-s">Issues that block orders or make reports wrong</p></div></div>
+      <div id="dash-attention"></div>
     </section>
   </div>
 </div>

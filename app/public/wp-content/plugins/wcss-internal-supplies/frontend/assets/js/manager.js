@@ -2609,11 +2609,41 @@
         rejected: "rejected", cancelled: "rejected",
       };
       var LABEL = { pending: "Awaiting approval", approved: "Approved", rejected: "Rejected" };
-      var PERIOD_LABEL = { d7: "Last 7 days", d30: "Last 30 days", month: "This month", m6: "Last 6 months" };
+      var PERIOD_LABEL = { d7: "Last 7 days", d30: "Last 30 days", month: "This month", m6: "Last 6 months", custom: "Custom range" };
 
       var api = WCSSM.rest || "/wp-json/wcss/v1/";
       var base = (WCSSM.manager_base || "/manager/").replace(/\/+$/, "/");
-      var state = { period: "d30", report: null, orders: [], events: [], currency: "CAD" };
+      var state = { period: "d30", from: "", to: "", report: null, orders: [], events: [], currency: "CAD" };
+
+      function ymd(d) {
+        return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2);
+      }
+      function parseYmd(s) {
+        if (!s) return null;
+        var p = String(s).split("-");
+        if (p.length !== 3) return null;
+        var d = new Date(+p[0], +p[1] - 1, +p[2]);
+        return isNaN(d.getTime()) ? null : d;
+      }
+      function shortDate(s) {
+        var d = parseYmd(s);
+        if (!d) return s || "";
+        return MONTHS[d.getMonth()] + " " + d.getDate() + (d.getFullYear() === new Date().getFullYear() ? "" : ", " + d.getFullYear());
+      }
+      function periodLabel() {
+        if (state.period !== "custom") return PERIOD_LABEL[state.period] || "";
+        if (state.from && state.to) return shortDate(state.from) + " – " + shortDate(state.to);
+        return "Custom range";
+      }
+      function ensureCustomDefaults() {
+        if (state.from && state.to) return;
+        var to = new Date();
+        var from = new Date(Date.now() - 29 * DAY);
+        state.from = ymd(from);
+        state.to = ymd(to);
+        $("#dash-from").val(state.from);
+        $("#dash-to").val(state.to);
+      }
 
       function esc(s) {
         return String(s == null ? "" : s).replace(
@@ -2665,11 +2695,26 @@
 
       function inRange(s, r, prev) {
         var t = dt(s).getTime();
+        if (r === "custom") {
+          var fromD = parseYmd(state.from);
+          var toD = parseYmd(state.to);
+          if (!fromD || !toD) return false;
+          if (fromD > toD) {
+            var swap = fromD;
+            fromD = toD;
+            toD = swap;
+          }
+          var start = fromD.getTime();
+          var end = new Date(toD.getFullYear(), toD.getMonth(), toD.getDate(), 23, 59, 59, 999).getTime();
+          if (!prev) return t >= start && t <= end;
+          var len = end - start + 1;
+          return t >= start - len && t < start;
+        }
         if (r === "month") {
           var n = new Date();
-          var start = new Date(n.getFullYear(), n.getMonth(), 1).getTime();
+          var startM = new Date(n.getFullYear(), n.getMonth(), 1).getTime();
           var prevStart = new Date(n.getFullYear(), n.getMonth() - 1, 1).getTime();
-          return prev ? t >= prevStart && t < start : t >= start;
+          return prev ? t >= prevStart && t < startM : t >= startM;
         }
         var now = Date.now(), days = { d7: 7, d30: 30, m6: 182 }[r];
         return prev ? t >= now - 2 * days * DAY && t < now - days * DAY : t >= now - days * DAY;
@@ -2704,8 +2749,15 @@
         var cnt = (arr, st) => arr.filter((o) => o.status === st).length;
         var d = cur.length - prev.length;
         var lastMonth = MONTHS_FULL[(new Date().getMonth() + 11) % 12];
-        var vsLabel = { d7: "vs previous 7 days", d30: "vs previous 30 days", month: "vs " + lastMonth, m6: "vs previous 6 months" }[P];
+        var vsLabel = {
+          d7: "vs previous 7 days",
+          d30: "vs previous 30 days",
+          month: "vs " + lastMonth,
+          m6: "vs previous 6 months",
+          custom: "vs previous equal period",
+        }[P];
         var pending = (state.report && state.report.pending) || { count: 0, oldest: "" };
+        var label = periodLabel();
 
         $("#k-orders").text(cur.length);
         $("#k-orders-delta")
@@ -2715,9 +2767,9 @@
         $("#k-pending").text(pending.count);
         $("#k-pending-sub").text(pending.count && pending.oldest ? "Oldest waiting since " + fdt(pending.oldest) : "You’re all caught up");
         $("#k-spend").text(money(sum(cur, "approved")));
-        $("#k-spend-sub").text(PERIOD_LABEL[P] + " · " + cnt(cur, "approved") + " approved orders");
+        $("#k-spend-sub").text(label + " · " + cnt(cur, "approved") + " approved orders");
         $("#k-rejected").text(cnt(cur, "rejected"));
-        $("#k-rejected-sub").text(PERIOD_LABEL[P] + " · " + money(sum(cur, "rejected")) + " declined");
+        $("#k-rejected-sub").text(label + " · " + money(sum(cur, "rejected")) + " declined");
 
         $("#dash-alert").prop("hidden", !pending.count);
         $("#dash-alert-t").text(
@@ -2829,7 +2881,7 @@
           });
         var list = Object.keys(vmap).map((k) => vmap[k]).sort((a, b) => b.total - a.total);
         var vmax = list.length ? list[0].total || 1 : 1;
-        $("#vendor-period").text(PERIOD_LABEL[state.period]);
+        $("#vendor-period").text(periodLabel());
         $("#dash-vendors").html(
           list
             .map(function (v) {
@@ -2868,6 +2920,12 @@
         $(".ccm-seg [data-period]").each(function () {
           $(this).toggleClass("on", $(this).data("period") === state.period);
         });
+        var custom = state.period === "custom";
+        $("#dash-dates").prop("hidden", !custom);
+        if (custom) {
+          if (!$("#dash-from").val() && state.from) $("#dash-from").val(state.from);
+          if (!$("#dash-to").val() && state.to) $("#dash-to").val(state.to);
+        }
         renderKpis();
         renderVendors();
       }
@@ -2885,8 +2943,18 @@
       /* ---------- data ---------- */
 
       function fetchOrders() {
-        // A year back covers the 6-month period and the 6 months before it.
+        // Default: a year back covers 6 months + prior period. Custom may reach further back.
         var from = new Date(Date.now() - 366 * DAY).toISOString().slice(0, 10);
+        if (state.period === "custom" && state.from) {
+          var customFrom = parseYmd(state.from);
+          if (customFrom) {
+            // Include an equal prior window for the KPI “vs previous” delta.
+            var toD = parseYmd(state.to) || new Date();
+            var lenDays = Math.max(1, Math.round((toD - customFrom) / DAY) + 1);
+            var prior = new Date(customFrom.getTime() - lenDays * DAY);
+            from = ymd(prior);
+          }
+        }
         var items = [];
         function page(n) {
           return $.ajax({
@@ -2896,7 +2964,7 @@
           }).then(function (d) {
             items = items.concat(d.items || []);
             // total_pages from this endpoint isn't reliable; a full page means there may be more.
-            if ((d.items || []).length === 100 && n < 5) return page(n + 1);
+            if ((d.items || []).length === 100 && n < 8) return page(n + 1);
             return items;
           });
         }
@@ -2957,8 +3025,44 @@
       $("#dash-greeting").text(hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening");
 
       $(".ccm-seg").on("click", "[data-period]", function () {
-        state.period = $(this).data("period");
+        var next = $(this).data("period");
+        state.period = next;
+        if (next === "custom") {
+          ensureCustomDefaults();
+          renderPeriod();
+          return;
+        }
         renderPeriod();
+      });
+
+      $("#dash-dates-apply").on("click", function () {
+        var from = $("#dash-from").val();
+        var to = $("#dash-to").val();
+        if (!from || !to) {
+          toast("Choose both a From and To date");
+          return;
+        }
+        if (from > to) {
+          var tmp = from;
+          from = to;
+          to = tmp;
+          $("#dash-from").val(from);
+          $("#dash-to").val(to);
+        }
+        state.period = "custom";
+        state.from = from;
+        state.to = to;
+        renderPeriod();
+        // Reload orders so older custom ranges are covered.
+        load();
+        toast("Showing " + periodLabel());
+      });
+
+      $("#dash-from, #dash-to").on("keydown", function (e) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          $("#dash-dates-apply").trigger("click");
+        }
       });
 
       $("#dash-recent")

@@ -138,14 +138,14 @@ class WCSS_Route_Manager {
             'wcss-manager',
             plugins_url( 'frontend/assets/css/manager.css', WCSS_FILE ),
             [ 'wcss-manager-font' ],
-            '1.4.1'
+            '1.4.3'
         );
     
         wp_enqueue_script(
             'wcss-manager',
             plugins_url( 'frontend/assets/js/manager.js', WCSS_FILE ),
             [ 'jquery' ],   // <— important
-            rand(1, 1000),
+            '1.4.3',
             true
         );
     
@@ -154,7 +154,7 @@ class WCSS_Route_Manager {
             'wcss-manager-screens',
             plugins_url( 'frontend/assets/js/ccm-screens.js', WCSS_FILE ),
             [ 'jquery', 'wcss-manager' ],
-            '1.4.1',
+            '1.4.3',
             true
         );
 
