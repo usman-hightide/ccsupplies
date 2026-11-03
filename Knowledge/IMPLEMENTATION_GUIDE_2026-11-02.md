@@ -1,11 +1,12 @@
 # CC Supplies: what was built, how to set it up, how to test it
 
-**Last updated:** 3 November 2026
-**Branch:** `feature/auto-vendor-submit-manager-ux-2026-11-02`
+**Last updated:** 3 November 2026 (evening)
+**Branch:** `feature/auto-vendor-submit-manager-ux-2026-11-02` (tip `b349205` on GitHub)
+**Demo runbook (call script):** [DEMO_SCRIPT_2026-11-04.md](DEMO_SCRIPT_2026-11-04.md)
 **Requirements source:** [MEETING_2026-10-29_INTERNAL_DEMO.md](client-shared/meetings/MEETING_2026-10-29_INTERNAL_DEMO.md) and [PLAN_Aman_Requirements_Post_Demo_2026-10-29.md](plans-audits/PLAN_Aman_Requirements_Post_Demo_2026-10-29.md). Task IDs below (A1, B2, C1…) come from that plan.
-**Next stakeholder demo:** Wednesday 4 November 2026. Bhaumik and Basit run QA first.
+**Stakeholder demo:** Wednesday 4 November 2026. Use the [demo script](DEMO_SCRIPT_2026-11-04.md) on the call; this guide is the full setup + QA reference.
 
-> ⚠️ **Read before testing on local.** Your local site sends **real email** through Office 365 (WP Mail SMTP), and it holds **real Amazon Business credentials** in `wp-config.php`. An in-policy order with Amazon items can place a **real Amazon order** and email real people (Aman, Chris, Operations). Do [Setup step 4](#4-make-local-testing-safe-do-this-first) before you place any order.
+> ⚠️ **Read before testing on local.** Your local site sends **real email** through Office 365 (WP Mail SMTP), and it holds **real Amazon Business credentials** in `wp-config.php`. An in-policy order with Amazon items can place a **real Amazon order** and email real people. Do [Setup step 4](#4-make-local-testing-safe-do-this-first) before you place any order.
 
 ---
 
@@ -30,9 +31,13 @@
 | D2 | Copy vendor submissions to a supply mailbox | 🟡 Configurable: add the mailbox in **Emails** and tick *Vendor approved order* + *Vendor rejected order* |
 | E3–E7 | **Reports**: 7 filterable reports (Amazon vs G&T, store, product, user, exceptions, stores ordered / not ordered, order detail), saved presets, branded Excel / CSV / Print-PDF export | ✅ Done (§5.4) |
 | E2 | Dashboard clarity: Amazon vs G&T this month under the KPIs, "Ordering this month" coverage card, Reports + Export Excel replace the old CSV/PDF snapshot | ✅ Done |
+| — | Dashboard **Custom** date period (from / to + Apply), equal-height toolbar; card order: KPIs → vendor split → chart + budgets → coverage + recent orders → activity + attention | ✅ Done |
+| — | Emails tab hover (black) / active (red tint) styling | ✅ Done |
 | B5 | Exception form to Alyshia | ❌ Pending (§7) |
 
-Local QA applied store limits via **Stores → Apply to all stores** (125 / 1). Code on this branch is intended for GitHub push; production deploy is separate.
+Local QA applied store limits via **Stores → Apply to all stores** (125 / 1). Branch is on GitHub. Production deploy is separate.
+
+**Local email QA (3 Nov evening):** WP Mail SMTP → `smtp.office365.com` accepted mail (`250 OK`). All **9** `[TEST]` templates delivered to `uzahid@basecampconsulting.co` (search Outlook for `[TEST]` or `[LOCAL →`). Basecamp MX goes through Barracuda — if mail is missing, press Enter on search and check Barracuda quarantine, not only Focused inbox.
 
 ---
 
@@ -87,7 +92,7 @@ The portal adds `/manager/amazon` and `/manager/gt`. Go to **WP admin → Settin
 
 ### 4. Make local testing safe (do this first)
 
-- **Email:** the local-only mu-plugin `wp-content/mu-plugins/cc-local-mail-redirect.php` sends **every** email to the developer (default `uzahid@basecampconsulting.co`; override with `define( 'CC_LOCAL_MAIL_TO', 'you@example.com' );` in `wp-config.php`). The subject shows the original recipients, e.g. `[LOCAL → asood@…] …`. Cc/Bcc are dropped. The folder is git-ignored, so copy the file onto each developer machine. It does nothing on sites not ending in `.local`. Note: the WCSS email log still records the *intended* recipients.
+- **Email:** the local-only mu-plugin `wp-content/mu-plugins/cc-local-mail-redirect.php` sends **every** email to the developer (default `uzahid@basecampconsulting.co`; override with `define( 'CC_LOCAL_MAIL_TO', 'you@example.com' );` in `wp-config.php`). The subject shows the original recipients, e.g. `[LOCAL → asood@…] …`. Cc/Bcc are dropped. It also sets PHPMailer’s CA bundle (Local PHP often has empty `openssl.cafile`, which breaks Office 365 TLS) and a proper `Hostname` (`ccsupplies.ca`) so Message-IDs are not `*.local` (those were delayed/filtered). The folder is git-ignored — copy the file onto each developer machine. It does nothing on sites not ending in `.local`. Note: the WCSS email log still records the *intended* recipients before redirect.
 - **Real vendor orders:** to stop auto-submit from contacting Amazon or Grand & Toy during click-through testing, add this line to the child theme's `functions.php` on your machine only, and don't commit it:
   ```php
   add_filter( 'cc_auto_vendor_submit_enabled', '__return_false' );
@@ -122,7 +127,7 @@ Either screen works; both save the same settings.
 
 | Screen | URL | What's there |
 |--------|-----|--------------|
-| Dashboard | `/manager` | KPIs, **This month: Amazon vs Grand & Toy**, orders chart, "Needs attention", recent orders, activity feed, **Ordering this month** (stores ordered / not yet), store budgets. Buttons: **Reports**, **Export Excel** |
+| Dashboard | `/manager` | Period seg (**7 days / 30 days / This month / 6 months / Custom** with from–to + **Apply**), KPIs, **This month: Amazon vs Grand & Toy**, orders chart, store budgets, **Ordering this month**, recent orders, live activity, needs attention. Buttons: **Reports**, **Export Excel** |
 | Reports | `/manager/reports` | Report tabs, filters, presets, KPIs, Amazon vs G&T split, chart, sortable table with totals; **Export Excel**, **CSV**, **Print / PDF**, **Save as preset** |
 | Orders | `/manager/orders` | Filter by status (`?status=awaiting-approval`), search, CSV export. Click a row to open the **order drawer**. |
 | Order drawer | click any order | Policy box (green **Within store policy**, amber **Needs Supply Ops approval** with reasons, blue **Approved as an exception**), history, Approve / Reject, **Open Full Order Detail Page** |
@@ -131,7 +136,7 @@ Either screen works; both save the same settings.
 | Vendors | `/manager/vendorslist` | Cards showing **Prices fetched** time, black **monthly budget** box with **Set budget**, **View API response** pop-up with **Fetch now**, **Edit** (all fields) |
 | Stores | `/manager/stores` | Quota, budget, usage bar, assigned user; **Ordering policy**, **Apply to all stores**, Export |
 | Users | `/manager/users` | Store employees; edit name, email and store; remove |
-| Emails | `/manager/emails` | **Recipients** (who gets which notification, Save changes), **Send email** (manual), **Templates** (preview + send test), **Sent log** |
+| Emails | `/manager/emails` | **Recipients** (who gets which notification, Save changes), **Send email** (manual), **Templates** (preview + send test), **Sent log**. Tabs: active = red tint, hover = black |
 | Amazon catalog | `/manager/amazon` | Amazon items and prices |
 | Grand & Toy | `/manager/gt` | G&T items and prices |
 
@@ -356,6 +361,8 @@ Product page: the − / + stepper is aligned and the add-to-cart toast has no bl
 
 1. **Apply to all stores** with **$125 / 1** — verified in UI and DB (223 stores).
 2. **Default orders per month = 1** (and default budget 125) in Ordering policy / `wcss_settings`.
+3. Dashboard Custom date period + card reorder; Emails tab hover/active styles — on GitHub (`b349205`).
+4. Local email path verified: Office 365 SMTP accepts; 9 `[TEST]` templates received at `uzahid@basecampconsulting.co`.
 
 ### Decisions needed before production deploy
 

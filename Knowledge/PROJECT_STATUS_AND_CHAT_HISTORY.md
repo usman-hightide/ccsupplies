@@ -1,13 +1,19 @@
 # PROJECT STATUS & CHAT HISTORY — CC Supplies
 
-**Last updated:** 2026-10-31  
+**Last updated:** 2026-11-03  
 **Owner (dev):** Usman Zahid (`uzahid@basecampconsulting.co`) — Basecamp Consulting / High Tide  
 **Live:** https://ccsupplies.ca  
 **Local:** https://ccsupplies.local  
 **GitHub:** https://github.com/usman-hightide/ccsupplies  
 
-**Active clean branch:** `feature/knowledge-clean-continue-2026-11-01`  
-**Prior code branch (cheapest pricing):** `feature/store-cheapest-pricing-checkout-ux-2026-10-30`  
+> **For the 4 Nov demo and current build status, use these first:**  
+> - [`DEMO_SCRIPT_2026-11-04.md`](./DEMO_SCRIPT_2026-11-04.md)  
+> - [`IMPLEMENTATION_GUIDE_2026-11-02.md`](./IMPLEMENTATION_GUIDE_2026-11-02.md)  
+> This file is background / process history and is partly superseded.
+
+**Active feature branch:** `feature/auto-vendor-submit-manager-ux-2026-11-02`  
+**Prior clean branch:** `feature/knowledge-clean-continue-2026-11-01`  
+**Prior cheapest-pricing branch:** `feature/store-cheapest-pricing-checkout-ux-2026-10-30`  
 
 **Analyze prompt:** [`ANALYZE_PROJECT_PROMPT.md`](./ANALYZE_PROJECT_PROMPT.md)  
 **Post–29 Oct task plan:** [`plans-audits/PLAN_Aman_Requirements_Post_Demo_2026-10-29.md`](./plans-audits/PLAN_Aman_Requirements_Post_Demo_2026-10-29.md)  
