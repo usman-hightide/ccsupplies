@@ -1274,11 +1274,25 @@ body.woocommerce-checkout .cc-checkout-back svg {
   font-size: 14px !important;
   font-weight: 600 !important;
   box-shadow: none !important;
+  position: static !important;
+}
+
+/* Alert card already has .cc-checkout-alert__icon — hide Woo’s default ! badge. */
+.cc-checkout-alert .woocommerce-error::before,
+.cc-checkout-alert .woocommerce-message::before,
+.cc-checkout-alert .woocommerce-info::before,
+.cc-checkout-alert .woocommerce-error li::before,
+.cc-checkout-alert .woocommerce-message li::before,
+.cc-checkout-alert .woocommerce-info li::before {
+  content: none !important;
+  display: none !important;
 }
 
 .cc-checkout-alert__list li,
 .cc-checkout-alert .woocommerce-error li {
   margin: 0 0 4px;
+  padding-left: 0 !important;
+  list-style: disc !important;
 }
 
 body.cc-checkout-alerts-relocated .woocommerce > .woocommerce-notices-wrapper,
@@ -1308,32 +1322,19 @@ body.woocommerce-checkout form.checkout.woocommerce-checkout {
   align-items: start;
 }
 
-body.woocommerce-checkout form.checkout > .wcss-usage,
 body.woocommerce-checkout form.checkout > .woocommerce-NoticeGroup,
 body.woocommerce-checkout form.checkout > .woocommerce-notices-wrapper {
   grid-column: 1 / -1;
 }
 
+/* Usage cards are cart-only; never show on checkout (hook removed + defensive hide). */
+body.woocommerce-checkout .wcss-usage {
+  display: none !important;
+}
+
+/* Read-only store summary removed — billing form is editable again. */
 body.woocommerce-checkout .wcss-store-summary {
-  grid-column: 1 / -1;
-  border: 1px solid #ebebef !important;
-  border-radius: 16px !important;
-  padding: 16px 18px !important;
-  margin: 0 !important;
-  background: #fff !important;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
-}
-
-body.woocommerce-checkout .wcss-store-summary h3 {
-  margin: 0 0 12px !important;
-  font-size: 16px !important;
-  font-weight: 800 !important;
-  color: #111 !important;
-}
-
-body.woocommerce-checkout .wcss-store-summary dl {
-  grid-template-columns: 150px minmax(0, 1fr) !important;
-  gap: 8px 12px !important;
+  display: none !important;
 }
 
 body.woocommerce-checkout #customer_details.col2-set {
@@ -1357,6 +1358,11 @@ body.woocommerce-checkout #customer_details .col-2 {
   border-radius: 16px;
   box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
   box-sizing: border-box;
+}
+
+/* Don’t leave an empty shipping card when shipping is disabled. */
+body.woocommerce-checkout #customer_details .col-2:empty {
+  display: none;
 }
 
 body.woocommerce-checkout #customer_details h3 {
@@ -1556,11 +1562,6 @@ body.woocommerce-checkout form.checkout > style {
     row-gap: 16px;
     align-items: start;
     justify-content: stretch;
-  }
-
-  body.woocommerce-checkout form.checkout > .wcss-store-summary,
-  body.woocommerce-checkout form.checkout > .wcss-usage {
-    grid-column: 1 / -1;
   }
 
   body.woocommerce-checkout form.checkout > .woocommerce-NoticeGroup,
@@ -1870,5 +1871,312 @@ body.woocommerce-checkout .blockUI.blockOverlay::before {
   }
   .cc-placing__bar span {
     transition: none;
+  }
+}
+
+/* ---- Cart: one-line monthly limit banner (WCSS_Quota_Usage_UI) ---- */
+.wcss-usage.wcss-usage--line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: none;
+  margin: 0 0 20px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--cc-line);
+  background: #fff;
+  color: var(--cc-ink);
+  font-size: 15px;
+  line-height: 1.45;
+  font-weight: 500;
+}
+.wcss-usage--line .wcss-usage__icon {
+  flex: none;
+  display: inline-flex;
+  width: auto;
+  height: auto;
+  background: none;
+  color: #1f4fa8;
+}
+.wcss-usage--line.is-warn {
+  background: #fff7e8;
+  border-color: #f5d9a8;
+  color: #6b4100;
+}
+.wcss-usage--line.is-warn .wcss-usage__icon {
+  color: #b26a00;
+}
+
+/* ---- Cart: "this order needs approval" confirm (cc-cart-ui.js) ---- */
+.cc-approve {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(17, 17, 17, 0.55);
+  backdrop-filter: blur(3px);
+  animation: cc-placing-fade 0.2s ease;
+}
+.cc-approve[hidden] {
+  display: none;
+}
+html.cc-approve-open,
+html.cc-approve-open body {
+  overflow: hidden;
+}
+.cc-approve__card {
+  width: min(460px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  padding: 28px 26px 22px;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(17, 17, 17, 0.25);
+  color: var(--cc-ink);
+}
+.cc-approve__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 14px;
+  border-radius: 14px;
+  background: #fff4e0;
+  color: #b26a00;
+}
+.cc-approve__title {
+  margin: 0 0 8px;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--cc-ink);
+}
+.cc-approve__list {
+  margin: 0 0 12px;
+  padding: 12px 14px 12px 32px;
+  border-radius: 12px;
+  background: #fff7e8;
+  color: #6b4100;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.cc-approve__text {
+  margin: 0 0 6px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: #3f3f46;
+}
+.cc-approve__steps {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 14px 0 20px;
+  font-size: 13px;
+  color: var(--cc-muted);
+}
+.cc-approve__steps b {
+  color: var(--cc-ink);
+  font-weight: 600;
+}
+.cc-approve__actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.cc-approve__actions .cc-approve__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  margin: 0;
+  padding: 0 18px;
+  border-radius: 12px;
+  border: 1px solid var(--cc-line);
+  background: #fff;
+  color: var(--cc-ink);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+  box-shadow: none;
+}
+.cc-approve__actions .cc-approve__btn:hover {
+  background: var(--cc-bg);
+  color: var(--cc-ink);
+}
+.cc-approve__actions .cc-approve__btn--primary {
+  border-color: var(--cc-red);
+  background: var(--cc-red);
+  color: #fff;
+}
+.cc-approve__actions .cc-approve__btn--primary:hover {
+  border-color: var(--cc-red-dark);
+  background: var(--cc-red-dark);
+  color: #fff;
+}
+.cc-approve__btn:focus-visible {
+  outline: 2px solid #1f4fa8;
+  outline-offset: 2px;
+}
+@media (max-width: 480px) {
+  .cc-approve__actions {
+    flex-direction: column-reverse;
+  }
+  .cc-approve__actions .cc-approve__btn {
+    width: 100%;
+  }
+}
+
+/* ---- Checkout: "needs Supply Ops approval" alert (WCSS_Order_Policy::checkout_notice) ---- */
+.cc-approval-alert {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  margin: 0 0 24px;
+  padding: 22px 24px;
+  border: 1px solid #f2c97d;
+  border-left: 6px solid #e59a00;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fff8ea 0%, #fffdf8 100%);
+  box-shadow: 0 6px 20px rgba(178, 106, 0, 0.08);
+  color: #4a3000;
+}
+.cc-approval-alert__icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: #ffe7b8;
+  color: #a35f00;
+}
+.cc-approval-alert__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cc-approval-alert__eyebrow {
+  margin: 0 0 2px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #a35f00;
+}
+.cc-approval-alert .cc-approval-alert__title {
+  margin: 0 0 8px;
+  font-size: 22px;
+  line-height: 1.25;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--cc-ink);
+}
+.cc-approval-alert__reasons {
+  margin: 0 0 8px;
+  padding: 0 0 0 20px;
+  font-size: 16px;
+  line-height: 1.5;
+  font-weight: 600;
+  color: #6b4100;
+}
+.cc-approval-alert__reasons li {
+  list-style: disc;
+  margin: 0 0 2px;
+}
+.cc-approval-alert__text {
+  margin: 0 0 14px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #5c4520;
+}
+.cc-approval-alert__steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  margin: 0;
+  padding: 12px 0 0;
+  border-top: 1px dashed #efd29c;
+  list-style: none;
+  counter-reset: none;
+}
+.cc-approval-alert__steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  color: #6b5a3a;
+}
+.cc-approval-alert__steps li span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid #e8c98e;
+  font-size: 12px;
+  font-weight: 700;
+  color: #a35f00;
+}
+.cc-approval-alert__steps li.is-now {
+  font-weight: 700;
+  color: var(--cc-ink);
+}
+.cc-approval-alert__steps li.is-now span {
+  background: #e59a00;
+  border-color: #e59a00;
+  color: #fff;
+}
+.cc-approval-alert .cc-approval-alert__link {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px solid #e8c98e;
+  background: #fff;
+  color: #6b4100;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.cc-approval-alert .cc-approval-alert__link:hover {
+  background: #fff3da;
+  color: #4a3000;
+}
+@media (max-width: 760px) {
+  .cc-approval-alert {
+    flex-direction: column;
+    gap: 12px;
+    padding: 18px 16px;
+  }
+  .cc-approval-alert__icon {
+    width: 44px;
+    height: 44px;
+  }
+  .cc-approval-alert .cc-approval-alert__title {
+    font-size: 19px;
+  }
+  .cc-approval-alert__steps {
+    flex-direction: column;
+  }
+  .cc-approval-alert .cc-approval-alert__link {
+    align-self: stretch;
+    justify-content: center;
   }
 }

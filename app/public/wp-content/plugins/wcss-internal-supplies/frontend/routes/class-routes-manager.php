@@ -138,14 +138,14 @@ class WCSS_Route_Manager {
             'wcss-manager',
             plugins_url( 'frontend/assets/css/manager.css', WCSS_FILE ),
             [ 'wcss-manager-font' ],
-            '1.4.4'
+            '1.4.30'
         );
     
         wp_enqueue_script(
             'wcss-manager',
             plugins_url( 'frontend/assets/js/manager.js', WCSS_FILE ),
             [ 'jquery' ],   // <— important
-            '1.4.3',
+            '1.4.30',
             true
         );
     
@@ -154,7 +154,7 @@ class WCSS_Route_Manager {
             'wcss-manager-screens',
             plugins_url( 'frontend/assets/js/ccm-screens.js', WCSS_FILE ),
             [ 'jquery', 'wcss-manager' ],
-            '1.4.3',
+            '1.4.30',
             true
         );
 
@@ -172,6 +172,9 @@ class WCSS_Route_Manager {
             // convenience for building links from JS
             'manager_base' => trailingslashit( home_url( '/manager' ) ),
             'home'         => trailingslashit( home_url( '/' ) ),
+            'site_home'    => trailingslashit( home_url( '/' ) ), // site root; 'home' is later overridden to /manager/
+            // Technical / debug UI (Needs attention, API response panels) — administrator only.
+            'is_admin'     => current_user_can( 'manage_options' ),
 
         ]);
         

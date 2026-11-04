@@ -87,6 +87,14 @@ $ccm_first = $ccm_user->first_name ?: strtok( $ccm_user->display_name ?: $ccm_us
       <div id="dash-coverage"><div class="ccm-empty">Loading…</div></div>
     </section>
 
+    <section class="ccm-card">
+      <div class="ccm-card-h"><div><h2 class="ccm-card-t">Live activity</h2><p class="ccm-card-s">Every order, approval and catalog change, newest first</p></div></div>
+      <div id="dash-feed"></div>
+    </section>
+  </div>
+
+  <?php $wcss_is_admin = current_user_can( 'manage_options' ); ?>
+  <div class="<?php echo $wcss_is_admin ? 'ccm-grid2' : ''; ?>">
     <section class="ccm-card" style="padding:0">
       <div class="ccm-card-h" style="padding:20px 20px 0"><div><h2 class="ccm-card-t">Recent orders</h2><p class="ccm-card-s">Approve or reject without leaving the dashboard</p></div><a class="ccm-link" href="<?php echo esc_url( home_url( '/manager/orders' ) ); ?>">Open orders →</a></div>
       <div class="ccm-tablewrap flush">
@@ -96,18 +104,13 @@ $ccm_first = $ccm_user->first_name ?: strtok( $ccm_user->display_name ?: $ccm_us
         </table>
       </div>
     </section>
-  </div>
 
-  <div class="ccm-grid2">
-    <section class="ccm-card">
-      <div class="ccm-card-h"><div><h2 class="ccm-card-t">Live activity</h2><p class="ccm-card-s">Every order, approval and catalog change, newest first</p></div></div>
-      <div id="dash-feed"></div>
-    </section>
-
-    <section class="ccm-card">
+    <?php if ( $wcss_is_admin ) : ?>
+    <section class="ccm-card" id="dash-attention-card">
       <div class="ccm-card-h"><div><h2 class="ccm-card-t">Needs your attention</h2><p class="ccm-card-s">Issues that block orders or make reports wrong</p></div></div>
       <div id="dash-attention"></div>
     </section>
+    <?php endif; ?>
   </div>
 </div>
 

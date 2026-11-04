@@ -1,11 +1,17 @@
 <?php
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
+/**
+ * One-line monthly limit banner on the cart.
+ *
+ * Uses WCSS_Order_Policy (same rules that decide approval), so the banner and
+ * the approval decision always agree.
+ */
 class WCSS_Quota_Usage_UI {
 
     public function __construct() {
+        // Cart only — checkout layout already shows policy notices.
         add_action( 'woocommerce_before_cart', [ $this, 'render_banner' ], 5 );
-        add_action( 'woocommerce_before_checkout_form', [ $this, 'render_banner' ], 5 );
     }
 
     public function render_banner() {
@@ -14,129 +20,50 @@ class WCSS_Quota_Usage_UI {
         $store_id = WCSS_User_Store_Map::get_user_store_id();
         if ( ! $store_id ) return;
 
-        // Read settings
-        $statuses_opt = (array) wcss_get_option( 'count_statuses', ['wc-awaiting-approval','wc-approved'] );
-        $statuses     = array_map( fn($s)=> ltrim( preg_replace('/^wc-/', '', $s ), '-' ), $statuses_opt );
+        $res    = WCSS_Order_Policy::evaluate_cart();
+        $c      = $res['checks'];
+        $review = WCSS_Order_Policy::mode( (int) $store_id ) === 'review';
+        $money  = function ( $v ) { return html_entity_decode( wp_strip_all_tags( wc_price( $v ) ) ); };
+        $left   = $c['budget'] > 0 ? max( 0.0, $c['budget'] - $c['used_amount'] ) : 0.0;
+        $next   = $review ? __( 'Your next order will need Supply Ops approval.', 'wcss' ) : __( 'New orders can’t be placed right now.', 'wcss' );
 
-        $tz    = wp_timezone();
-        $now   = new DateTimeImmutable( 'now', $tz );
-        $start = $now->modify('first day of this month')->setTime(0,0,0);
-        $end   = $now->modify('last day of this month')->setTime(23,59,59);
-
-        // Limits
-        // Store meta wins; empty → plugin defaults ($125 / 1 order), see WCSS_Order_Policy.
-        $limits       = WCSS_Order_Policy::store_limits( (int) $store_id );
-        $quota_count  = (int) $limits['quota'];
-        $quota_label  = $quota_count > 0 ? (string) $quota_count : __( '∞', 'wcss' );
-
-        $has_budget   = $limits['budget'] > 0;
-        $budget_month = (float) $limits['budget'];
-
-        // Exempt product IDs for budget
-        $exempt_ids_raw = (string) wcss_get_option( 'exempt_product_ids', '' );
-        $exempt_ids = array_filter( array_map( 'intval', array_filter( array_map( 'trim', explode(',', $exempt_ids_raw ) ) ) ) );
-
-        // Aggregate usage this month
-        [ $used_count, $used_amount ] = $this->aggregate_orders(
-            $store_id, $statuses, $start, $end, $exempt_ids
-        );
-
-        $remaining_amount = $has_budget ? max( 0.0, $budget_month - $used_amount ) : 0.0;
-        $budget_pct       = ( $has_budget && $budget_month > 0 )
-            ? min( 100, (int) round( ( $used_amount / $budget_month ) * 100 ) )
-            : 0;
-        $orders_pct       = ( $quota_count > 0 )
-            ? min( 100, (int) round( ( $used_count / $quota_count ) * 100 ) )
-            : 0;
-
+        if ( in_array( 'over_quota', $res['reasons'], true ) ) {
+            $tone = 'warn';
+            $text = __( 'You have reached your monthly order limit.', 'wcss' ) . ' ' . $next;
+        } elseif ( in_array( 'over_budget', $res['reasons'], true ) ) {
+            $tone = 'warn';
+            /* translators: %s: remaining budget */
+            $text = sprintf( __( 'This cart is over your monthly budget (%s left).', 'wcss' ), $money( $left ) ) . ' '
+                . ( $review ? __( 'It will need Supply Ops approval.', 'wcss' ) : __( 'Remove items to continue.', 'wcss' ) );
+        } elseif ( in_array( 'outside_window', $res['reasons'], true ) ) {
+            $tone = 'warn';
+            /* translators: %s: window, e.g. "days 7–14 of every month" */
+            $text = sprintf( __( 'Ordering is open %s.', 'wcss' ), $c['window_label'] ?? WCSS_Order_Policy::window_label() ) . ' ' . $next;
+        } else {
+            $tone  = 'ok';
+            $parts = [];
+            if ( $c['budget'] > 0 ) {
+                /* translators: 1: remaining budget, 2: monthly budget */
+                $parts[] = sprintf( __( '%1$s of your %2$s monthly budget left', 'wcss' ), $money( $left ), $money( $c['budget'] ) );
+            }
+            if ( $c['quota'] > 0 ) {
+                /* translators: 1: orders used, 2: order limit */
+                $parts[] = sprintf( __( '%1$d of %2$d orders used this month', 'wcss' ), $c['used_orders'], $c['quota'] );
+            }
+            if ( ! $parts ) return;
+            $text = implode( ' · ', $parts );
+        }
         ?>
-        <div class="wcss-usage" role="region" aria-label="<?php esc_attr_e( 'Monthly store usage', 'wcss' ); ?>">
-            <div class="wcss-usage__card wcss-usage__card--orders">
-                <div class="wcss-usage__icon" aria-hidden="true">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 6h11a1 1 0 0 1 1 1v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M9 10h8M9 14h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-                </div>
-                <div class="wcss-usage__body">
-                    <div class="wcss-usage__label"><?php esc_html_e( 'Orders used this month', 'wcss' ); ?></div>
-                    <div class="wcss-usage__value">
-                        <?php echo esc_html( (string) $used_count ); ?>
-                        <span class="wcss-usage__sep">/</span>
-                        <?php echo esc_html( $quota_label ); ?>
-                    </div>
-                    <?php if ( $quota_count > 0 ) : ?>
-                    <div class="wcss-usage__bar" aria-hidden="true">
-                        <span class="wcss-usage__bar-fill" style="width:<?php echo esc_attr( (string) $orders_pct ); ?>%"></span>
-                    </div>
-                    <?php endif; ?>
-                </div>
-            </div>
-
-            <?php if ( $has_budget ) : ?>
-            <div class="wcss-usage__card wcss-usage__card--budget">
-                <div class="wcss-usage__icon" aria-hidden="true">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 8.5A2.5 2.5 0 0 1 5.5 6h13A2.5 2.5 0 0 1 21 8.5v7a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 15.5v-7Z" stroke="currentColor" stroke-width="1.8"/><path d="M3 10h18M16 14h2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-                </div>
-                <div class="wcss-usage__body">
-                    <div class="wcss-usage__label"><?php esc_html_e( 'Budget used', 'wcss' ); ?></div>
-                    <div class="wcss-usage__meta">
-                        <?php
-                        echo wp_kses_post( wc_price( $used_amount ) );
-                        echo ' / ';
-                        echo wp_kses_post( wc_price( $budget_month ) );
-                        ?>
-                        <span class="wcss-usage__remaining">
-                            (<?php
-                            /* translators: %s: remaining budget */
-                            printf( esc_html__( 'Remaining: %s', 'wcss' ), wp_kses_post( wc_price( $remaining_amount ) ) );
-                            ?>)
-                        </span>
-                    </div>
-                    <div class="wcss-usage__bar" aria-hidden="true">
-                        <span class="wcss-usage__bar-fill" style="width:<?php echo esc_attr( (string) $budget_pct ); ?>%"></span>
-                    </div>
-                </div>
-            </div>
-            <?php endif; ?>
+        <div class="wcss-usage wcss-usage--line is-<?php echo esc_attr( $tone ); ?>" role="status">
+            <span class="wcss-usage__icon" aria-hidden="true">
+                <?php if ( $tone === 'warn' ) : ?>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17.5v.01"/></svg>
+                <?php else : ?>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5v.01"/></svg>
+                <?php endif; ?>
+            </span>
+            <span class="wcss-usage__text"><?php echo esc_html( $text ); ?></span>
         </div>
         <?php
-    }
-
-    private function aggregate_orders( $store_id, array $statuses, DateTimeImmutable $start, DateTimeImmutable $end, array $exempt_ids ): array {
-        $page=1; $per=50; $total=0; $sum=0.0;
-        $range = $start->format('Y-m-d H:i:s') . '...' . $end->format('Y-m-d H:i:s');
-
-        $base = [
-            'type'         => 'shop_order',
-            'status'       => $statuses,
-            'limit'        => $per,
-            'paginate'     => true,
-            'return'       => 'objects',
-            'meta_query'   => [[ 'key' => '_wcss_store_id','value'=>$store_id ]],
-            'date_created' => $range,
-        ];
-
-        $res   = wc_get_orders( $base + [ 'page'=>$page ] );
-        $total = (int) ( $res ? $res->total : 0 );
-        if ( $res && ! empty( $res->orders ) ) {
-            foreach ( $res->orders as $o ) { $sum += $this->order_amount_exempt_aware( $o, $exempt_ids ); }
-        }
-        $fetched = $res && ! empty( $res->orders ) ? count( $res->orders ) : 0;
-        while ( $fetched < $total ) {
-            $page++;
-            $res = wc_get_orders( $base + [ 'page'=>$page ] );
-            if ( ! $res || empty( $res->orders ) ) break;
-            foreach ( $res->orders as $o ) { $sum += $this->order_amount_exempt_aware( $o, $exempt_ids ); }
-            $fetched += count( $res->orders );
-        }
-        return [ $total, (float) $sum ];
-    }
-
-    private function order_amount_exempt_aware( WC_Order $order, array $exempt_ids ): float {
-        $t=0.0;
-        foreach ( $order->get_items( 'line_item' ) as $item ) {
-            $pid = (int) $item->get_product_id();
-            if ( in_array( $pid, $exempt_ids, true ) ) continue;
-            $t += (float) $item->get_total(); // excl. tax/shipping
-        }
-        return $t;
     }
 }

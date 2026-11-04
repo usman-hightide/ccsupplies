@@ -142,6 +142,7 @@ class WCSS_REST_Orders {
             'return'   => 'objects',
             'orderby'  => 'date',
             'order'    => 'DESC',
+            'paginate' => true, // real total / total_pages for the pager
         ];
 
 
@@ -181,7 +182,9 @@ class WCSS_REST_Orders {
         $log  = wc_get_logger();
 
         try {
-            $orders = wc_get_orders( $args );
+            $res    = wc_get_orders( $args );
+            $orders = is_object( $res ) ? $res->orders : (array) $res;
+            $total  = is_object( $res ) ? (int) $res->total : count( $orders );
         } catch ( Throwable $e ) {
             $log->critical( 'WCSS orders_list query failed', [
                 'source' => 'wcss',
@@ -200,8 +203,8 @@ class WCSS_REST_Orders {
                 'items'       => $items,
                 'page'        => $page,
                 'per_page'    => $per,
-                'total'       => (int) $args['total'] ?? count($items), // fallback
-                'total_pages' => ceil( ((int)$args['total'] ?? count($items)) / $per ),
+                'total'       => $total,
+                'total_pages' => (int) ceil( $total / $per ),
             ]);
 
 
@@ -528,6 +531,12 @@ class WCSS_REST_Orders {
                 'vendor_unit_price_html' => ( $vendor_price !== '' && $vendor_price !== null )
                     ? wc_price( (float) $vendor_price )
                     : '',
+                // Thumbnail for the order page (Woo placeholder when the product has no image or was deleted).
+                'image'        => ( $product instanceof WC_Product && $product->get_image_id() )
+                    ? (string) wp_get_attachment_image_url( $product->get_image_id(), 'woocommerce_thumbnail' )
+                    : ( function_exists( 'wc_placeholder_img_src' ) ? wc_placeholder_img_src( 'woocommerce_thumbnail' ) : '' ),
+                'unit_price'   => $qty ? round( $line_total / $qty, 2 ) : 0,
+                'line_total'   => round( $line_total, 2 ),
             ];
         }
 
@@ -662,18 +671,27 @@ class WCSS_REST_Orders {
 
         $dto['cart_vendor_summary'] = $o->get_meta( '_cc_cart_vendor_summary', true );
 
-        // Compact payload for the on-page "API response" inspector (English labels in UI).
-        $dto['trigger_payload'] = [
-            'order_id'             => (int) $o->get_id(),
-            'order_number'         => (string) $o->get_order_number(),
-            'status'               => (string) $o->get_status(),
-            'selected_vendors'     => $dto['vendors'] ?? [],
-            'auto_submit'          => $dto['auto_submit_detail'],
-            'amazon_order'         => ! empty( $dto['amazon_order']['found'] ) ? $dto['amazon_order'] : null,
-            'gt_order'             => ! empty( $dto['gt_order']['found'] ) ? $dto['gt_order'] : null,
-            'cart_vendor_summary'  => $dto['cart_vendor_summary'],
-            'totals'               => $dto['totals'],
-        ];
+        // Raw API / trigger inspector — administrator only (Supply Manager gets ops fields only).
+        if ( current_user_can( 'manage_options' ) ) {
+            $dto['trigger_payload'] = [
+                'order_id'             => (int) $o->get_id(),
+                'order_number'         => (string) $o->get_order_number(),
+                'status'               => (string) $o->get_status(),
+                'selected_vendors'     => $dto['vendors'] ?? [],
+                'auto_submit'          => $dto['auto_submit_detail'],
+                'amazon_order'         => ! empty( $dto['amazon_order']['found'] ) ? $dto['amazon_order'] : null,
+                'gt_order'             => ! empty( $dto['gt_order']['found'] ) ? $dto['gt_order'] : null,
+                'cart_vendor_summary'  => $dto['cart_vendor_summary'],
+                'totals'               => $dto['totals'],
+            ];
+        } else {
+            if ( ! empty( $dto['amazon_order']['found'] ) ) {
+                unset( $dto['amazon_order']['raw'], $dto['amazon_order']['amazon_response'] );
+            }
+            if ( ! empty( $dto['gt_order']['found'] ) ) {
+                unset( $dto['gt_order']['raw'] );
+            }
+        }
 
         return rest_ensure_response( $dto );
     }

@@ -34,7 +34,7 @@
       <tbody id="s-rows"><tr><td colspan="8" class="ccm-empty">Loading stores…</td></tr></tbody>
     </table>
     <div class="ccm-empty" id="s-empty" hidden><strong>No stores found</strong>Try another name, code or city.</div>
-    <div class="ccm-listfoot"><span id="s-foot"></span><span>Page 1</span></div>
+    <div class="ccm-listfoot"><span id="s-foot"></span><span class="ccm-pager" id="s-pager"></span></div>
   </div>
 </div>
 <?php include WCSS_DIR . 'frontend/pages/partials/ccm-overlays.php'; ?>

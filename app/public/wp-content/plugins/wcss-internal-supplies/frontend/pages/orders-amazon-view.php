@@ -201,30 +201,33 @@ jQuery(function($){
 
     const hasShip = !!(ship.full_name || ship.email || ship.address_line1);
     const rawBlocks = [];
-    if (resp && Object.keys(resp).length) {
-      rawBlocks.push(
-        '<div class="aov-raw-block">' +
-          '<h4>Amazon API response</h4>' +
-          (resp.message ? ('<p class="aov-api-msg">' + esc(resp.message) + '</p>') : '') +
-          '<pre class="aov-pre">' + esc(JSON.stringify(resp, null, 2)) + '</pre>' +
-        '</div>'
-      );
-    }
-    if (payload && typeof payload === 'object') {
-      rawBlocks.push(
-        '<div class="aov-raw-block">' +
-          '<h4>Order payload sent to Amazon</h4>' +
-          '<pre class="aov-pre">' + esc(JSON.stringify(payload, null, 2)) + '</pre>' +
-        '</div>'
-      );
-    }
-    if (a.cart_raw) {
-      rawBlocks.push(
-        '<div class="aov-raw-block">' +
-          '<h4>Amazon cart raw</h4>' +
-          '<pre class="aov-pre">' + esc(JSON.stringify(a.cart_raw, null, 2)) + '</pre>' +
-        '</div>'
-      );
+    // Raw Amazon API / payload dumps — administrator only.
+    if (window.WCSSM && WCSSM.is_admin) {
+      if (resp && Object.keys(resp).length) {
+        rawBlocks.push(
+          '<div class="aov-raw-block">' +
+            '<h4>Amazon API response</h4>' +
+            (resp.message ? ('<p class="aov-api-msg">' + esc(resp.message) + '</p>') : '') +
+            '<pre class="aov-pre">' + esc(JSON.stringify(resp, null, 2)) + '</pre>' +
+          '</div>'
+        );
+      }
+      if (payload && typeof payload === 'object') {
+        rawBlocks.push(
+          '<div class="aov-raw-block">' +
+            '<h4>Order payload sent to Amazon</h4>' +
+            '<pre class="aov-pre">' + esc(JSON.stringify(payload, null, 2)) + '</pre>' +
+          '</div>'
+        );
+      }
+      if (a.cart_raw) {
+        rawBlocks.push(
+          '<div class="aov-raw-block">' +
+            '<h4>Amazon cart raw</h4>' +
+            '<pre class="aov-pre">' + esc(JSON.stringify(a.cart_raw, null, 2)) + '</pre>' +
+          '</div>'
+        );
+      }
     }
 
     $box.removeClass('aov-loading').html(

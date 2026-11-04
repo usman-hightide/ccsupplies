@@ -33,7 +33,7 @@
       <tbody id="o-rows"><tr><td colspan="7" class="ccm-empty">Loading orders…</td></tr></tbody>
     </table>
     <div class="ccm-empty" id="o-empty" hidden><strong>No orders match these filters</strong>Clear the filters to see every order.</div>
-    <div class="ccm-listfoot"><span id="o-foot"></span><span>Click an order number for full details and history</span></div>
+    <div class="ccm-listfoot"><span id="o-foot"></span><span class="ccm-pager" id="o-pager"></span></div>
   </div>
 </div>
 <?php include WCSS_DIR . 'frontend/pages/partials/ccm-overlays.php'; ?>

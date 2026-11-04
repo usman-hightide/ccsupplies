@@ -150,7 +150,8 @@ jQuery(function($){
       : '';
 
     const rawBlocks = [];
-    if (res && Object.keys(res).length) {
+    // Raw G&T stage API dump — administrator only.
+    if (window.WCSSM && WCSSM.is_admin && res && Object.keys(res).length) {
       rawBlocks.push(
         '<div class="aov-raw-block">' +
           '<h4>Grand &amp; Toy stage response</h4>' +

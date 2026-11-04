@@ -12,6 +12,11 @@ class WCSS_REST_Vendors {
         return current_user_can('wcss_manage_portal') || current_user_can('manage_options');
     }
 
+    /** Raw price-feed / API inspector — WordPress administrator only. */
+    public function can_admin( $req = null ): bool {
+        return current_user_can( 'manage_options' );
+    }
+
     public function routes() {
         register_rest_route( self::NS, '/vendors', [
             'methods' => 'GET',
@@ -45,7 +50,7 @@ class WCSS_REST_Vendors {
         // Per-product results of the last price fetches (cc_vendor_prices) + last sync run log.
         register_rest_route( self::NS, '/vendors/(?P<id>\d+)/price-log', [
             'methods' => 'GET',
-            'permission_callback' => [ $this, 'can_manage' ],
+            'permission_callback' => [ $this, 'can_admin' ],
             'callback' => [ $this, 'price_log' ],
         ]);
 

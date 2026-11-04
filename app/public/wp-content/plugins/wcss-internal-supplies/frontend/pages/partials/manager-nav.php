@@ -95,7 +95,15 @@ $nav_groups = array(
 
 <nav class="ccm-side" aria-label="Main navigation">
   <a class="ccm-brand" href="<?php echo esc_url( home_url( '/manager' ) ); ?>">
-    <span class="ccm-brand-mark">CANNA</span><span class="ccm-brand-script">Cabana</span>
+    <?php
+    // Same logo as the storefront header (Appearance → Customize → Site identity); text if none is set.
+    $ccm_logo_id  = (int) get_theme_mod( 'custom_logo' );
+    $ccm_logo_url = $ccm_logo_id ? wp_get_attachment_image_url( $ccm_logo_id, 'full' ) : '';
+    if ( $ccm_logo_url ) : ?>
+      <img class="ccm-brand-logo" src="<?php echo esc_url( $ccm_logo_url ); ?>" alt="<?php esc_attr_e( 'Canna Cabana', 'wcss' ); ?>" width="133" height="47">
+    <?php else : ?>
+      <span class="ccm-brand-mark">CANNA</span><span class="ccm-brand-script">Cabana</span>
+    <?php endif; ?>
   </a>
   <div class="ccm-brand-sub">Supply Manager</div>
 
@@ -122,11 +130,19 @@ $nav_groups = array(
     <input id="ccm-gq" type="search" placeholder="Search orders, products, stores…" autocomplete="off">
     <div class="ccm-gresults" id="ccm-gresults" hidden></div>
   </div>
-  <div class="ccm-live"><span class="ccm-livedot" aria-hidden="true"></span>Live · updated <span class="ccm-updated"><?php echo esc_html( wp_date( 'H:i' ) ); ?></span></div>
-  <button class="ccm-btn sm" type="button" id="ccm-refresh">
+  <span class="ccm-topbar-gap" aria-hidden="true"></span>
+  <?php
+  // Refresh reloads dashboard KPIs/cards in place — only meaningful on Dashboard.
+  // Same match as the Dashboard nav "active" state (path without query string).
+  $ccm_path_only     = (string) ( wp_parse_url( $path, PHP_URL_PATH ) ?: $path );
+  $ccm_is_dashboard  = ( $view === 'dashboard' || $view === '' || (bool) preg_match( '#/manager/?$#', $ccm_path_only ) );
+  if ( $ccm_is_dashboard ) :
+  ?>
+  <button class="ccm-btn sm" type="button" id="ccm-refresh" title="Reload dashboard numbers">
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
     Refresh
   </button>
+  <?php endif; ?>
   <div class="ccm-me">
     <div class="ccm-avatar" aria-hidden="true"><?php echo esc_html( $initials ); ?></div>
     <div><div class="ccm-strong"><?php echo esc_html( $display_name ); ?></div><div class="ccm-muted ccm-small">Supply Manager</div></div>

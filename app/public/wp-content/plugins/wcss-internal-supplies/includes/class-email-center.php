@@ -125,11 +125,46 @@ class WCSS_Email_Center {
                 'reason'      => sprintf( 'You get this because %s is set to receive “%s” in Supply Manager → Emails.', $r['email'], $label ),
                 'manage_link' => true,
             ];
-            if ( self::send( $r['email'], $mail['subject'], WCSS_Email_Template::render( $args ), 'wcss_event_' . $event )['ok'] ) {
+            $html = WCSS_Email_Template::render( $args );
+            if ( self::defer_ok() ) {
+                self::$queue[] = [ $r['email'], $mail['subject'], $html, 'wcss_event_' . $event ];
+                $sent++;
+            } elseif ( self::send( $r['email'], $mail['subject'], $html, 'wcss_event_' . $event )['ok'] ) {
                 $sent++;
             }
         }
         return $sent;
+    }
+
+    /** @var array Notifications waiting to go out after the response (see flush_queue). */
+    private static $queue = [];
+
+    /**
+     * In a browser request, notifications are sent after the response is returned, so
+     * saving a policy or approving an order doesn't wait on the mail server.
+     * CLI (tests, cron) sends straight away.
+     */
+    private static function defer_ok(): bool {
+        static $hooked = false;
+        if ( PHP_SAPI === 'cli' || ! apply_filters( 'wcss_email_defer', true ) ) return false;
+        if ( ! $hooked ) {
+            add_action( 'shutdown', [ __CLASS__, 'flush_queue' ], 1 );
+            $hooked = true;
+        }
+        return true;
+    }
+
+    public static function flush_queue() {
+        if ( ! self::$queue ) return;
+        if ( function_exists( 'fastcgi_finish_request' ) ) {
+            fastcgi_finish_request(); // response is already with the browser
+        }
+        ignore_user_abort( true );
+        $q = self::$queue;
+        self::$queue = [];
+        foreach ( $q as $m ) {
+            self::send( $m[0], $m[1], $m[2], $m[3] );
+        }
     }
 
     /** @return array{ok:bool,error:string} */
@@ -289,25 +324,34 @@ class WCSS_Email_Center {
             $names = [
                 'default_monthly_budget' => 'Default monthly budget', 'default_monthly_quota' => 'Default orders per month',
                 'order_window_start' => 'Ordering window opens (day)', 'order_window_end' => 'Ordering window closes (day)',
-                'limit_mode' => 'Orders outside the policy', 'budget' => 'Budget on every store', 'quota' => 'Orders per month on every store',
+                'order_window_from' => 'Ordering window from', 'order_window_to' => 'Ordering window to', 'order_window_repeat' => 'Repeat every month',
+                'limit_mode' => 'Orders outside the policy', 'budget' => 'Monthly budget', 'quota' => 'Orders per month',
+                'window_label' => 'Ordering window', 'mode' => 'If an order breaks a rule',
             ];
+            $apply = in_array( $ctx['what'] ?? '', [ 'apply_all', 'apply_some' ], true );
             $before  = (array) ( $ctx['before'] ?? [] );
             $details = [];
             foreach ( (array) ( $ctx['after'] ?? [] ) as $k => $v ) {
                 $was = array_key_exists( $k, $before ) ? (string) $before[ $k ] : '';
-                if ( $was === (string) $v && ( $ctx['what'] ?? '' ) !== 'apply_all' ) continue;
+                if ( $was === (string) $v && ! $apply ) continue;
                 $details[] = [ $names[ $k ] ?? $k, ( $was !== '' ? $was . ' → ' : '' ) . $v ];
             }
             if ( ! $details ) return null;
-            $all       = ( $ctx['what'] ?? '' ) === 'apply_all';
+            $n         = (int) ( $ctx['after']['stores'] ?? 0 );
+            $head      = ( $ctx['what'] ?? '' ) === 'apply_all' ? 'Limits applied to all stores' : sprintf( 'Limits applied to %d store%s', $n, $n === 1 ? '' : 's' );
+            if ( ( $ctx['what'] ?? '' ) === 'store' ) {
+                $apply = true;
+                $head  = 'Ordering rules changed for ' . html_entity_decode( (string) ( $ctx['after']['store'] ?? 'a store' ), ENT_QUOTES );
+                $details = array_values( array_filter( $details, function ( $d ) { return $d[0] !== 'store'; } ) );
+            }
             $details[] = [ 'Changed by', $by ];
             return [
-                'subject' => '[Supply Manager] ' . ( $all ? 'Limits applied to all stores' : 'Ordering policy changed' ),
+                'subject' => '[Supply Manager] ' . ( $apply ? $head : 'Ordering policy changed' ),
                 'args'    => [
                     'eyebrow' => 'Ordering policy changed',
-                    'title'   => $all ? 'Limits applied to all stores' : 'Ordering policy changed',
+                    'title'   => $apply ? $head : 'Ordering policy changed',
                     'status'  => [ 'label' => 'Updated', 'tone' => 'info' ],
-                    'intro'   => $all ? sprintf( 'These values were set on all %d stores.', (int) ( $ctx['after']['stores'] ?? 0 ) ) : 'The store ordering policy was updated.',
+                    'intro'   => ( $ctx['what'] ?? '' ) === 'store' ? 'This store’s own ordering rules were updated.' : ( $apply ? sprintf( 'These values were set on %d store%s.', $n, $n === 1 ? '' : 's' ) : 'The store ordering policy was updated.' ),
                     'details' => array_values( array_filter( $details, function ( $d ) { return $d[0] !== 'stores'; } ) ),
                     'action'  => [ 'label' => 'Open stores', 'url' => home_url( '/manager/stores' ) ],
                 ],

@@ -24,13 +24,17 @@ function rest($m, $p, $b = null) { $r = new WP_REST_Request($m, $p); if ($b !== 
 $bk_q = get_post_meta($SID, WCSS_Store_CPT::META_QUOTA, true); $bk_b = get_post_meta($SID, WCSS_Store_CPT::META_BUDGET, true);
 $bk_opts = get_option('wcss_settings');
 try {
-  update_post_meta($SID, WCSS_Store_CPT::META_QUOTA, 1); update_post_meta($SID, WCSS_Store_CPT::META_BUDGET, 125);
-  $o = get_option('wcss_settings'); $o['order_window_start'] = 1; $o['order_window_end'] = 31; $o['limit_mode'] = 'review'; update_option('wcss_settings', $o);
+  // Real orders may already exist on the test store this month; set limits on top of them so
+  // "first order" means the first order this test places.
+  [$U0, $A0] = WCSS_Order_Policy::month_usage($SID);
+  $Q1 = $U0 + 1; $B1 = round($A0 + 125, 2);
+  update_post_meta($SID, WCSS_Store_CPT::META_QUOTA, $Q1); update_post_meta($SID, WCSS_Store_CPT::META_BUDGET, $B1);
+  $o = get_option('wcss_settings'); $o['order_window_start'] = 1; $o['order_window_end'] = 31; $o['limit_mode'] = 'review'; $o['default_monthly_budget'] = 125; $o['order_window_from'] = ''; $o['order_window_to'] = ''; update_option('wcss_settings', $o);
 
   // B1 fallback: empty store budget -> default 125
   update_post_meta($SID, WCSS_Store_CPT::META_BUDGET, '');
   ok('B1 empty store budget falls back to $125 default', WCSS_Order_Policy::store_limits($SID)['budget'] == 125.0, json_encode(WCSS_Order_Policy::store_limits($SID)));
-  update_post_meta($SID, WCSS_Store_CPT::META_BUDGET, 125);
+  update_post_meta($SID, WCSS_Store_CPT::META_BUDGET, $B1);
 
   // C1 first order under budget -> in policy
   $a = mk_order(1); // $57
@@ -44,11 +48,11 @@ try {
   ok('C1 verdict for first order stays stable after 2nd order exists', WCSS_Order_Policy::evaluate_order($a)['in_policy']);
 
   // over budget: first-ever order of $171 when quota allows
-  update_post_meta($SID, WCSS_Store_CPT::META_QUOTA, 5);
+  update_post_meta($SID, WCSS_Store_CPT::META_QUOTA, $U0 + 5);
   $c = mk_order(3); // $171 + earlier $114 used
   $rc = WCSS_Order_Policy::evaluate_order($c);
   ok('C1 over $125 budget -> over_budget', in_array('over_budget', $rc['reasons'], true), json_encode($rc));
-  update_post_meta($SID, WCSS_Store_CPT::META_QUOTA, 1);
+  update_post_meta($SID, WCSS_Store_CPT::META_QUOTA, $Q1);
 
   // window
   $day = (int) wp_date('j'); $o = get_option('wcss_settings'); $o['order_window_start'] = ($day % 28) + 2; $o['order_window_end'] = ($day % 28) + 3; update_option('wcss_settings', $o);
@@ -101,6 +105,52 @@ try {
   WC()->cart->empty_cart();
   wp_set_current_user($admin);
 
+  // date window (Ordering policy pop-up)
+  $today = wp_date('Y-m-d'); $o = get_option('wcss_settings');
+  $o['order_window_from'] = wp_date('Y-m-d', strtotime('+3 days')); $o['order_window_to'] = wp_date('Y-m-d', strtotime('+6 days')); $o['order_window_repeat'] = 0; update_option('wcss_settings', $o);
+  ok('Date window (one-off) in the future → today outside', ! WCSS_Order_Policy::in_window());
+  $o['order_window_from'] = wp_date('Y-m-d', strtotime('-1 day')); $o['order_window_to'] = wp_date('Y-m-d', strtotime('+1 day')); update_option('wcss_settings', $o);
+  ok('Date window (one-off) around today → inside', WCSS_Order_Policy::in_window());
+  $o['order_window_from'] = wp_date('Y-m-d', strtotime('-40 days')); $o['order_window_to'] = wp_date('Y-m-d', strtotime('-35 days')); $o['order_window_repeat'] = 0; update_option('wcss_settings', $o);
+  ok('Old one-off dates → outside', ! WCSS_Order_Policy::in_window());
+  $d = (int) wp_date('j'); $o['order_window_from'] = wp_date('Y-m-', strtotime('-60 days')) . sprintf('%02d', min(28, $d)); $o['order_window_to'] = wp_date('Y-m-', strtotime('-60 days')) . sprintf('%02d', min(28, $d)); $o['order_window_repeat'] = 1; update_option('wcss_settings', $o);
+  ok('Repeat every month uses the days of the dates (today\'s day → inside)', $d > 28 || WCSS_Order_Policy::in_window());
+  ok('Window label reads naturally', (bool) preg_match('/of every month|all month|\d{4}/', WCSS_Order_Policy::window_label()), WCSS_Order_Policy::window_label());
+  $o['order_window_from'] = ''; $o['order_window_to'] = ''; update_option('wcss_settings', $o);
+  [$st] = rest('PUT', '/wcss/v1/policy', ['order_window_from' => '2026-11-10', 'order_window_to' => '']);
+  ok('PUT /policy rejects only one date', $st === 400);
+  [$st] = rest('PUT', '/wcss/v1/policy', ['order_window_from' => '2026-11-10', 'order_window_to' => '2026-11-05']);
+  ok('PUT /policy rejects end before start', $st === 400);
+  [$st, $d2] = rest('PUT', '/wcss/v1/policy', ['order_window_from' => '2026-11-07', 'order_window_to' => '2026-11-14', 'order_window_repeat' => 1]);
+  ok('PUT /policy saves dates and syncs days 7–14', $st === 200 && $d2['order_window_from'] === '2026-11-07' && (int) get_option('wcss_settings')['order_window_start'] === 7 && (int) get_option('wcss_settings')['order_window_end'] === 14, json_encode($d2));
+  [$st] = rest('PUT', '/wcss/v1/policy', ['order_window_from' => '', 'order_window_to' => '']);
+  ok('"Open all month" clears dates → days 1–31', $st === 200 && (int) get_option('wcss_settings')['order_window_start'] === 1 && (int) get_option('wcss_settings')['order_window_end'] === 31 && WCSS_Order_Policy::in_window());
+  // apply limits to selected stores only
+  $other = (int) get_posts(['post_type' => 'store_location', 'post_status' => 'publish', 'posts_per_page' => 1, 'fields' => 'ids', 'post__not_in' => [$SID]])[0];
+  $bk_other = [get_post_meta($other, WCSS_Store_CPT::META_QUOTA, true), get_post_meta($other, WCSS_Store_CPT::META_BUDGET, true)];
+  [$st, $d3] = rest('POST', '/wcss/v1/stores/apply-limits', ['budget' => 77, 'quota' => 3, 'store_ids' => [$SID]]);
+  ok('apply-limits with store_ids updates only that store', $st === 200 && $d3['stores'] === 1 && (float) get_post_meta($SID, WCSS_Store_CPT::META_BUDGET, true) == 77 && get_post_meta($other, WCSS_Store_CPT::META_BUDGET, true) === $bk_other[1], json_encode($d3));
+  ok('apply-limits rejects an empty selection', rest('POST', '/wcss/v1/stores/apply-limits', ['budget' => 77, 'store_ids' => []])[0] === 400);
+  ok('apply-limits rejects unknown store ids', rest('POST', '/wcss/v1/stores/apply-limits', ['budget' => 77, 'store_ids' => [999999]])[0] === 400);
+
+  // per-store rules (Edit store page) override the policy for that store only
+  $sp = function ($m, $b = null) use ($SID) { return rest($m, '/wcss/v1/stores/' . $SID . '/policy', $b); };
+  [$st, $g] = $sp('GET');
+  ok('GET store policy shows store, defaults, effective and usage', $st === 200 && isset($g['store'], $g['defaults'], $g['effective'], $g['usage']));
+  $f = wp_date('Y-m-d', strtotime('+3 days')); $t = wp_date('Y-m-d', strtotime('+5 days'));
+  [$st, $g] = $sp('PUT', ['use_default_window' => false, 'window_from' => $f, 'window_to' => $t, 'window_repeat' => 0, 'limit_mode' => 'block']);
+  ok('Store-only window: this store is outside, the policy is not', $st === 200 && ! WCSS_Order_Policy::in_window(null, $SID) && WCSS_Order_Policy::in_window(), json_encode($g['effective'] ?? $g));
+  ok('Store-only rule: block for this store, policy stays review', WCSS_Order_Policy::mode($SID) === 'block' && WCSS_Order_Policy::mode() === 'review');
+  ok('Store window feeds the approval check (outside_window)', in_array('outside_window', WCSS_Order_Policy::evaluate($SID, 1.0)['reasons'], true));
+  [$st] = $sp('PUT', ['use_default_window' => false, 'window_from' => $t, 'window_to' => $f]);
+  ok('Store window rejects closing before opening', $st === 400);
+  [$st] = $sp('PUT', ['use_default_limits' => false, 'budget' => '', 'quota' => 1]);
+  ok('Store limits reject an empty budget', $st === 400);
+  [$st, $g] = $sp('PUT', ['use_default_limits' => true, 'use_default_window' => true, 'limit_mode' => '']);
+  ok('"Use the default" clears every store override', $st === 200 && $g['store']['budget'] === '' && $g['store']['window_from'] === '' && $g['store']['limit_mode'] === '' && $g['effective']['window_source'] === 'policy', json_encode($g['store']));
+  ok('Default limits come from the policy', (float) $g['effective']['budget'] === 125.0);
+  update_post_meta($SID, WCSS_Store_CPT::META_QUOTA, $Q1); update_post_meta($SID, WCSS_Store_CPT::META_BUDGET, $B1);
+
   // policy REST
   [$st, $d] = rest('GET', '/wcss/v1/policy');
   ok('GET /policy', $st === 200 && isset($d['default_monthly_budget']), json_encode($d));
@@ -113,6 +163,7 @@ try {
   if ($created) { global $wpdb; $wpdb->query("DELETE FROM {$wpdb->prefix}wcss_email_logs WHERE subject REGEXP '#(" . implode('|', array_map('intval', $created)) . ")([^0-9]|$)'"); } // blocked test emails, never sent
   foreach ($created as $id) { if (function_exists('as_unschedule_all_actions')) as_unschedule_all_actions('cc_auto_vendor_submit_async', ['order_id' => $id], 'cc-auto-vendor'); $x = wc_get_order($id); if ($x) $x->delete(true); }
   update_post_meta($SID, WCSS_Store_CPT::META_QUOTA, $bk_q); update_post_meta($SID, WCSS_Store_CPT::META_BUDGET, $bk_b);
+  foreach (['_wcss_window_from', '_wcss_window_to', '_wcss_window_repeat', '_wcss_limit_mode'] as $k) delete_post_meta($SID, $k);
   update_option('wcss_settings', $bk_opts);
   echo "cleanup: deleted ", count($created), " test orders; store 8177 restored to quota=", get_post_meta($SID, WCSS_Store_CPT::META_QUOTA, true), " budget=", get_post_meta($SID, WCSS_Store_CPT::META_BUDGET, true), "; settings restored\n";
   echo "emails blocked during test: ", $GLOBALS['mails_blocked'], "\n"; echo "RESULT: $pass passed, $fail failed\n";

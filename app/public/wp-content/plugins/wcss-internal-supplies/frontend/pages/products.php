@@ -30,7 +30,7 @@
       <tbody id="p-rows"><tr><td colspan="8" class="ccm-empty">Loading products…</td></tr></tbody>
     </table>
     <div class="ccm-empty" id="p-empty" hidden><strong>No products found</strong>Try another name, SKU or vendor.</div>
-    <div class="ccm-listfoot"><span id="p-foot"></span><span>Green = lowest price available</span></div>
+    <div class="ccm-listfoot"><span id="p-foot"></span><span class="ccm-muted ccm-small">Green = lowest price available</span><span class="ccm-pager" id="p-pager"></span></div>
   </div>
 </div>
 <?php include WCSS_DIR . 'frontend/pages/partials/ccm-overlays.php'; ?>

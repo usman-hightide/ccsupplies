@@ -115,7 +115,7 @@ class WCSS_Order_Quota {
      *  - block mode: refuse checkout when outside the window / over quota / over budget.
      */
     private function evaluate_limits(): array {
-        if ( ! class_exists( 'WCSS_Order_Policy' ) || WCSS_Order_Policy::mode() !== 'block' ) {
+        if ( ! class_exists( 'WCSS_Order_Policy' ) || WCSS_Order_Policy::mode( WCSS_Order_Policy::cart_store_id() ) !== 'block' ) {
             return [];
         }
         $res = WCSS_Order_Policy::evaluate_cart();

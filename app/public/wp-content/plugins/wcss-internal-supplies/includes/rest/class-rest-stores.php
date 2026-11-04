@@ -3,7 +3,20 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 class WCSS_REST_Stores {
     const NS = 'wcss/v1';
-    public function __construct(){ add_action( 'rest_api_init', [ $this, 'routes' ] ); }
+    /** Users page "Status: Inactive" — the account is kept but can't sign in. */
+    const META_INACTIVE = '_wcss_inactive';
+
+    public function __construct(){
+        add_action( 'rest_api_init', [ $this, 'routes' ] );
+        add_filter( 'authenticate', [ $this, 'block_inactive_login' ], 99 );
+    }
+
+    public function block_inactive_login( $user ) {
+        if ( $user instanceof WP_User && get_user_meta( $user->ID, self::META_INACTIVE, true ) ) {
+            return new WP_Error( 'wcss_inactive', __( 'This account is inactive. Please contact Supply Ops.', 'wcss' ) );
+        }
+        return $user;
+    }
     public function can_manage( $r=null ): bool {
         return current_user_can( 'wcss_manage_portal' ) || current_user_can( 'manage_options' );
     }
@@ -640,6 +653,10 @@ class WCSS_REST_Stores {
             'state'     => (string) $state,
             'quota'     => (int) $quota,
             'budget'    => (float) $budget,
+            // What actually applies (store value, else the ordering policy default).
+            'limits_default'   => WCSS_Store_CPT::get_field( (int) $p->ID, 'budget' ) === '' && WCSS_Store_CPT::get_field( (int) $p->ID, 'quota' ) === '',
+            'quota_effective'  => class_exists( 'WCSS_Order_Policy' ) ? (int) WCSS_Order_Policy::store_limits( (int) $p->ID )['quota'] : (int) $quota,
+            'budget_effective' => class_exists( 'WCSS_Order_Policy' ) ? (float) WCSS_Order_Policy::store_limits( (int) $p->ID )['budget'] : (float) $budget,
             // NEW
             'address'   => (string) $addr,
             'phone'     => (string) $phone,
@@ -668,9 +685,10 @@ class WCSS_REST_Stores {
         $all   = (string) $req->get_param('all') === '1';            // if true => include assigned too
         $search = trim( (string) $req->get_param('search') );
     
-        // Only store_employee role
+        // Store employees; the Users page also asks for Supply Managers (include_managers=1).
+        $roles = (string) $req->get_param('include_managers') === '1' ? [ 'store_employee', 'shop_manager' ] : [ 'store_employee' ];
         $args = [
-            'role__in' => [ 'store_employee' ],
+            'role__in' => $roles,
             'number'   => 500,
             'fields'   => [ 'ID', 'user_email', 'display_name', 'user_login' ],
         ];
@@ -714,6 +732,8 @@ class WCSS_REST_Stores {
                 'store_name' => $store_name,
                 'store_code' => $store_code,
                 'store_city' => $store_city,
+                'role'       => in_array( 'shop_manager', (array) get_userdata( $u->ID )->roles, true ) ? 'shop_manager' : 'store_employee',
+                'active'     => ! get_user_meta( $u->ID, self::META_INACTIVE, true ),
             ];
         }
     
@@ -759,8 +779,12 @@ class WCSS_REST_Stores {
     
     private function store_employee( int $id ) {
         $u = get_userdata( $id );
-        if ( ! $u || ! in_array( 'store_employee', (array) $u->roles, true ) ) {
-            return new WP_Error( 'not_found', 'Store employee not found', [ 'status' => 404 ] );
+        if ( ! $u || ! array_intersect( [ 'store_employee', 'shop_manager' ], (array) $u->roles ) ) {
+            return new WP_Error( 'not_found', 'User not found', [ 'status' => 404 ] );
+        }
+        // Changing a Supply Manager account needs an administrator.
+        if ( in_array( 'shop_manager', (array) $u->roles, true ) && ! current_user_can( 'manage_options' ) ) {
+            return new WP_Error( 'wcss_forbidden', 'Only an administrator can change a Supply Manager account.', [ 'status' => 403 ] );
         }
         return $u;
     }
@@ -790,7 +814,36 @@ class WCSS_REST_Stores {
         ]);
         if ( is_wp_error( $res ) ) return $res;
 
-        if ( array_key_exists( 'store_id', $body ) ) {
+        // Role: store employee ↔ Supply Manager (administrators only; not on your own account).
+        $is_manager = in_array( 'shop_manager', (array) $u->roles, true );
+        if ( isset( $body['role'] ) && in_array( $body['role'], [ 'store_employee', 'shop_manager' ], true ) && ( $body['role'] === 'shop_manager' ) !== $is_manager ) {
+            if ( ! current_user_can( 'manage_options' ) ) {
+                return new WP_Error( 'wcss_forbidden', 'Only an administrator can change a user’s role.', [ 'status' => 403 ] );
+            }
+            if ( (int) $u->ID === get_current_user_id() ) {
+                return new WP_Error( 'wcss_self', 'You can’t change your own role.', [ 'status' => 400 ] );
+            }
+            $u->set_role( $body['role'] );
+            $is_manager = $body['role'] === 'shop_manager';
+            if ( $is_manager ) {
+                delete_user_meta( $u->ID, '_wcss_store_id' ); // managers don't order for a store
+                unset( $body['store_id'] );
+            }
+        }
+        // Status: inactive accounts keep their history but can't sign in; sign them out now.
+        if ( array_key_exists( 'active', $body ) ) {
+            if ( empty( $body['active'] ) ) {
+                if ( (int) $u->ID === get_current_user_id() ) {
+                    return new WP_Error( 'wcss_self', 'You can’t make your own account inactive.', [ 'status' => 400 ] );
+                }
+                update_user_meta( $u->ID, self::META_INACTIVE, 1 );
+                if ( class_exists( 'WP_Session_Tokens' ) ) WP_Session_Tokens::get_instance( $u->ID )->destroy_all();
+            } else {
+                delete_user_meta( $u->ID, self::META_INACTIVE );
+            }
+        }
+
+        if ( ! $is_manager && array_key_exists( 'store_id', $body ) ) {
             $store_id = (int) $body['store_id'];
             if ( $store_id ) {
                 $p = get_post( $store_id );

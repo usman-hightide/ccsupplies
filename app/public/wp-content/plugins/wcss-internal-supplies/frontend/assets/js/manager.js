@@ -2523,7 +2523,7 @@
               statusHtml +
               calculationHtml +
               vendorDetailsHtml +
-              apiResponseHtml
+              (WCSSM.is_admin ? apiResponseHtml : "")
             );
           })();
 
@@ -2800,6 +2800,8 @@
       }
 
       function renderAttention() {
+        // Administrator only — Supply Manager does not get this technical checklist.
+        if (!WCSSM.is_admin || !$("#dash-attention").length) return;
         var r = state.report || {};
         var a = r.attention || {};
         var pendingCount = (r.pending && r.pending.count) || 0;
@@ -2977,7 +2979,7 @@
           headers: { "X-WP-Nonce": WCSSM.nonce },
           dataType: "json",
         });
-        $.when(report, fetchOrders())
+        return $.when(report, fetchOrders())
           .done(function (repRes, orders) {
             state.report = repRes[0];
             state.currency = (state.report.sales && state.report.sales.currency) || "CAD";
@@ -2987,6 +2989,54 @@
           .fail(function (x) {
             toast((x && x.responseJSON && x.responseJSON.message) || "Failed to load dashboard");
           });
+      }
+
+      function loadVendorSplitAndCoverage() {
+        var month = new Date().toLocaleString("en-CA", { month: "long" });
+        var split = $.ajax({
+          url: api + "reports/run",
+          data: { type: "vendors", range: "this_month" },
+          headers: { "X-WP-Nonce": WCSSM.nonce },
+          dataType: "json",
+        }).done(function (d) {
+          if (window.ccm && typeof window.ccm.vendorSplit === "function") {
+            $("#dash-split").html(
+              window.ccm.vendorSplit(d.summary, {
+                title: "This month: Amazon vs Grand & Toy",
+                sub: "Approved spend, " + String(d.period || "").replace(/^This month · /, ""),
+                link: base + "reports?type=vendors&range=this_month",
+                linkLabel: "Vendor report",
+              })
+            );
+          }
+        });
+        var coverage = $.ajax({
+          url: api + "reports/run",
+          data: { type: "coverage", range: "this_month" },
+          headers: { "X-WP-Nonce": WCSSM.nonce },
+          dataType: "json",
+        }).done(function (d) {
+          var rows = d.rows || [];
+          var yes = rows.filter(function (r) { return r.ordered === "Ordered"; });
+          var no = rows.filter(function (r) { return r.ordered !== "Ordered"; });
+          var pct = rows.length ? (yes.length / rows.length) * 100 : 0;
+          function escHtml(s) {
+            return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+              return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+            });
+          }
+          $("#dash-coverage").html(
+            "<div class='ccm-cov-top'><div><span class='ccm-cov-n'>" + yes.length + "</span><span class='ccm-muted'> of " + rows.length + " stores ordered in " + escHtml(month) + "</span></div>" +
+            "<span class='ccm-pill " + (pct >= 80 ? "p-approved" : pct >= 40 ? "p-pending" : "p-neutral") + "'>" + pct.toFixed(0) + "%</span></div>" +
+            "<div class='ccm-vs-bar' style='margin:10px 0 16px'><i class='is-ok' style='width:" + pct + "%'></i></div>" +
+            (no.length
+              ? "<div class='ccm-card-s' style='margin-bottom:6px'>Not ordered yet</div><ul class='ccm-cov-list'>" + no.slice(0, 6).map(function (r) {
+                  return "<li><span class='ccm-strong'>" + escHtml(r.store) + "</span><span class='ccm-muted ccm-small'>" + escHtml([r.code ? "#" + r.code : "", r.city].filter(Boolean).join(" · ")) + "</span></li>";
+                }).join("") + "</ul>" + (no.length > 6 ? "<div class='ccm-muted ccm-small' style='margin-top:8px'>+ " + (no.length - 6) + " more stores</div>" : "")
+              : "<div class='ccm-empty'><strong>Every store has ordered</strong>Nothing left for this month.</div>")
+          );
+        });
+        return $.when(split, coverage);
       }
 
       function setStatus(id, status) {
@@ -3073,10 +3123,11 @@
           setStatus($(this).data("id"), "rejected");
         });
 
-      // Topbar Refresh reloads data in place on the dashboard.
+      // Topbar Refresh — dashboard only (button is not rendered on other tabs).
       window.ccmRefresh = function () {
-        load();
-        toast("Dashboard refreshed");
+        return $.when(load(), loadVendorSplitAndCoverage()).done(function () {
+          toast("Dashboard refreshed");
+        });
       };
       // Silent reload after a change made in the order drawer.
       window.ccmReload = load;
@@ -3881,8 +3932,12 @@
     });
 
     $("#ccm-refresh").on("click", function () {
-      if (typeof window.ccmRefresh === "function") window.ccmRefresh();
-      else window.location.reload();
+      var $btn = $(this);
+      if ($btn.data("busy") || typeof window.ccmRefresh !== "function") return;
+      $btn.data("busy", true).prop("disabled", true).attr("aria-busy", "true");
+      $.when(window.ccmRefresh()).always(function () {
+        $btn.data("busy", false).prop("disabled", false).removeAttr("aria-busy");
+      });
     });
   });
 })(jQuery);

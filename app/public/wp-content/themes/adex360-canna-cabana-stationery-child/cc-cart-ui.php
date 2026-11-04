@@ -376,6 +376,9 @@ function cc_cart_enqueue_assets() {
 		'ccCartUi',
 		array(
 			'isCheckout' => is_checkout() && ! is_wc_endpoint_url( 'order-received' ),
+			// Checkout loader wording: true when this cart will wait for Supply Ops approval.
+			'needsApproval' => is_checkout() && ! is_wc_endpoint_url( 'order-received' ) && class_exists( 'WCSS_Order_Policy' )
+				&& WCSS_Order_Policy::mode( WCSS_Order_Policy::cart_store_id() ) === 'review' && empty( WCSS_Order_Policy::evaluate_cart()['in_policy'] ),
 			'i18n'       => array(
 				'selectedOne'  => __( '%d item selected', 'adex360' ),
 				'selectedMany' => __( '%d items selected', 'adex360' ),

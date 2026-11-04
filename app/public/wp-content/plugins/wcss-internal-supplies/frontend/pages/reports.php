@@ -89,7 +89,7 @@
         <tfoot id="r-tfoot"></tfoot>
       </table>
     </div>
-    <div class="ccm-listfoot"><span id="r-count"></span><span class="ccm-muted ccm-small">Spend = approved orders, item totals before tax and shipping. Click a column to sort.</span></div>
+    <div class="ccm-listfoot"><span id="r-count"></span><span class="ccm-pager" id="r-pager"></span><span class="ccm-muted ccm-small">Spend = approved orders, item totals before tax and shipping. Click a column to sort.</span></div>
   </div>
 </div>
 <?php include WCSS_DIR . 'frontend/pages/partials/ccm-overlays.php'; ?>
