@@ -1,0 +1,463 @@
+/*
+	Theme Name: Adex360 X Canna Cabana Stationery Child
+	Description: Canna Cabana Stationery is a lightweight and minimalist WordPress theme that was built specifically to work seamlessly with the Elementor site builder plugin. The theme is free, open-source, and designed for users who want a flexible, easy-to-use, and customizable website. The theme, which is optimized for performance, provides a solid foundation for users to build their own unique designs using the Elementor drag-and-drop site builder. Its simplicity and flexibility make it a great choice for both beginners and experienced Web Creators.
+	Author: Adex360
+	Author URI: https://adex360.com/
+	Version: 1.0.19
+	Template: adex360-cannacabana-stationery
+	Requires at least: 6.0
+	Tested up to: 6.8
+	Requires PHP: 7.4
+	License: GNU General Public License v3 or later.
+	License URI: https://www.gnu.org/licenses/gpl-3.0.html
+	Tags: accessibility-ready, flexible-header, custom-colors, custom-menu, custom-logo, featured-images, rtl-language-support, threaded-comments, translation-ready,
+*/
+
+.category-title {
+  text-align: center;
+  font-size: 28px;
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+
+.category-subtitle {
+  text-align: center;
+  margin-bottom: 30px;
+  font-size: 16px;
+  color: #666;
+}
+
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 24px;
+  max-width: 1000px;
+  margin: 0 auto 40px;
+}
+
+.category-box {
+  border: 1px solid #ddd;
+  padding: 15px;
+  border-radius: 8px;
+  background: #fff;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.category-box:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-4px);
+}
+
+.category-box img {
+  width: 100%;
+  max-height: 120px;
+  object-fit: contain;
+  margin-bottom: 10px;
+}
+
+.category-box p {
+  margin: 0;
+  font-weight: 600;
+}
+
+.category-view-more {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.view-more-btn {
+  padding: 10px 20px;
+  background: #000;
+  color: #fff;
+  text-decoration: none;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.view-more-btn:hover {
+  background: #444;
+}
+
+/* Shop archive: match header content width (1440), keep products in that band */
+body.archive.woocommerce .elementor-592 .elementor-element-64c5fe47,
+body.tax-product_cat .elementor-592 .elementor-element-64c5fe47,
+body.post-type-archive-product .elementor-592 .elementor-element-64c5fe47 {
+  --cc-shop-content-max: 1440px;
+}
+
+body.archive.woocommerce .elementor-592 .elementor-element-64c5fe47 > .e-con-inner,
+body.tax-product_cat .elementor-592 .elementor-element-64c5fe47 > .e-con-inner,
+body.post-type-archive-product .elementor-592 .elementor-element-64c5fe47 > .e-con-inner {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+  gap: 24px !important;
+  width: 100% !important;
+  max-width: var(--cc-shop-content-max) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  box-sizing: border-box;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* Slightly smaller categories sidebar; products keep the rest inside 1440 */
+body.archive.woocommerce .elementor-592 .elementor-element-29d3d1d0,
+body.tax-product_cat .elementor-592 .elementor-element-29d3d1d0,
+body.post-type-archive-product .elementor-592 .elementor-element-29d3d1d0 {
+  flex: 0 0 280px !important;
+  width: 280px !important;
+  max-width: 280px !important;
+  min-width: 0 !important;
+  /* Stick under site header while the shop column scrolls */
+  position: sticky !important;
+  top: 96px !important; /* ~80px header + spacing */
+  align-self: flex-start !important;
+  z-index: 30;
+  max-height: calc(100vh - 112px);
+  overflow-y: auto;
+}
+
+/* Prefer CSS sticky over Elementor absolute sticky on inner panel */
+body.archive.woocommerce .elementor-592 .elementor-element-29d3d1d0 .elementor-element-24a8122e,
+body.tax-product_cat .elementor-592 .elementor-element-29d3d1d0 .elementor-element-24a8122e,
+body.post-type-archive-product .elementor-592 .elementor-element-29d3d1d0 .elementor-element-24a8122e {
+  position: relative !important;
+  top: auto !important;
+  width: 100% !important;
+  inset: auto !important;
+}
+
+body.archive.woocommerce .elementor-592 .elementor-element-61267de6,
+body.tax-product_cat .elementor-592 .elementor-element-61267de6,
+body.post-type-archive-product .elementor-592 .elementor-element-61267de6 {
+  flex: 1 1 auto !important;
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+}
+
+/* Product Categories card styles live in cc-shop-categories.css */
+
+@media (max-width: 1024px) {
+  body.archive.woocommerce .elementor-592 .elementor-element-64c5fe47 > .e-con-inner,
+  body.tax-product_cat .elementor-592 .elementor-element-64c5fe47 > .e-con-inner,
+  body.post-type-archive-product .elementor-592 .elementor-element-64c5fe47 > .e-con-inner {
+    flex-direction: column !important;
+    gap: 20px !important;
+  }
+
+  body.archive.woocommerce .elementor-592 .elementor-element-29d3d1d0,
+  body.tax-product_cat .elementor-592 .elementor-element-29d3d1d0,
+  body.post-type-archive-product .elementor-592 .elementor-element-29d3d1d0 {
+    flex: 1 1 auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+/* Shop cards: image top; title/price bottom; Add to cart + View cart same row */
+.woocommerce .elementor-element.elementor-products-grid ul.products li.product,
+.woocommerce ul.products.elementor-grid li.product,
+.woocommerce ul.products li.product,
+.woocommerce-page ul.products li.product {
+  display: flex !important;
+  flex-flow: row wrap !important;
+  justify-content: flex-start !important;
+  align-items: flex-end !important;
+  align-content: stretch !important;
+  height: 100%;
+  gap: 0 8px;
+}
+
+.woocommerce .elementor-element.elementor-products-grid ul.products li.product a.woocommerce-loop-product__link,
+.woocommerce ul.products.elementor-grid li.product a.woocommerce-loop-product__link,
+.woocommerce ul.products li.product a.woocommerce-loop-product__link,
+.woocommerce-page ul.products li.product a.woocommerce-loop-product__link {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 100% !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-height: 0;
+  margin-bottom: 0.75em;
+}
+
+.woocommerce .elementor-element.elementor-products-grid ul.products li.product a.woocommerce-loop-product__link img,
+.woocommerce ul.products.elementor-grid li.product a.woocommerce-loop-product__link img,
+.woocommerce ul.products li.product a.woocommerce-loop-product__link img,
+.woocommerce-page ul.products li.product a.woocommerce-loop-product__link img {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0 0 1em;
+  object-fit: contain;
+  object-position: top center;
+  align-self: flex-start;
+  order: 0;
+}
+
+.woocommerce .elementor-element.elementor-products-grid ul.products li.product .woocommerce-loop-product__title,
+.woocommerce ul.products.elementor-grid li.product .woocommerce-loop-product__title,
+.woocommerce ul.products li.product .woocommerce-loop-product__title,
+.woocommerce-page ul.products li.product .woocommerce-loop-product__title {
+  margin-top: auto !important;
+  margin-bottom: 0.35em;
+}
+
+.woocommerce .elementor-element.elementor-products-grid ul.products li.product .price,
+.woocommerce ul.products.elementor-grid li.product .price,
+.woocommerce ul.products li.product .price,
+.woocommerce-page ul.products li.product .price {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.woocommerce .elementor-element.elementor-products-grid ul.products li.product > .button,
+.woocommerce .elementor-element.elementor-products-grid ul.products li.product > a.button,
+.woocommerce ul.products.elementor-grid li.product > .button,
+.woocommerce ul.products.elementor-grid li.product > a.button,
+.woocommerce ul.products li.product > .button,
+.woocommerce ul.products li.product > a.button {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  max-width: calc(50% - 4px);
+  margin: 0 !important;
+  align-self: flex-end !important;
+  white-space: nowrap;
+}
+
+.woocommerce .elementor-element.elementor-products-grid ul.products li.product > a.added_to_cart,
+.woocommerce ul.products.elementor-grid li.product > a.added_to_cart,
+.woocommerce ul.products li.product a.added_to_cart,
+.woocommerce-page ul.products li.product a.added_to_cart {
+  display: inline-flex !important;
+  flex: 0 1 auto !important;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-end !important;
+  box-sizing: border-box;
+  width: auto !important;
+  max-width: calc(50% - 4px);
+  height: 37px;
+  margin: 0 !important;
+  padding: 0 14px !important;
+  border: 1px solid #000;
+  border-radius: 100px;
+  background: #000;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.woocommerce ul.products li.product a.added_to_cart:hover,
+.woocommerce ul.products li.product a.added_to_cart:focus {
+  background: #e1251c;
+  border-color: #e1251c;
+  color: #fff;
+  text-decoration: none;
+}
+
+.woocommerce ul.products li.product > .screen-reader-text {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  border: 0 !important;
+}
+
+.woocommerce-order .woocommerce-thankyou-order-received {
+  margin: 0 0 20px;
+  padding: 14px 18px;
+  border: 1px solid #d7eadc;
+  border-left: 4px solid #16803c;
+  border-radius: 10px;
+  background: #f4faf6;
+  color: #14532d;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.woocommerce-order ul.woocommerce-order-overview {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  list-style: none;
+  margin: 0 0 28px;
+  padding: 0;
+  border: 0;
+}
+
+.woocommerce-order ul.woocommerce-order-overview::before,
+.woocommerce-order ul.woocommerce-order-overview::after {
+  content: none;
+  display: none;
+}
+
+.woocommerce-order ul.woocommerce-order-overview li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid #ececec;
+  border-radius: 12px;
+  background: #fff;
+  color: #666;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.woocommerce-order ul.woocommerce-order-overview li strong {
+  color: #111;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.35;
+  text-transform: none;
+  word-break: break-word;
+}
+
+.woocommerce-order .woocommerce-customer-details {
+  margin-top: 28px;
+}
+
+.woocommerce-order .woocommerce-customer-details .woocommerce-column__title {
+  margin: 0 0 12px;
+  color: #111;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.woocommerce-order .woocommerce-customer-details address,
+.woocommerce-order .woocommerce-customer-details .cc-order-address {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-width: 560px;
+  margin: 0;
+  padding: 4px 0;
+  border: 1px solid #ececec;
+  border-left: 4px solid #111;
+  border-radius: 12px;
+  background: #fff;
+  color: #222;
+  font-style: normal;
+  font-size: 15px;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+.woocommerce-order .woocommerce-customer-details .cc-addr-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 12px 18px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.woocommerce-order .woocommerce-customer-details .cc-addr-row:last-child {
+  border-bottom: 0;
+}
+
+.woocommerce-order .woocommerce-customer-details .cc-addr-label {
+  color: #777;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.woocommerce-order .woocommerce-customer-details .cc-addr-value {
+  color: #111;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.woocommerce-order .woocommerce-customer-details .cc-addr-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-weight: 500;
+  color: #333;
+}
+
+.woocommerce-order .woocommerce-customer-details address p,
+.woocommerce-order .woocommerce-customer-details .cc-order-address p {
+  margin: 0;
+}
+
+.woocommerce-order .woocommerce-customer-details .woocommerce-customer-details--phone,
+.woocommerce-order .woocommerce-customer-details .woocommerce-customer-details--email {
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.woocommerce-order .woocommerce-customer-details .woocommerce-customer-details--phone::before,
+.woocommerce-order .woocommerce-customer-details .woocommerce-customer-details--email::before {
+  content: none;
+  display: none;
+}
+
+.woocommerce-order .woocommerce-customer-details .col2-set {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.woocommerce-order .woocommerce-customer-details .col2-set::before,
+.woocommerce-order .woocommerce-customer-details .col2-set::after {
+  content: none;
+  display: none;
+}
+
+.woocommerce-order .woocommerce-customer-details .col2-set .col-1,
+.woocommerce-order .woocommerce-customer-details .col2-set .col-2 {
+  float: none;
+  width: auto;
+}
+
+.woocommerce-order .woocommerce-customer-details .col2-set address {
+  max-width: none;
+}
+
+@media (max-width: 900px) {
+  .woocommerce-order ul.woocommerce-order-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .woocommerce-order ul.woocommerce-order-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .woocommerce-order .woocommerce-customer-details .col2-set {
+    grid-template-columns: 1fr;
+  }
+
+  .woocommerce-order .woocommerce-customer-details address {
+    max-width: none;
+  }
+}
