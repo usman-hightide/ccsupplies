@@ -923,88 +923,86 @@
   // STORES – Create
   // -------------------------------------
 
-  // STORES – Create
+  // STORES – Create (CCM layout; full ship-to required for locked checkout)
   window.initStoreCreate = function () {
     const $msg = $("#s-msg");
+    const $err = $("#s-err");
     const $btn = $("#s-save");
 
-    function toast(t, ok = true) {
-      $msg
-        .removeClass("err ok")
-        .addClass(ok ? "ok" : "err")
-        .text(t)
-        .show();
+    function bar(t) {
+      $msg.text(t || "");
     }
-    function val(id) {
-      return ($("#" + id).val() || "").trim();
+    function err(m) {
+      if ($err.length) {
+        $err.text(m || "").prop("hidden", !m);
+        if (m) {
+          $("html, body").animate({ scrollTop: Math.max(0, $err.offset().top - 120) }, 200);
+        }
+      }
+      if (m) bar(m);
+    }
+    function v(sel) {
+      return ($(sel).val() || "").trim();
     }
 
-    // populate dropdown with store_employee users
     $.ajax({
       url: WCSSM.rest + "users",
       headers: { "X-WP-Nonce": WCSSM.nonce },
       dataType: "json",
     }).done(function (list) {
       var $u = $("#s-user").empty();
-      $u.append($("<option>").val("").text("Select a Store Employee"));
+      $u.append($("<option>").val("").text("Choose a store employee"));
       (list || []).forEach(function (u) {
         $u.append(
           $("<option>")
             .val(u.id)
-            .text(u.name + " — " + (u.email || ""))
+            .text((u.name || "User #" + u.id) + (u.email ? " — " + u.email : ""))
         );
       });
+      if (typeof window.dropdown === "function") window.dropdown($u[0]);
+    });
+
+    $("#sc-form").on("input change", "input, select, textarea", function () {
+      err("");
+      bar("You have unsaved changes");
+      $("#sc-bar").addClass("is-dirty");
     });
 
     $btn.off("click").on("click", function () {
-      console.log("btn clicked");
-
       const payload = {
-        name: $("#s-name").val(),
-        code: $("#s-code").val(),
-        city: $("#s-city").val(),
-        state: $("#s-state").val(),
-        address: $("#s-address").val(),
-        phone: $("#s-phone").val(),
-        open_hours: $("#s-hours").val(),
-        quota: parseInt($("#s-quota").val(), 10) || 0,
-        budget: parseFloat($("#s-budget").val()) || 0,
-        user_id: parseInt($("#s-user").val(), 10) || 0,
+        name: v("#s-name"),
+        code: v("#s-code"),
+        city: v("#s-city"),
+        state: v("#s-state"),
+        address: v("#s-address"),
+        postcode: v("#s-postcode"),
+        country: v("#s-country") || "CA",
+        phone: v("#s-phone"),
+        open_hours: v("#s-hours"),
+        quota: v("#s-quota") === "" ? "" : parseInt(v("#s-quota"), 10),
+        budget: v("#s-budget") === "" ? "" : parseFloat(v("#s-budget")),
+        user_id: parseInt(v("#s-user"), 10) || 0,
       };
 
-      console.log("step 1");
-      // Required fields (match server-side)
-      if (!payload.name) return toast("Name is required", false);
-      if (!payload.code) return toast("Code is required", false);
-      if (!payload.quota) return toast("Quota is required", false);
-      if (!payload.budget) return toast("Budget is required", false);
-      if (!payload.user_id) return toast("Select a Store Employee.", false);
-      if (!payload.address) return toast("Address is required", false);
-      if (!payload.phone) return toast("Phone number is required", false);
-      if (!payload.open_hours) return toast("Open hours are required", false);
-
-      // If you also want these required on the front end:
-      // if (!payload.city)  return toast("City is required", false);
-      // if (!payload.state) return toast("State/Province is required", false);
-
-      // Numeric validation when present
-      if (
-        payload.quota !== "" &&
-        (!/^\d+$/.test(payload.quota) || parseInt(payload.quota, 10) < 0)
-      ) {
-        return toast("Quota must be a non-negative integer.", false);
+      if (!payload.name) return err("Store name is required.");
+      if (!payload.code) return err("Store code is required.");
+      if (!payload.city) return err("City is required.");
+      if (!payload.state) return err("Province is required.");
+      if (!payload.address) return err("Street address is required.");
+      if (!payload.postcode) return err("Postal code is required.");
+      if (!payload.phone) return err("Phone number is required.");
+      if (!payload.open_hours) return err("Open hours are required.");
+      if (!payload.user_id) return err("Choose the store employee.");
+      if (payload.quota !== "" && (isNaN(payload.quota) || payload.quota < 0 || Math.floor(payload.quota) !== payload.quota)) {
+        return err("Orders per month must be a whole number, 0 or more.");
       }
-      if (
-        payload.budget !== "" &&
-        (isNaN(payload.budget) || parseFloat(payload.budget) < 0)
-      ) {
-        return toast("Budget must be a non-negative number.", false);
+      if (payload.budget !== "" && (isNaN(payload.budget) || payload.budget < 0)) {
+        return err("Monthly budget must be 0 or more.");
       }
 
-      console.log("step 3");
-
-      toast("Saving…");
-      $btn.prop("disabled", true);
+      err("");
+      bar("Creating store…");
+      $btn.prop("disabled", true).text("Creating…");
 
       $.ajax({
         url: WCSSM.rest + "stores",
@@ -1016,19 +1014,20 @@
         data: JSON.stringify(payload),
         dataType: "json",
       })
-        .done(function () {
-          toast("Created! Redirecting…", true);
+        .done(function (d) {
+          bar("Store created — opening it…");
+          var id = d && d.id ? d.id : "";
           setTimeout(function () {
-            window.location = (WCSSM.home || "/manager/") + "stores";
-          }, 800);
+            window.location = id
+              ? (WCSSM.home || "/manager/") + "stores/edit/" + id + "/"
+              : (WCSSM.home || "/manager/") + "stores";
+          }, 600);
         })
         .fail(function (x) {
           const msg =
-            x.responseJSON?.message || x.statusText || "Request failed";
-          toast(msg, false);
-        })
-        .always(function () {
-          $btn.prop("disabled", false);
+            (x.responseJSON && x.responseJSON.message) || x.statusText || "Couldn’t create this store.";
+          err(msg);
+          $btn.prop("disabled", false).text("Create store");
         });
     });
   };

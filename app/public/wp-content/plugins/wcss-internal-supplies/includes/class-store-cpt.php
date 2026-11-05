@@ -13,6 +13,8 @@ class WCSS_Store_CPT {
     const META_STATE    = '_wcss_store_state';
     const META_POSTCODE = '_wcss_store_postcode';
     const META_COUNTRY  = '_wcss_store_country';
+    const META_PHONE    = '_wcss_store_phone';
+    const META_HOURS    = '_wcss_open_hours';
 
     /**
      * Read a store field. Stores are saved under the META_* keys; a few old

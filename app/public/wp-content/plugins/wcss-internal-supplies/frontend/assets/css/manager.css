@@ -3303,7 +3303,9 @@ html:has(body.wcss-manager-body){margin-top:0 !important}
 .ccm-se-win{display:flex;flex-direction:column;gap:14px}
 .ccm-se-win[hidden]{display:none}
 #se-limits.is-off{opacity:.55}
-.wcss-manager-body .ccm-pol .ccm-input:disabled{background:#F7F5F4;cursor:not-allowed}
+.wcss-manager-body .ccm-pol .ccm-input:disabled,
+.wcss-manager-body .ccm-pol .ccm-input.is-locked,
+.wcss-manager-body .ccm-pol .ccm-input[readonly]{background:#F3F4F6;color:#374151;cursor:default;box-shadow:none}
 .ccm-se-choices{grid-template-columns:repeat(3,minmax(0,1fr))}
 .ccm-se-side{position:sticky;top:88px}
 .ccm-se-sum{background:#121417;color:#fff;border-radius:16px;overflow:hidden;border-bottom:4px solid #C8372D;box-shadow:0 12px 30px rgba(18,20,23,.18)}

@@ -95,3 +95,9 @@ app/public/wp-content/themes/twentytwentyfive/
 app/public/wp-content/themes/index.php
 app/public/wp-content/plugins/index.php
 app/public/wp-content/index.php
+
+# Local tooling
+.tools/
+
+# Local-only secrets / QA notes (never commit)
+.local/

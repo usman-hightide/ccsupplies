@@ -2311,6 +2311,7 @@
     function state() {
       return JSON.stringify({
         name: v("#se-name"), code: v("#se-code"), city: v("#se-city"), state: v("#se-state"), address: v("#se-address"),
+        postcode: v("#se-postcode"), country: v("#se-country") || "CA",
         phone: v("#se-phone"), hours: v("#se-hours"), user: v("#se-user"),
         ld: $("#se-limits-default").is(":checked"), budget: v("#se-budget"), quota: v("#se-quota"),
         wd: $("#se-win-default").is(":checked"), from: v("#se-from"), to: v("#se-to"), rep: $("#se-repeat").is(":checked"),
@@ -2371,7 +2372,8 @@
         $("#se-title").text(plainText(s.name || "Edit store"));
         $("#se-sub").text("Code " + (s.code || "—") + " · " + [s.city, s.state].filter(Boolean).join(", ") + " · ID " + id);
         $("#se-name").val(plainText(s.name || "")); $("#se-code").val(s.code || ""); $("#se-city").val(s.city || ""); $("#se-state").val(s.state || "");
-        $("#se-address").val(s.address || ""); $("#se-phone").val(s.phone || ""); $("#se-hours").val(s.open_hours || "");
+        $("#se-address").val(s.address || ""); $("#se-postcode").val(s.postcode || ""); $("#se-country").val(s.country || "CA");
+        $("#se-phone").val(s.phone || ""); $("#se-hours").val(s.open_hours || "");
         var provs = (all || []).map(function (x) { return x.state; }).filter(function (x, i, a) { return x && a.indexOf(x) === i; }).sort();
         $("#se-provs").html(provs.map(function (p) { return "<option value='" + esc(p) + "'>"; }).join(""));
 
@@ -2407,7 +2409,10 @@
       var ld = $("#se-limits-default").is(":checked"), wd = $("#se-win-default").is(":checked");
       if (!v("#se-name")) return err("Store name is required.");
       if (!v("#se-code")) return err("Store code is required.");
-      if (!v("#se-address")) return err("Address is required.");
+      if (!v("#se-city")) return err("City is required.");
+      if (!v("#se-state")) return err("Province is required.");
+      if (!v("#se-address")) return err("Street address is required.");
+      if (!v("#se-postcode")) return err("Postal code is required.");
       if (!v("#se-phone")) return err("Phone number is required.");
       if (!v("#se-hours")) return err("Open hours are required.");
       if (!(+v("#se-user") > 0)) return err("Choose the store employee.");
@@ -2419,7 +2424,8 @@
       var $b = $(this).prop("disabled", true).text("Saving…");
       req("PUT", "stores/" + id, {
         name: v("#se-name"), code: v("#se-code"), city: v("#se-city"), state: v("#se-state"),
-        address: v("#se-address"), phone: v("#se-phone"), open_hours: v("#se-hours"), user_id: +v("#se-user"),
+        address: v("#se-address"), postcode: v("#se-postcode"), country: v("#se-country") || "CA",
+        phone: v("#se-phone"), open_hours: v("#se-hours"), user_id: +v("#se-user"),
       })
         .then(function () {
           return req("PUT", "stores/" + id + "/policy", {
