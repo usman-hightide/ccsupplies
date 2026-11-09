@@ -10,6 +10,7 @@ $_SERVER['HTTP_HOST'] = 'ccsupplies.local'; $_SERVER['REQUEST_URI'] = '/';
 define('WP_USE_THEMES', false);
 require __DIR__ . '/../app/public/wp-load.php';
 if ( ! preg_match( '#\.local(/|$)#', home_url() ) ) { fwrite( STDERR, "Refusing to run: not a .local site (" . home_url() . ")\n" ); exit( 1 ); }
+$ledger_ym = (new WC_DateTime())->date_i18n('Y-m'); $ledger_bk = WCSS_Ledger::get(8177, $ledger_ym); // Throwaway orders must not change Test store's month totals.
 $ADMIN = (int) get_users(['role' => 'administrator', 'number' => 1, 'fields' => 'ID'])[0];
 wp_set_current_user($ADMIN);
 add_filter('pre_wp_mail', '__return_false', 1);
@@ -64,7 +65,8 @@ try {
   $srow = $s['rows'][0] ?? [];
   $prev = $before['s']['rows'][0]['spend'] ?? 0;
   ok('Store report: Test store spend +50', count($s['rows']) === 1 && near($srow['spend'] - $prev, 50), json_encode($srow));
-  ok('Store report: budget used = spend / budget', $srow['budget'] > 0 && near($srow['used'], $srow['spend'] / $srow['budget']));
+  $ink = array_sum(array_column(array_filter(run($Q + ['type' => 'orders', 'status' => 'approved'])['rows'], function ($r) { return $r['type'] === 'Ink'; }), 'total'));
+  ok('Store report: budget used = non-ink spend / budget', $srow['budget'] > 0 && near($srow['used'], ($srow['spend'] - $ink) / $srow['budget']));
   $p = run($Q + ['type' => 'products', 'product' => (string) $PROD]);
   ok('Product filter: one product row with units counted', count($p['rows']) === 1 && $p['rows'][0]['units'] >= 4);
   $u = run($Q + ['type' => 'users', 'user' => (string) $USER]);
@@ -112,6 +114,17 @@ try {
   ok('Built-in preset can’t be deleted', rest('DELETE', '/wcss/v1/reports/presets/b-vendors-month')[0] === 400);
   ok('Delete saved preset', rest('DELETE', '/wcss/v1/reports/presets/' . $pr['id'])[0] === 200 && ! in_array($pr['id'], array_column(WCSS_Reports::presets(), 'id'), true));
 
+  // ---------- dashboard matches the reports (SOW 1.28) ----------
+  // The test orders above include a rejected G&T order (99.00) and an awaiting Amazon one (15.00): neither is spend.
+  [$st, $ov] = rest('GET', '/wcss/v1/reports/overview');
+  $vm = run(['type' => 'vendors', 'range' => 'this_month']);
+  $ovk = []; foreach ($ov['vendors'] as $r) $ovk[$r['name']] = $r['revenue'];
+  $ok_all = $st === 200 && count($ov['vendors']) === count($vm['rows']);
+  foreach ($vm['rows'] as $r) $ok_all = $ok_all && isset($ovk[$r['vendor']]) && near($ovk[$r['vendor']], $r['spend']);
+  ok('Dashboard top vendors = Spend by vendor report, per vendor', $ok_all, wp_json_encode([$ov['vendors'], $vm['rows']]));
+  ok('Dashboard vendor spend adds up to the approved spend', near(array_sum(array_column($ov['vendors'], 'revenue')), $vm['summary']['spend']));
+  ok('Rejected and waiting orders are not counted as vendor spend', near($vm['summary']['gt'] - run(['type' => 'vendors', 'range' => 'this_month', 'store' => '', 'vendor' => 'gt'])['summary']['gt'], 0) && ! near(array_sum(array_column($ov['vendors'], 'revenue')), $vm['summary']['spend'] + 99));
+
   // ---------- exports ----------
   $csv = WCSS_Reports::csv($v);
   $lines = array_map('str_getcsv', array_filter(explode("\n", trim(substr($csv, 3)))));
@@ -133,6 +146,7 @@ try {
   ok('Store employee cannot run reports', rest('GET', '/wcss/v1/reports/run', null, ['type' => 'vendors'])[0] === 403);
   ok('Store employee cannot save presets', rest('POST', '/wcss/v1/reports/presets', ['name' => 'x', 'filters' => []])[0] === 403);
 } finally {
+  $ledger_now = WCSS_Ledger::get(8177, $ledger_ym); WCSS_Ledger::bump(8177, $ledger_ym, (int) $ledger_bk['orders_count'] - (int) $ledger_now['orders_count'], (float) $ledger_bk['spend_total'] - (float) $ledger_now['spend_total']);
   wp_set_current_user($ADMIN);
   global $wpdb;
   if ($orders) $wpdb->query("DELETE FROM {$wpdb->prefix}wcss_email_logs WHERE subject REGEXP '#(" . implode('|', array_map('intval', $orders)) . ")([^0-9]|$)'");

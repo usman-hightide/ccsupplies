@@ -159,6 +159,13 @@
     bump($(this).siblings(".qty"), 1);
   });
 
+  // A number typed into the box updates the cart too (the Update cart button is hidden).
+  // Changes fired by the +/- buttons are skipped: bump() already updates the cart.
+  $(document.body).on("change", ".woocommerce-cart-form .qty", function (e) {
+    if (e.isTrigger) return;
+    refreshCartUi();
+  });
+
   $(document.body).on("change", ".cc-cart-vendor__select", function () {
     selectVendor($(this));
   });

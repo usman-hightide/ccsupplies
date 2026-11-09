@@ -26,6 +26,7 @@
     over_quota: "Already ordered this month",
     over_budget: "Over monthly budget",
     no_store: "No store linked",
+    ink_review: "Ink order — always needs Supply Ops review",
   };
 
   /* ---------- helpers ---------- */
@@ -81,12 +82,6 @@
   function ymd(d) {
     return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2);
   }
-  function inRange(s, r) {
-    if (r === "all") return true;
-    var t = dt(s).getTime();
-    if (r === "month") return t >= monthStart().getTime();
-    return t >= Date.now() - { d7: 7, d30: 30 }[r] * DAY;
-  }
   function errMsg(x, fallback) {
     return (x && x.responseJSON && x.responseJSON.message) || (x && x.statusText) || fallback;
   }
@@ -125,6 +120,7 @@
   function normOrder(o) {
     var status = STATUS[o.status_slug] || "other";
     var vendor = o.vendor_label && o.vendor_label !== "—" ? plainText(o.vendor_label) : "";
+    var orderType = o.order_type === "ink" ? "ink" : "stationery";
     return {
       id: o.id,
       date: o.date || "",
@@ -132,6 +128,7 @@
       customer: plainText(o.customer || ""),
       vendor: vendor,
       vendors: o.vendors || [],
+      placedBySupplyOps: !!o.placed_by,
       hasAmazon: !!o.has_amazon_order,
       storeId: o.store && o.store.id ? +o.store.id : 0,
       status: status,
@@ -139,6 +136,8 @@
       pillCls: "ccm-pill " + (LABEL[status] ? "p-" + status : "p-neutral"),
       policy: o.policy || null,
       reasons: o.policy && !o.policy.in_policy ? (o.policy.reasons || []).map(function (r) { return REASON[r] || r; }) : [],
+      orderType: orderType,
+      isInk: orderType === "ink",
     };
   }
   function normProduct(p) {
@@ -146,8 +145,10 @@
       id: p.id,
       name: plainText(p.name),
       sku: p.sku || "",
-      vendor: p.vendor && p.vendor.name ? plainText(p.vendor.name) : "",
-      woo: num(p.price),
+      // Live vendors can win a product without a vendor term, so fall back to the winner.
+      vendor: p.vendor && p.vendor.name ? plainText(p.vendor.name) : ({ amazon: "Amazon", gt: "Grand & Toy" })[(p.cheapest || {}).vendor] || "",
+      orderable: p.orderable !== false,
+      assigned: (p.assigned_vendor_ids || []).length > 0,
       amz: num(p.amazon_price),
       gt: num(p.gt_price),
     };
@@ -169,7 +170,7 @@
     return get("vendors").then(function (d) {
       return ((d && d.items) || d || []).map(function (v) {
         return {
-          id: v.id, name: plainText(v.name), email: v.email || "", phone: v.phone || "", address: v.address || "",
+          id: v.id, name: plainText(v.name), active: v.active !== false, email: v.email || "", phone: v.phone || "", address: v.address || "",
           contact: v.contact || "", website: v.website || "", account_no: v.account_no || "", notes: v.notes || "",
           budgets: v.budgets || {}, budget_default: v.budget_default == null ? null : +v.budget_default, feed: v.feed || null,
         };
@@ -261,6 +262,26 @@
     confirmOk = opts.onOk;
     openLayer("ccm-confirm");
   }
+  /** Permanently delete an order (DB cleanup). onDone runs after a successful delete. */
+  function deleteOrderDialog(id, onDone) {
+    confirmDialog({
+      title: "Delete order #" + id + " permanently?",
+      sub: "This removes the order, its items, history, notes and email log from the system. It can’t be undone. " +
+        "If the order was already sent to Amazon or Grand & Toy, this does not cancel it with the vendor.",
+      ok: "Delete order",
+      busyText: { title: "Deleting order #" + id + "…", sub: "Cleaning up all of its records." },
+      onOk: function () {
+        return req("DELETE", "orders/" + id, { confirm: id }).then(
+          function () {
+            toast("Order #" + id + " deleted");
+            if (onDone) onDone();
+          },
+          function (x) { toast(errMsg(x, "Couldn’t delete order #" + id)); }
+        );
+      },
+    });
+  }
+
   $(document).on("click", "#cf-ok", function () {
     if ($("#ccm-confirm .ccm-modal").hasClass("is-busy")) return;
     var busy = typeof confirmBusyText === "function" ? confirmBusyText() : confirmBusyText;
@@ -314,7 +335,7 @@
             ? "<textarea class='ccm-input ccm-textarea' name='" + f.k + "' rows='3' placeholder='" + esc(f.ph || "") + "'>" + esc(v) + "</textarea>"
             : f.type === "checkbox"
             ? "<span class='ccm-check'><input type='checkbox' name='" + f.k + "' value='1'" + (checked ? " checked" : "") + ">" + (f.hint ? "<span><span class='ccm-check-l'>" + esc(f.l) + "</span><span class='ccm-check-h'>" + esc(f.hint) + "</span></span>" : "") + "</span>"
-            : "<input class='ccm-input' name='" + f.k + "' type='" + (f.type || "text") + "'" + (f.type === "number" ? " min='0' step='0.01'" : "") + " placeholder='" + esc(f.ph || "") + "' value='" + esc(v) + "'>";
+            : "<input class='ccm-input' name='" + f.k + "' type='" + (f.type || "text") + "'" + (f.type === "number" ? " min='0' step='0.01'" : "") + (f.noAutofill ? " autocomplete='off'" : "") + " placeholder='" + esc(f.ph || "") + "' value='" + esc(v) + "'>";
           // Checkbox already shows its own label inside .ccm-check; skip the outer field label text.
           if (f.type === "checkbox") {
             return "<label class='ccm-field'" + (f.full ? " style='grid-column: 1 / -1'" : "") + ">" + control + "</label>";
@@ -370,8 +391,9 @@
       function (x) {
         if (x.status === 409 && status === "approved") {
           var d = $.Deferred();
+          var why = (x.responseJSON && x.responseJSON.data && x.responseJSON.data.reasons) || [];
           confirmDialog({
-            title: "Confirm exception approval?",
+            title: why.indexOf("ink_review") > -1 ? "Approve this ink order?" : "Confirm exception approval?",
             sub: errMsg(x, "This order is outside the store’s ordering policy."),
             ok: "Approve & place order",
             busyText: {
@@ -392,6 +414,20 @@
 
   var drawerOrder = null;
   var drawerChanged = null;
+  /**
+   * Add a History line. One status change logs two events (WooCommerce's and the manager's),
+   * so back-to-back repeats become one line, keeping the later one with any note.
+   */
+  function pushHistory(hist, h, label) {
+    var item = { base: h.text, text: h.text + (h.note ? " — " + h.note : ""), label: label, kind: h.kind };
+    var last = hist[hist.length - 1];
+    if (last && last.base === h.text) {
+      if (h.note) hist[hist.length - 1] = item;
+      return;
+    }
+    hist.push(item);
+  }
+
   var EVENT_TEXT = {
     status_change: function (p) {
       var s = STATUS[p.new] || "", was = STATUS[p.old] || "";
@@ -406,14 +442,31 @@
     },
     note: function (p) { return { text: "Note added", kind: "edit", note: p.note }; },
     edit: function () { return { text: "Order details edited", kind: "edit" }; },
-    shipment_update: function () { return { text: "Shipment updated", kind: "edit" }; },
+    shipment_update: function (p) {
+      var bits = [p.carrier, p.tracking ? "tracking " + p.tracking : "", p.edd ? "expected " + p.edd : ""].filter(Boolean).join(" · ");
+      return { text: "Delivery details updated", kind: "edit", note: bits || "cleared" };
+    },
     receiving_update: function () { return { text: "Receiving updated", kind: "edit" }; },
+    return_requested: function (p) { return { text: "Return " + (p["return"] || "") + " requested by the store", kind: "edit", note: [p.reason, p.items ? p.items + " item" + (p.items === 1 ? "" : "s") : ""].filter(Boolean).join(" · ") }; },
+    return_approved: function (p) { return { text: "Return " + (p["return"] || "") + " approved", kind: "approved", note: p.note }; },
+    return_rejected: function (p) { return { text: "Return " + (p["return"] || "") + " rejected", kind: "rejected", note: p.note }; },
+    return_closed: function (p) { return { text: "Return " + (p["return"] || "") + " closed", kind: "edit", note: p.note }; },
+    manager_order: function () { return null; }, // Shown as the first History line.
+    vendor_po: function (p) { return { text: "Purchase order emailed to " + ((p.vendors || []).join(", ") || "the vendor"), kind: "approved" }; },
+    items_edit: function (p) {
+      var ch = (p.changes || []).map(function (c) {
+        return !c.to ? "removed " + c.name : !c.from ? "added " + c.to + " × " + c.name : c.name + " " + c.from + " → " + c.to;
+      }).join("; ");
+      return { text: "Items edited: total " + money(+p.before || 0) + " → " + money(+p.after || 0), kind: "edit", note: ch };
+    },
   };
 
   function renderDrawer(o) {
     var n = normOrder(o);
     $("#dr-id").text("#" + n.id);
     $("#dr-status").attr("class", n.pillCls).text(n.statusLabel);
+    $("#dr-ink-pill").remove();
+    if (n.isInk) $("#dr-status").after("<span class='ccm-pill p-ink' id='dr-ink-pill' style='margin-left:8px'>Ink order</span>");
     $("#dr-placed").text(n.date ? fd(n.date) + " at " + ft(n.date) : "—");
     $("#dr-customer").text(n.customer || "—");
     var p = o.policy;
@@ -424,7 +477,7 @@
         !p ? "" :
         p.in_policy
           ? "<strong>Within store policy</strong><div>Inside the ordering window, within budget and the monthly order limit.</div>"
-          : "<strong>" + (p.overridden ? "Approved as an exception" : "Needs Supply Ops approval") + "</strong>" +
+          : "<strong>" + (!p.overridden ? "Needs Supply Ops approval" : (p.reasons || []).indexOf("ink_review") > -1 ? "Approved by Supply Ops" : "Approved as an exception") + "</strong>" +
             "<ul>" + (p.messages || []).map(function (m) { return "<li>" + esc(m) + "</li>"; }).join("") + "</ul>"
       );
     $("#dr-total").text(money(n.total));
@@ -438,8 +491,7 @@
       var f = EVENT_TEXT[ev.type];
       if (!f) return;
       var h = f(ev.payload || {});
-      if (!h) return;
-      hist.push({ text: h.text + (h.note ? " — " + h.note : ""), label: fdt(ev.created_at), kind: h.kind });
+      if (h) pushHistory(hist, h, fdt(ev.created_at));
     });
     if (hist.length === 1 && n.status !== "pending" && LABEL[n.status]) hist.push({ text: n.statusLabel, label: "Earlier", kind: n.status });
     $("#dr-history").html(
@@ -582,18 +634,66 @@
 
   /* ---------- Orders ---------- */
   screens.orders = function () {
-    var S = { orders: [], status: "all", q: "", vendor: "all", range: "all" };
+    var S = { orders: [], status: "all", q: "", vendor: "all", month: "all", week: "all", weeks: [], type: "all" };
     var P = pager("#o-pager", function () { render(); });
     var want = new URLSearchParams(location.search).get("status") || "";
+    var wantType = new URLSearchParams(location.search).get("type") || "";
     if (/awaiting|pending|on-hold/.test(want)) S.status = "pending";
     else if (LABEL[STATUS[want]]) S.status = STATUS[want];
+    if (wantType === "ink" || wantType === "stationery") S.type = wantType;
+
+    /* The ordering weeks come from the province days in Ordering policy. Provinces sharing days are one option,
+     * and days no province uses get their own option so no order falls out of every week. */
+    function ordersWeeks(rows) {
+      var byDays = {}, used = {}, weeks = [];
+      rows.forEach(function (w) {
+        var k = w.start + "-" + w.end;
+        (byDays[k] = byDays[k] || { key: k, start: w.start, end: w.end, names: [] }).names.push(w.name);
+        for (var d = w.start; d <= w.end; d++) used[d] = true;
+      });
+      Object.keys(byDays).map(function (k) { return byDays[k]; })
+        .sort(function (a, b) { return a.start - b.start || a.end - b.end; })
+        .forEach(function (w) {
+          weeks.push({ key: w.key, start: w.start, end: w.end, label: ordinal(w.start) + "–" + ordinal(w.end) + " · " + w.names.join(", ") });
+        });
+      var left = [];
+      for (var d = 1; d <= 31; d++) if (!used[d]) left.push(d);
+      if (left.length) {
+        var joined = left[left.length - 1] - left[0] === left.length - 1;
+        weeks.push({ key: "other", label: "Other days" + (joined ? " · " + ordinal(left[0]) + "–" + ordinal(left[left.length - 1]) : ""), used: used });
+      }
+      return weeks;
+    }
+    function inWeek(date) {
+      if (S.week === "all") return true;
+      var day = +String(date).slice(8, 10);
+      return S.weeks.some(function (w) {
+        if (w.key !== S.week) return false;
+        return w.key === "other" ? !w.used[day] : day >= w.start && day <= w.end;
+      });
+    }
+    function thisMonth() { return ymd(new Date()).slice(0, 7); }
+    function monthOptions() {
+      var seen = {}; seen[thisMonth()] = true;
+      S.orders.forEach(function (o) { if (o.date) seen[String(o.date).slice(0, 7)] = true; });
+      $("#o-month").find("option").slice(1).remove();
+      Object.keys(seen).sort().reverse().forEach(function (m) {
+        var p = m.split("-"), label = new Date(+p[0], +p[1] - 1, 1).toLocaleString("en-CA", { month: "long", year: "numeric" });
+        $("#o-month").append($("<option>").val(m).text(label));
+      });
+      $("#o-month").val(S.month);
+      dropdown.refresh("#o-month");
+    }
 
     function base0() {
       var q = S.q.toLowerCase();
       return S.orders.filter(function (o) {
+        if (S.type === "ink" && !o.isInk) return false;
+        if (S.type === "stationery" && o.isInk) return false;
         if (S.vendor === "none" && o.vendor) return false;
         if (S.vendor !== "all" && S.vendor !== "none" && o.vendor !== S.vendor) return false;
-        if (!inRange(o.date, S.range)) return false;
+        if (S.month !== "all" && String(o.date).slice(0, 7) !== S.month) return false;
+        if (!inWeek(o.date)) return false;
         if (q && (String(o.id) + " " + o.customer).toLowerCase().indexOf(q) < 0) return false;
         return true;
       });
@@ -603,7 +703,7 @@
     }
 
     function render() {
-      var b = base0(), rows = view(), page = P.slice(rows, [S.status, S.q, S.vendor, S.range]);
+      var b = base0(), rows = view(), page = P.slice(rows, [S.status, S.q, S.vendor, S.month, S.week, S.type]);
       $("#o-tabs").html(
         [["all", "All"], ["pending", "Awaiting approval"], ["approved", "Approved"], ["rejected", "Rejected"]]
           .map(function (t) {
@@ -613,6 +713,7 @@
           })
           .join("")
       );
+      if ($("#o-type").length) $("#o-type").val(S.type);
       $("#o-rows").html(
         page.map(function (o) {
           return (
@@ -623,8 +724,12 @@
             "<td><span class='ccm-pill " + (o.vendor ? "p-neutral" : "p-pending") + "'>" + esc(o.vendor || "Not assigned") + "</span></td>" +
             "<td class='num ccm-strong'>" + money(o.total) + "</td>" +
             "<td><span class='" + o.pillCls + "'>" + esc(o.statusLabel) + "</span>" +
-            (o.status === "pending" && o.reasons.length ? "<div class='ccm-reason'>Needs approval: " + esc(o.reasons.join(" · ")) + "</div>" : "") + "</td>" +
-            "<td class='num'><a class='ccm-btn sm' href='" + base + "orders/view/" + o.id + "' data-ccm-order='" + o.id + "'>View details</a></td>" +
+            (o.placedBySupplyOps ? "<span class='ccm-manual-tag'>Manual order</span>" : "") +
+            "</td>" +
+            "<td class='num'><div class='ccm-rowacts'>" +
+            "<a class='ccm-btn sm' href='" + base + "orders/view/" + o.id + "' data-ccm-order='" + o.id + "'>View details</a>" +
+            "<button type='button' class='ccm-btn sm danger' data-o-del='" + o.id + "' aria-label='Delete order #" + o.id + "'>Delete</button>" +
+            "</div></td>" +
             "</tr>"
           );
         }).join("")
@@ -642,6 +747,7 @@
         var names = orders.map(function (o) { return o.vendor; }).filter(function (v, i, a) { return v && a.indexOf(v) === i; }).sort();
         setOptions($("#o-vendor"), names, 2);
         $("#o-vendor").val(S.vendor);
+        monthOptions();
         render();
       }).fail(function (x) {
         $("#o-rows").html("<tr><td colspan='7' class='ccm-empty'>" + esc(errMsg(x, "Couldn’t load orders")) + "</td></tr>");
@@ -654,30 +760,50 @@
     });
     $("#o-q").on("input", function () { S.q = $.trim(this.value); render(); });
     $("#o-vendor").on("change", function () { S.vendor = this.value; render(); });
-    $("#o-range").on("change", function () { S.range = this.value; render(); });
+    $("#o-month").on("change", function () { S.month = this.value; render(); });
+    $("#o-week").on("change", function () {
+      S.week = this.value;
+      // A week means this month unless another month is picked.
+      if (S.week !== "all" && S.month === "all") { S.month = thisMonth(); $("#o-month").val(S.month); dropdown.refresh("#o-month"); }
+      render();
+    });
+    $(document).off("change.oType").on("change.oType", "#o-type", function () { S.type = this.value || "all"; render(); });
+    $("#o-rows").on("click", "[data-o-del]", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var oid = +$(this).data("o-del");
+      deleteOrderDialog(oid, function () {
+        S.orders = S.orders.filter(function (o) { return o.id !== oid; });
+        render();
+      });
+    });
     $("#o-clear").on("click", function () {
-      S.q = ""; S.vendor = "all"; S.range = "all"; S.status = "all";
-      $("#o-q").val(""); $("#o-vendor").val("all"); $("#o-range").val("all");
+      S.q = ""; S.vendor = "all"; S.month = "all"; S.week = "all"; S.status = "all"; S.type = "all";
+      $("#o-q").val(""); $("#o-vendor").val("all"); $("#o-month").val("all"); $("#o-week").val("all"); $("#o-type").val("all");
+      ["#o-vendor", "#o-month", "#o-week", "#o-type"].forEach(function (id) { dropdown.refresh(id); });
       render();
     });
     $("[data-ccm-export]").on("click", function () {
-      csv("orders", ["Order", "Date", "Requested by", "Vendor", "Total", "Status"], view().map(function (o) {
-        return [o.id, o.date, o.customer, o.vendor || "Not assigned", o.total.toFixed(2), o.statusLabel];
+      csv("orders", ["Order", "Type", "Date", "Requested by", "Vendor", "Total", "Status"], view().map(function (o) {
+        return [o.id, o.isInk ? "Ink" : "Stationery", o.date, o.customer, o.vendor || "Not assigned", o.total.toFixed(2), o.statusLabel];
       }));
     });
     window.ccmReload = function () { load(); };
     load();
+    get("policy").done(function (pol) {
+      S.weeks = ordersWeeks(pol.province_weeks || []);
+      S.weeks.forEach(function (w) { $("#o-week").append($("<option>").val(w.key).text(w.label)); });
+      dropdown.refresh("#o-week");
+    });
   };
 
   /* ---------- Products ---------- */
   function productFlags(p) {
-    var prices = [p.woo, p.amz, p.gt].filter(function (x) { return x != null && x > 0; });
+    var prices = [p.amz, p.gt].filter(function (x) { return x != null && x > 0; });
     var best = prices.length > 1 ? Math.min.apply(null, prices) : null;
     var flags = [];
-    if (!p.vendor) flags.push(["No vendor", "p-pending"]);
-    if (!p.woo) flags.push(["Price is $0", "p-rejected"]);
+    if (!p.orderable) flags.push([p.assigned ? "No vendor price" : "No vendor", "p-rejected"]);
     if (/test|product 1/i.test(p.name)) flags.push(["Test item", "p-neutral"]);
-    if (best != null && p.woo === best) flags.push(["Website is cheapest", "p-approved"]);
     return { best: best, flags: flags, compare: prices.length > 1 };
   }
 
@@ -694,7 +820,7 @@
         if (q && (p.name + " " + p.sku).toLowerCase().indexOf(q) < 0) return false;
         if (S.vendor === "none" && p.vendor) return false;
         if (S.vendor !== "all" && S.vendor !== "none" && p.vendor !== S.vendor) return false;
-        if (S.filter === "issues" && p.vendor && p.woo > 0) return false;
+        if (S.filter === "issues" && p.orderable) return false;
         if (S.filter === "compare" && !productFlags(p).compare) return false;
         return true;
       });
@@ -713,7 +839,7 @@
             "<td style='white-space:normal;min-width:220px'><div class='ccm-strong'>" + esc(p.name) + "</div><div class='ccm-muted ccm-small'>ID " + p.id + "</div></td>" +
             "<td style='font-variant-numeric:tabular-nums'>" + esc(p.sku) + "</td>" +
             "<td><span class='ccm-pill " + (p.vendor ? "p-neutral" : "p-pending") + "'>" + esc(p.vendor || "Not assigned") + "</span></td>" +
-            "<td class='num'>" + cell(p.woo) + "</td><td class='num'>" + cell(p.amz) + "</td><td class='num'>" + cell(p.gt) + "</td>" +
+            "<td class='num'>" + cell(p.amz) + "</td><td class='num'>" + cell(p.gt) + "</td>" +
             "<td><div class='ccm-flags'>" + f.flags.map(function (x) { return "<span class='ccm-pill " + x[1] + "'>" + x[0] + "</span>"; }).join("") + "</div></td>" +
             "<td class='num'><span class='ccm-actions' style='justify-content:flex-end;flex-wrap:nowrap'>" +
             "<a class='ccm-btn sm' href='" + base + "products/edit/" + p.id + "'>Edit</a>" +
@@ -729,7 +855,7 @@
     $.when(loadProducts(), loadVendors())
       .done(function (products, vendors) {
         S.products = products;
-        var names = vendors.map(function (v) { return v.name; }).sort();
+        var names = vendors.filter(function (v) { return v.active; }).map(function (v) { return v.name; }).sort();
         setOptions($("#pl-vendor"), names, 2);
         if (wantVendor) {
           var w = wantVendor.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -741,7 +867,7 @@
         render();
       })
       .fail(function (x) {
-        $("#p-rows").html("<tr><td colspan='8' class='ccm-empty'>" + esc(errMsg(x, "Couldn’t load products")) + "</td></tr>");
+        $("#p-rows").html("<tr><td colspan='7' class='ccm-empty'>" + esc(errMsg(x, "Couldn’t load products")) + "</td></tr>");
       });
 
     $("#p-q").on("input", function () { S.q = $.trim(this.value); render(); });
@@ -765,8 +891,8 @@
       });
     });
     $("[data-ccm-export]").on("click", function () {
-      csv("products", ["ID", "Product", "SKU", "Vendor", "Website", "Amazon", "Grand & Toy"], view().map(function (p) {
-        return [p.id, p.name, p.sku, p.vendor, p.woo, p.amz, p.gt];
+      csv("products", ["ID", "Product", "SKU", "Vendor", "Amazon", "Grand & Toy", "Can be ordered"], view().map(function (p) {
+        return [p.id, p.name, p.sku, p.vendor, p.amz, p.gt, p.orderable ? "Yes" : "No"];
       }));
     });
   };
@@ -833,15 +959,17 @@
 
     function render() {
       $("#v-cards").html(
-        S.vendors.map(function (v) {
+        S.vendors.slice().sort(function (a, b) { return b.active - a.active; }).map(function (v) {
           var vo30 = ordersOf(v);
           var products = S.products.filter(function (p) { return p.vendor === v.name; }).length;
           var last = vo30.length ? vo30[0].date : "";
           return (
-            "<article class='ccm-card ccm-vcard'>" +
+            "<article class='ccm-card ccm-vcard" + (v.active ? "" : " is-inactive") + "'>" +
             "<div class='ccm-vhead'><div class='ccm-vlogo' aria-hidden='true'>" + esc(initials(v.name)) + "</div>" +
             "<div style='flex:1;min-width:0'><div class='ccm-strong' style='font-size:16px'>" + esc(v.name) + "</div></div>" +
-            "<span class='ccm-pill " + (v.email ? "p-approved" : "p-pending") + "'>" + (v.email ? "Ready" : "Missing contact") + "</span></div>" +
+            (v.active
+              ? "<span class='ccm-pill " + (v.email ? "p-approved" : "p-pending") + "'>" + (v.email ? "Ready" : "Missing contact") + "</span>"
+              : "<span class='ccm-pill p-neutral'>Inactive</span>") + "</div>" +
             "<div class='ccm-vstats'>" +
             "<div><div class='ccm-vstat-v'>" + products + "</div><div class='ccm-vstat-l'>Products</div></div>" +
             "<div><div class='ccm-vstat-v'>" + vo30.length + "</div><div class='ccm-vstat-l'>Orders (30d)</div></div>" +
@@ -851,8 +979,9 @@
             row("Last order", last ? esc(fdt(last)) : "<span class='ccm-muted'>None in 30 days</span>") +
             feedRow(v) + "</dl>" +
             "<div class='ccm-actions ccm-vacts'><button type='button' class='ccm-btn sm' data-edit='" + v.id + "'>Edit details</button>" +
-            "<a class='ccm-btn sm' href='" + base + "products?vendor=" + encodeURIComponent(v.name) + "'>View products</a>" +
-            "<button type='button' class='ccm-btn sm danger' style='margin-left:auto' data-del='" + v.id + "'>Delete</button></div>" +
+            (v.active ? "<a class='ccm-btn sm' href='" + base + "products?vendor=" + encodeURIComponent(v.name) + "'>View products</a>" : "") +
+            "<button type='button' class='ccm-btn sm' data-status='" + v.id + "'>" + (v.active ? "Deactivate" : "Activate") + "</button>" +
+            "<button type='button' class='ccm-btn sm danger' data-del='" + v.id + "'>Delete</button></div>" +
             "</article>"
           );
         }).join("") || "<div class='ccm-card ccm-empty'><strong>No vendors yet</strong>Add the suppliers that fulfil store orders.</div>"
@@ -1026,6 +1155,23 @@
           },
         });
       })
+      .on("click", "[data-status]", function () {
+        var v = find(+$(this).data("status"));
+        var on = !v.active;
+        confirmDialog({
+          title: (on ? "Activate " : "Deactivate ") + v.name + "?",
+          sub: on
+            ? "Its products and prices come back for stores and Supply Managers."
+            : "It will be removed from product forms, filters and pricing. Products with no other active vendor are hidden from stores and Supply Managers until you activate it again. Products that also have an active vendor stay available through that vendor.",
+          ok: on ? "Activate" : "Deactivate",
+          onOk: function () {
+            return req("POST", "vendors/" + v.id + "/status", { active: on }).then(
+              function () { toast(v.name + (on ? " activated" : " deactivated")); reloadVendors(); },
+              function (x) { toast(errMsg(x, "Couldn’t update vendor")); }
+            );
+          },
+        });
+      })
       .on("click", "[data-del]", function () {
         var v = find(+$(this).data("del"));
         confirmDialog({
@@ -1038,6 +1184,214 @@
           },
         });
       });
+  };
+
+  /* ---------- New order (Supply Ops, any store + any active vendor) ---------- */
+  screens["orders-new"] = function () {
+    var S = { stores: [], vendors: [], vendor: null, items: [], cart: [] };
+    var timer = null, seq = 0, policyTimer = null, policySeq = 0;
+
+    function storeSel() {
+      var id = +$("#no-store").val();
+      return S.stores.filter(function (x) { return x.id === id; })[0] || null;
+    }
+    function cartQty(id) {
+      var l = S.cart.filter(function (x) { return x.id === id; })[0];
+      return l ? l.qty : 0;
+    }
+    function renderResults() {
+      if (!S.items.length) {
+        $("#no-results").html("<div class='ccm-empty'><strong>No products found</strong>Assign products to this vendor in Products.</div>");
+        return;
+      }
+      $("#no-results").html(S.items.map(function (p) {
+        var inCart = cartQty(p.id);
+        return "<div class='ccm-no-row'>" +
+          (p.image ? "<img class='ccm-no-img' src='" + esc(p.image) + "' alt=''>" : "<span class='ccm-no-img' aria-hidden='true'></span>") +
+          "<div class='ccm-no-info'><div class='ccm-strong'>" + esc(p.name) + "</div><div class='ccm-muted'>" + (p.sku ? "SKU " + esc(p.sku) : "No SKU") + "</div></div>" +
+          "<div class='ccm-no-price'>" + (p.available ? money(p.price) : "<span class='ccm-muted'>No price</span>") + "</div>" +
+          "<button type='button' class='ccm-btn sm " + (inCart ? "" : "primary") + "' data-add='" + p.id + "'" + (p.available ? "" : " disabled") + ">" + (inCart ? "In cart (" + inCart + ")" : "Add to cart") + "</button>" +
+          "</div>";
+      }).join(""));
+    }
+    function renderCart() {
+      var n = 0, sub = 0;
+      $("#no-lines").html(S.cart.map(function (l, i) {
+        n += l.qty; sub += l.qty * l.price;
+        return "<div class='ccm-no-line'>" +
+          "<span class='ccm-no-num'>" + (i + 1) + "</span>" +
+          "<div class='ccm-no-info'><div class='ccm-strong'>" + esc(l.name) + "</div>" +
+          (l.ref ? "<div class='ccm-muted'>" + esc(l.refLabel) + " " + esc(l.ref) + "</div>" : "") +
+          "<div class='ccm-no-meta'><span>" + money(l.price) + " each</span><span class='ccm-no-avail'>Available</span></div>" +
+          "<div class='ccm-no-ctrl'><div class='ccm-no-step'>" +
+          "<button type='button' data-step='-1' data-id='" + l.id + "' aria-label='Decrease quantity of " + esc(l.name) + "'" + (l.qty < 2 ? " disabled" : "") + ">−</button>" +
+          "<input type='number' min='1' max='999' value='" + l.qty + "' data-qty='" + l.id + "' aria-label='Quantity of " + esc(l.name) + "'>" +
+          "<button type='button' data-step='1' data-id='" + l.id + "' aria-label='Increase quantity of " + esc(l.name) + "'>+</button></div>" +
+          "<b class='ccm-no-ltotal'>" + money(l.qty * l.price) + "</b>" +
+          "<button type='button' class='ccm-linkbtn' data-rm='" + l.id + "'>Remove</button></div></div></div>";
+      }).join("") || "<p class='ccm-muted'>Your cart is empty.</p>");
+      $("#no-count").text(n ? n + (n === 1 ? " item" : " items") : "");
+      $("#no-items").text(n);
+      $("#no-sub").text(money(sub));
+      var live = S.vendor && S.vendor.key;
+      $("#no-note").text(live ? "Tax and shipping are calculated at checkout." : "This vendor has no online checkout. The order is approved here, and the vendor is emailed if it has an email address.");
+      var st = storeSel();
+      $("#no-go").text(live ? "Continue to checkout" : "Place order").prop("disabled", !S.cart.length || !st || !st.ready);
+      $("#no-store-warn").prop("hidden", !st || st.ready);
+      loadPolicy();
+    }
+    function loadPolicy() {
+      var st = storeSel();
+      S.policy = null;
+      clearTimeout(policyTimer);
+      if (!st) { $("#no-policy").prop("hidden", true).empty(); return; }
+      var mine = ++policySeq;
+      policyTimer = setTimeout(function () {
+        get("new-order/policy", {
+          store: st.id,
+          amount: S.cart.reduce(function (a, l) { return a + l.qty * l.price; }, 0).toFixed(2),
+          ids: S.cart.map(function (l) { return l.id; }).join(","),
+        }).done(function (p) {
+          if (mine !== policySeq) return;
+          S.policy = p;
+          renderPolicy(st, p);
+        });
+      }, 200);
+    }
+    function renderPolicy(st, p) {
+      var after = p.used_amount + p.order_amount, over = p.reasons.indexOf("over_budget") > -1;
+      var line = function (label, val, bad) {
+        return "<div><dt>" + esc(label) + "</dt><dd" + (bad ? " class='is-bad'" : "") + ">" + val + "</dd></div>";
+      };
+      var budget = p.ink ? "Ink is not counted" : p.budget > 0 ? esc(money(after)) + " of " + esc(money(p.budget)) : "No limit";
+      var orders = p.quota > 0 ? (p.used_orders + 1) + " of " + p.quota + " with this order" : "No limit";
+      $("#no-policy").prop("hidden", false).html(
+        "<h3>" + esc(st.name) + " this month</h3><dl class='ccm-no-sum'>" +
+        line("Budget after this order", budget, over) +
+        line("Orders", esc(orders), p.reasons.indexOf("over_quota") > -1) +
+        line("Ordering window", esc(p.window_label), p.reasons.indexOf("outside_window") > -1) + "</dl>" +
+        (p.in_policy ? "" : "<p class='ccm-no-warn2'>" + p.messages.map(esc).join("<br>") + "</p>")
+      );
+    }
+    function search() {
+      if (!S.vendor) return;
+      var mine = ++seq;
+      get("new-order/products", { vendor: S.vendor.id, search: $.trim($("#no-q").val() || "") })
+        .done(function (d) {
+          if (mine !== seq) return;
+          S.items = d.items || [];
+          renderResults();
+        })
+        .fail(function (x) { $("#no-results").html("<div class='ccm-empty'>" + esc(errMsg(x, "Couldn’t load products")) + "</div>"); });
+    }
+    function pickVendor() {
+      var id = +$("#no-vendor").val();
+      S.vendor = S.vendors.filter(function (v) { return v.id === id; })[0] || null;
+      S.cart = []; S.items = [];
+      $("#no-q").val("");
+      $("#no-work").prop("hidden", !S.vendor);
+      $("#no-vendor").data("prev", id || "");
+      renderCart();
+      if (S.vendor) {
+        $("#no-results").html("<div class='ccm-empty'>Loading products…</div>");
+        search();
+      }
+    }
+
+    get("new-order/meta").done(function (d) {
+      S.stores = d.stores || []; S.vendors = d.vendors || [];
+      $("#no-store").html("<option value=''>Choose a store</option>" + S.stores.map(function (x) {
+        return "<option value='" + x.id + "'>" + esc(x.name) + (x.code ? " (" + esc(x.code) + ")" : "") + "</option>";
+      }).join(""));
+      $("#no-vendor").html("<option value=''>Choose a vendor</option>" + S.vendors.map(function (v) {
+        return "<option value='" + v.id + "'>" + esc(v.name) + "</option>";
+      }).join(""));
+      dropdown.refresh("#no-store");
+      dropdown.refresh("#no-vendor");
+    }).fail(function (x) { toast(errMsg(x, "Couldn’t load stores and vendors")); });
+
+    $("#no-store").on("change", renderCart);
+    $("#no-vendor").on("change", function () {
+      var $sel = $(this), next = $sel.val();
+      if (!S.cart.length) { pickVendor(); return; }
+      // One order goes to one vendor, so changing vendor starts a new cart.
+      $sel.val($sel.data("prev"));
+      dropdown.refresh($sel);
+      confirmDialog({
+        title: "Change vendor?",
+        sub: "One order goes to one vendor, so this clears your cart.",
+        ok: "Change vendor",
+        onOk: function () {
+          $sel.val(next); dropdown.refresh($sel); pickVendor();
+          return $.Deferred().resolve().promise();
+        },
+      });
+    });
+    $("#no-q").on("input", function () {
+      clearTimeout(timer);
+      timer = setTimeout(search, 250);
+    });
+    $(document)
+      .on("click", "[data-add]", function () {
+        var id = +$(this).data("add");
+        var p = S.items.filter(function (x) { return x.id === id; })[0];
+        if (!p) return;
+        var l = S.cart.filter(function (x) { return x.id === id; })[0];
+        if (l) l.qty++;
+        else S.cart.push({ id: p.id, name: p.name, price: +p.price, qty: 1, ref: p.ref || "", refLabel: p.ref_label || "" });
+        renderResults(); renderCart();
+      })
+      .on("change", "[data-qty]", function () {
+        var id = +$(this).data("qty");
+        var q = Math.max(1, Math.min(999, parseInt(this.value, 10) || 1));
+        S.cart.forEach(function (l) { if (l.id === id) l.qty = q; });
+        renderResults(); renderCart();
+      })
+      .on("click", "[data-step]", function () {
+        var id = +$(this).data("id"), by = +$(this).data("step");
+        S.cart.forEach(function (l) { if (l.id === id) l.qty = Math.max(1, Math.min(999, l.qty + by)); });
+        renderResults(); renderCart();
+      })
+      .on("click", "[data-rm]", function () {
+        var id = +$(this).data("rm");
+        var l = S.cart.filter(function (x) { return x.id === id; })[0];
+        confirmDialog({
+          title: "Remove " + (l ? l.name : "this item") + "?",
+          sub: "This takes it out of your cart.",
+          ok: "Remove",
+          onOk: function () {
+            S.cart = S.cart.filter(function (x) { return x.id !== id; });
+            renderResults(); renderCart();
+            return $.Deferred().resolve().promise();
+          },
+        });
+      })
+      .on("click", "#no-go", function () {
+        var $b = $(this), label = $b.text();
+        var go = function () {
+          $b.prop("disabled", true).text("Please wait…");
+          return req("POST", "new-order/checkout", {
+            store_id: +$("#no-store").val(),
+            vendor_id: S.vendor.id,
+            items: S.cart.map(function (l) { return { product_id: l.id, qty: l.qty }; }),
+          }).done(function (d) { window.location.href = d.redirect; })
+            .fail(function (x) {
+              toast(errMsg(x, "Couldn’t create the order"));
+              $b.prop("disabled", false).text(label);
+            });
+        };
+        if (S.policy && !S.policy.in_policy) {
+          confirmDialog({
+            title: "Outside this store’s policy",
+            sub: S.policy.messages.join(" ") + " You can still place it as Supply Ops.",
+            ok: "Place anyway",
+            onOk: function () { go(); return $.Deferred().resolve().promise(); },
+          });
+          return;
+        }
+        go();
+      });
+    renderCart();
   };
 
   /* ---------- Stores ---------- */
@@ -1147,7 +1501,8 @@
         orders.forEach(function (o) {
           if (!o.storeId) return;
           ordered[o.storeId] = true;
-          if (o.status !== "rejected") S.spend[o.storeId] = (S.spend[o.storeId] || 0) + o.total;
+          // Ink doesn't use the stationery budget this column is compared with.
+          if (o.status !== "rejected" && !o.isInk) S.spend[o.storeId] = (S.spend[o.storeId] || 0) + o.total;
         });
         summary(Object.keys(ordered).length);
         render();
@@ -1194,14 +1549,29 @@
             "<div class='ccm-pol-row'>" + polSwitch("pol-repeat", "Repeat every month", "Use the same days each month — no need to update the dates.") +
             "<button type='button' class='ccm-pol-ghost' id='pol-allmonth'><svg width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' aria-hidden='true'><rect x='3' y='5' width='18' height='16' rx='2'/><path d='M3 10h18M8 3v4M16 3v4'/></svg>Open all month</button></div>" +
             "<div class='ccm-pol-sum' id='pol-sum' role='status'></div>") +
-          polCard(3, "If an order breaks a rule", "Over budget, over the order limit, or outside the ordering window.",
+          polCard(3, "Province ordering weeks", "Give each province its own days of the month to order.",
+            polSwitch("pol-prov-on", "Use province weeks", "Each store follows its province’s days. A store with its own dates keeps them.") +
+            "<div class='ccm-pol-weeks' id='pol-weeks'>" +
+            "<div class='ccm-pol-week is-head' aria-hidden='true'><span>Province</span><span>First day</span><span>Last day</span></div>" +
+            (pol.province_weeks || []).map(function (w) {
+              return "<div class='ccm-pol-week'><span class='ccm-pol-week-n'><b>" + esc(w.name) + "</b><small>" + w.stores + (w.stores === 1 ? " store" : " stores") + "</small></span>" +
+                "<input class='ccm-input' type='number' min='1' max='31' step='1' id='pol-w-" + w.code + "-s' value='" + w.start + "' aria-label='First day for " + esc(w.name) + "'>" +
+                "<input class='ccm-input' type='number' min='1' max='31' step='1' id='pol-w-" + w.code + "-e' value='" + w.end + "' aria-label='Last day for " + esc(w.name) + "'></div>";
+            }).join("") + "</div>" +
+            "<div class='ccm-pol-sum' id='pol-prov-sum' role='status'></div>" +
+            ((pol.province_weeks_other || []).length ? "<div class='ccm-pol-sum is-warn'>" + esc(pol.province_weeks_other.length + (pol.province_weeks_other.length === 1 ? " store doesn’t" : " stores don’t") + " match a province, so they follow the Ordering window above: " + pol.province_weeks_other.map(function (o) { return o.name + " (" + (o.state || "no province") + ")"; }).join(", ") + ". Correct the province on the store.") + "</div>" : "")) +
+          polCard(4, "Reminder email", "Tell stores when their ordering days start.",
+            polSwitch("pol-remind", "Email stores when their week opens", "Every user of a store gets one email on the first day of its ordering days, with the orders and budget left. Stores open all month, or with no orders left, aren’t emailed.") +
+            "<div class='ccm-pol-row'><span class='ccm-pol-sum' id='pol-remind-sum' role='status'></span>" +
+            "<button type='button' class='ccm-pol-ghost' id='pol-remind-preview'><svg width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' aria-hidden='true'><rect x='3' y='5' width='18' height='14' rx='2'/><path d='m3 7 9 6 9-6'/></svg>Email me a preview</button></div>") +
+          polCard(5, "If an order breaks a rule", "Over budget, over the order limit, or outside the ordering window.",
             "<div class='ccm-pol-choices' role='radiogroup' aria-label='If an order breaks a rule'>" +
             "<label class='ccm-pol-opt'><input type='radio' name='pol-mode' value='review'><span class='ccm-pol-radio' aria-hidden='true'></span>" +
             "<span class='ccm-pol-opt-t'><b>Send for approval <em>Recommended</em></b><small>The store can still place the order. It waits in Orders until Supply Ops approves or rejects it. Nothing goes to the supplier before that.</small></span></label>" +
             "<label class='ccm-pol-opt'><input type='radio' name='pol-mode' value='block'><span class='ccm-pol-radio' aria-hidden='true'></span>" +
             "<span class='ccm-pol-opt-t'><b>Block at checkout</b><small>The store can’t place the order. Checkout shows the reason, so they can change the cart or wait for the next window.</small></span></label>" +
             "</div>") +
-          polCard(4, "Update stores <span class='ccm-pol-opt-tag'>Optional</span>", "Copy this budget and order limit to the stores you choose. Other stores keep their own limits.",
+          polCard(6, "Update stores <span class='ccm-pol-opt-tag'>Optional</span>", "Copy this budget and order limit to the stores you choose. Other stores keep their own limits.",
             polSwitch("pol-apply", "Update selected stores", "Choose stores by province, search, or select all.") +
             "<div class='ccm-pol-picker' id='pol-picker' hidden>" +
             "<div class='ccm-pol-tools'>" +
@@ -1230,9 +1600,58 @@
         $("#pol-from").val(pol.order_window_from || "");
         $("#pol-to").val(pol.order_window_to || "");
         $("#pol-repeat").prop("checked", pol.order_window_repeat !== false);
+        $("#pol-prov-on").prop("checked", !!pol.province_weeks_on);
+        var wr = pol.week_reminder || {};
+        $("#pol-remind").prop("checked", !!wr.on);
+        function paintRemind() {
+          var on = $("#pol-remind").is(":checked");
+          var ls = wr.last_sent;
+          var last = !wr.last ? "Not run yet." : "Last checked " + wr.last.label + ". " +
+            (ls ? "Last sent " + ls.label + ": " + ls.emails + " email" + (ls.emails === 1 ? "" : "s") + " to " + ls.stores + " store" + (ls.stores === 1 ? "" : "s") + "." : "No reminders sent yet.");
+          var txt = !on ? "Off. No reminder emails are sent." : (wr.on ? "On. Checked every day at 7:00 AM" + (wr.next ? " (next " + wr.next + ")" : "") + ". " + last : "Turns on when you save. Checked every day at 7:00 AM.");
+          $("#pol-remind-sum").attr("class", "ccm-pol-sum " + (on ? "is-ok" : "is-off")).text(txt);
+        }
+        $("#pol-remind").on("change", paintRemind);
+        paintRemind();
+        $("#pol-remind-preview").on("click", function () {
+          var $p = $(this).prop("disabled", true);
+          req("POST", "policy/week-reminder/preview", {})
+            .done(function (r) { toast("Preview sent to " + r.to + " (" + r.store + ")"); })
+            .fail(function (x) { toast(errMsg(x, "Couldn’t send the preview")); })
+            .always(function () { $p.prop("disabled", false); });
+        });
         $("input[name=pol-mode][value=" + (pol.limit_mode === "block" ? "block" : "review") + "]").prop("checked", true);
 
         function mode() { return $("input[name=pol-mode]:checked").val() || "review"; }
+        function weekDays() {
+          return (pol.province_weeks || []).map(function (w) {
+            return { code: w.code, name: w.name, start: +$("#pol-w-" + w.code + "-s").val(), end: +$("#pol-w-" + w.code + "-e").val() };
+          });
+        }
+        function weekBad(w) {
+          return !(w.start >= 1 && w.end <= 31 && w.start <= w.end && Math.floor(w.start) === w.start && Math.floor(w.end) === w.end);
+        }
+        function paintWeeks() {
+          var on = $("#pol-prov-on").is(":checked"), weeks = weekDays();
+          $("#pol-weeks").prop("hidden", !on);
+          var $s = $("#pol-prov-sum");
+          if (!on) { $s.attr("class", "ccm-pol-sum is-ok").text("Off. Stores follow the Ordering window above."); return; }
+          var bad = weeks.filter(weekBad)[0];
+          if (bad) { $s.attr("class", "ccm-pol-sum is-bad").text(bad.name + ": choose days from 1 to 31, with the first day before the last."); return; }
+          var today = +String(pol.today || ymd(new Date())).slice(8, 10);
+          var open = weeks.filter(function (w) { return today >= w.start && today <= w.end; }).map(function (w) { return w.name; });
+          var gaps = [], d;
+          for (d = 1; d <= 31; d++) {
+            var hit = weeks.some(function (w) { return d >= w.start && d <= w.end; });
+            if (!hit) {
+              var last = gaps[gaps.length - 1];
+              if (last && last[1] === d - 1) last[1] = d; else gaps.push([d, d]);
+            }
+          }
+          var text = (open.length ? "Open today: " + open.join(", ") + "." : "No province is open today.") +
+            (gaps.length ? " Closed for every province: " + gaps.map(function (g) { return g[0] === g[1] ? ordinal(g[0]) : ordinal(g[0]) + " to " + ordinal(g[1]); }).join(", ") + "." : "");
+          $s.attr("class", "ccm-pol-sum is-" + (open.length ? "ok" : "warn")).text(text);
+        }
         function shown() {
           var q = P.q.toLowerCase();
           return S.stores.filter(function (s) {
@@ -1273,6 +1692,8 @@
         }
 
         $("#pol-from,#pol-to,#pol-repeat").on("input change", function () { err(""); paintSummary(); });
+        $("#pol-prov-on").on("change", function () { err(""); paintWeeks(); });
+        $("#pol-weeks").on("input change", "input", function () { err(""); paintWeeks(); });
         $("input[name=pol-mode]").on("change", paintSummary);
         $("#pol-allmonth").on("click", function () { $("#pol-from,#pol-to").val(""); err(""); paintSummary(); });
         $("#pol-apply").on("change", function () { $("#pol-picker").prop("hidden", !this.checked); err(""); paintList(); });
@@ -1300,6 +1721,9 @@
           if (!from !== !to) return err("Pick both a start date and an end date, or click “Open all month”.");
           if (from && to < from) return err("The end date must be on or after the start date.");
           if (apply && !ids.length) return err("Select at least one store, or turn off “Update selected stores”.");
+          var weeks = {}, wkBad = weekDays().filter(weekBad)[0];
+          if ($("#pol-prov-on").is(":checked") && wkBad) return err(wkBad.name + ": choose days from 1 to 31, with the first day before the last.");
+          if (!wkBad) weekDays().forEach(function (w) { weeks[w.code] = { start: w.start, end: w.end }; });
           err("");
           var $b = $(this).prop("disabled", true).text(apply ? "Saving and updating " + ids.length + " store" + (ids.length === 1 ? "" : "s") + "…" : "Saving…");
           req("PUT", "policy", {
@@ -1309,6 +1733,9 @@
             order_window_to: to,
             order_window_repeat: $("#pol-repeat").is(":checked") ? 1 : 0,
             limit_mode: mode(),
+            province_weeks_on: $("#pol-prov-on").is(":checked") ? 1 : 0,
+            week_reminder_on: $("#pol-remind").is(":checked") ? 1 : 0,
+            province_weeks: wkBad ? undefined : weeks,
           })
             .then(function () {
               if (!apply) return { stores: 0 };
@@ -1323,6 +1750,7 @@
         });
 
         paintSummary();
+        paintWeeks();
         paintSave();
         openLayer("ccm-info");
       }).fail(function (x) { toast(errMsg(x, "Couldn’t load the ordering policy")); });
@@ -1375,7 +1803,7 @@
           return (
             "<tr>" +
             "<td><div style='display:flex;gap:10px;align-items:center'><div class='ccm-avatar sm' aria-hidden='true'>" + esc(initials(u.name)) + "</div><div><div class='ccm-strong'>" + esc(u.name) + "</div><div class='ccm-muted ccm-small'>ID " + u.id + "</div></div></div></td>" +
-            "<td><a class='ccm-link' style='font-size:14px;font-weight:400;padding:0' href='mailto:" + esc(u.email) + "'>" + esc(u.email) + "</a></td>" +
+            "<td>" + esc(u.email) + "</td>" +
             "<td>" + (u.role === "shop_manager" ? "<span class='ccm-muted'>—</span>" : esc(u.store_name || "Not assigned")) + "</td>" +
             "<td><span class='ccm-pill " + (u.role === "shop_manager" ? "p-neutral" : "p-info") + "'>" + (u.role === "shop_manager" ? "Supply Manager" : "Store employee") + "</span></td>" +
             "<td><span class='ccm-pill " + (u.active ? "p-approved" : "p-rejected") + "'>" + (u.active ? "Active" : "Inactive") + "</span></td>" +
@@ -1397,17 +1825,23 @@
         render();
       });
     }
-    function fields(edit) {
+    function fields(edit, user) {
       var f = [
         { k: "name", l: "Full name", req: true, full: true },
         { k: "email", l: "Email", type: "email", req: true, full: true },
+      ];
+      // Visible while typing: the manager has to pass it on, and a hidden typo would lock the employee out.
+      if (!edit) f.push({ k: "password", l: "Password", req: true, full: true, ph: "At least 8 characters", noAutofill: true });
+      // Only administrators can change a Supply Manager's password (the server enforces this too).
+      else if (WCSSM.is_admin || user.role !== "shop_manager") f.push({ k: "password", l: "New password", full: true, ph: "Leave blank to keep the current password", noAutofill: true });
+      f.push(
         {
           k: "store_id", l: "Assigned store", full: true,
           options: [{ v: "", l: "Choose a store" }].concat(S.stores.map(function (s) {
             return { v: s.id, l: s.name + (s.code ? " (" + s.code + ")" : "") };
           })),
-        },
-      ];
+        }
+      );
       if (!edit) return f;
       // Only administrators can grant or remove Supply Manager access.
       if (WCSSM.is_admin) {
@@ -1438,15 +1872,17 @@
     $("#u-q").on("input", function () { S.q = $.trim(this.value); render(); });
     $("#u-new").on("click", function () {
       formModal({
-        title: "Add store employee", sub: "Each employee orders for one store.", saveLabel: "Add store employee", fields: fields(),
+        title: "Add store employee", sub: "Each employee orders for one store. Give them this password yourself; it isn’t emailed.", saveLabel: "Add store employee", fields: fields(),
         onSave: function (f) {
+          if (f.password.length < 8) return $.Deferred().reject("Password must be at least 8 characters.");
           var parts = f.name.split(/\s+/);
-          return req("POST", "users", { first_name: parts.shift(), last_name: parts.join(" "), email: f.email })
+          return req("POST", "users", { first_name: parts.shift(), last_name: parts.join(" "), email: f.email, password: f.password })
             .then(function (u) {
-              return f.store_id ? req("PUT", "users/" + u.id, { name: f.name, email: f.email, store_id: +f.store_id }) : u;
+              var linked = f.store_id ? req("PUT", "users/" + u.id, { name: f.name, email: f.email, store_id: +f.store_id }) : $.when();
+              return linked.then(function () { return u; });
             })
-            .then(function () {
-              toast("User added: " + f.name);
+            .then(function (u) {
+              toast("User added: " + f.name + ". Give them their password.");
               loadUsers();
             });
         },
@@ -1458,13 +1894,17 @@
         formModal({
           title: "Edit user",
           sub: "Store employees order for one store. Supply Managers run this portal and don’t need a store. Inactive users keep their history but can’t sign in.",
-          saveLabel: "Save changes", fields: fields(true),
+          saveLabel: "Save changes", fields: fields(true, u),
           values: { name: u.name, email: u.email, store_id: u.store_id || "", role: u.role, active: u.active ? "1" : "0" },
           onSave: function (f) {
             var body = { name: f.name, email: f.email, store_id: +f.store_id || 0, active: f.active === "1" };
             if (f.role) body.role = f.role;
+            if (f.password) {
+              if (f.password.length < 8) return $.Deferred().reject("Password must be at least 8 characters.");
+              body.password = f.password;
+            }
             return req("PUT", "users/" + u.id, body).then(function () {
-              toast("User updated: " + f.name);
+              toast("User updated: " + f.name + (f.password ? ". Give them the new password." : ""));
               loadUsers();
             });
           },
@@ -1499,11 +1939,11 @@
           var price = p[cfg.priceKey], ok = price != null && Number(price) > 0;
           return (
             "<tr><td class='ccm-strong'>" + esc(p.name) + "</td><td>" + esc(p.sku || "—") + "</td>" +
-            "<td class='num'>" + (p.woo == null ? "—" : money(p.woo)) + "</td><td class='num'>" + (ok ? money(price) : "—") + "</td>" +
+            "<td class='num'>" + (ok ? money(price) : "—") + "</td>" +
             "<td><span class='ccm-pill " + (ok ? "p-approved" : "p-pending") + "'>" + (ok ? "Up to date" : "Not synced") + "</span></td>" +
             "<td class='num'><a class='ccm-btn sm' href='" + base + "products/edit/" + p.id + "'>Edit</a></td></tr>"
           );
-        }).join("") || "<tr><td colspan='6' class='ccm-empty'><strong>No " + esc(cfg.label) + " products</strong>" + esc(cfg.empty) + "</td></tr>"
+        }).join("") || "<tr><td colspan='5' class='ccm-empty'><strong>No " + esc(cfg.label) + " products</strong>" + esc(cfg.empty) + "</td></tr>"
       );
       $("#" + cfg.id + "-count").text(S.products.length);
       $("#" + cfg.id + "-foot").text(P.label("products"));
@@ -1515,7 +1955,7 @@
     }
     function load() {
       cfg.load().done(function (p) { S.products = p; render(); })
-        .fail(function (x) { $("#" + cfg.id + "-rows").html("<tr><td colspan='6' class='ccm-empty'>" + esc(errMsg(x, "Couldn’t load products")) + "</td></tr>"); });
+        .fail(function (x) { $("#" + cfg.id + "-rows").html("<tr><td colspan='5' class='ccm-empty'>" + esc(errMsg(x, "Couldn’t load products")) + "</td></tr>"); });
       get("prices/sync").done(function (d) { $("#" + cfg.id + "-last").text(lastSync(d)); });
     }
     // One sync job refreshes Amazon and Grand & Toy prices together.
@@ -1989,6 +2429,12 @@
   /* ---------- Order detail page: approve → auto-place, vendor receipt, SM-facing summary ---------- */
   screens.orderView = function () {
     var id = +$("[data-ccm-screen]").data("id");
+    $("#od-delete").on("click", function () {
+      deleteOrderDialog(id, function () {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        setTimeout(function () { location.href = base + "orders"; }, 500);
+      });
+    });
     var VEND = { amazon: "Amazon", gt: "Grand & Toy" };
     var pollTimer = null;
     var AUTO_EVT = {
@@ -1996,14 +2442,28 @@
       auto_vendor_submit: function (p) {
         var v = (p.vendors || []).map(function (k) { return VEND[k] || k; }).join(" + ") || "vendor";
         if (p.status === "submitted") return { text: "Sent to " + v, kind: "approved" };
-        if (p.status === "woo_only" || p.status === "skipped") return { text: "Kept as a WooCommerce order (no Amazon / Grand & Toy match)", kind: "edit" };
+        if (p.status === "woo_only" || p.status === "skipped") return { text: "Not sent — no vendor assigned", kind: "rejected" };
+        if (p.status === "manual") return { text: "Manual order required", kind: "edit", note: plainMsg(p.message) };
         if (p.status === "needs_approval") return { text: "Held for Supply Ops approval", kind: "edit" };
         if (p.status === "queued") return { text: "Vendor submit queued", kind: "edit" };
-        return { text: "Couldn’t send to " + v, kind: "rejected", note: plainMsg(p.message) };
+        return { text: "Couldn’t send to " + v, kind: "rejected", note: WCSSM.is_admin || /^No vendor/.test(p.message || "") ? plainMsg(p.message) : "" };
       },
-      policy: function (p) { return p.in_policy ? null : { text: "Outside the store’s ordering policy", kind: "edit" }; },
+      policy: function (p) {
+        if (p.in_policy) return null;
+        return { text: (p.reasons || []).indexOf("ink_review") > -1 ? "Ink order — sent for Supply Ops review" : "Outside the store’s ordering policy", kind: "edit" };
+      },
     };
     function plainMsg(m) { return String(m || "").replace(/^(AMAZON|GT|GRAND & TOY):\s*/i, ""); }
+    /** Why an order wasn't sent. Raw vendor API errors are for the dev team; our own messages are fine for anyone. */
+    function sendFailure(d, auto, vendor) {
+      var msg = plainMsg((d.vendor_receipt || {}).message || auto.message);
+      var fromVendor = auto.results && Object.keys(auto.results).length > 0;
+      if (fromVendor && !WCSSM.is_admin) {
+        var who = vendor && vendor !== "—" ? vendor : "the vendor";
+        return "We couldn’t place this order with " + who + ". Please try again. If it still doesn’t go through, contact your system administrator.";
+      }
+      return msg;
+    }
     function money2(v) { return money(+v || 0); }
     function row(k, v) { return "<div><dt>" + esc(k) + "</dt><dd>" + v + "</dd></div>"; }
     function bar(used, cap) {
@@ -2014,7 +2474,8 @@
       var r = d.vendor_receipt || {};
       if (r.mode) return r.mode;
       var st = (d.auto_submit_detail && d.auto_submit_detail.status) || "";
-      if (st === "woo_only" || st === "skipped") return "woo_only";
+      if (st === "woo_only" || st === "skipped") return "failed";
+      if (st === "manual") return "manual";
       if (st === "submitted") return "sent";
       if (st === "processing") return "processing";
       if (st === "failed" || st === "partial") return "failed";
@@ -2025,13 +2486,6 @@
     function vendorLabel(d) {
       return VEND[d.vendor] || d.vendor_label || "the vendor";
     }
-    function manualPlaceLinks(d) {
-      return ["amazon", "gt"].map(function (k) {
-        var rec = d.vendor === k;
-        return "<a class='ccm-btn " + (rec ? "ccm-od-approve" : "ccm-od-reject") + "' href='" + (WCSSM.site_home || "/") + (k === "amazon" ? "amazon-catalog" : "gt-catalog") + "/?order-id=" + id + "'>Place with " + VEND[k] + (rec ? " (recommended)" : "") + "</a>";
-      }).join("");
-    }
-
     function action(d, n) {
       var $a = $("#od-action");
       var auto = d.auto_submit_detail || {};
@@ -2043,6 +2497,8 @@
       if (n.status === "pending") {
         tone = "warn";
         var msgs = (d.policy && d.policy.messages) || [];
+        // An earlier send already failed (e.g. no vendor): don't promise an automatic placement.
+        if (mode === "failed") msgs = msgs.concat(sendFailure(d, auto, vendor) || []);
         html =
           "<div class='ccm-od-action-t'><strong>Waiting for your decision</strong>" +
           (msgs.length ? "<ul>" + msgs.map(function (m) { return "<li>" + esc(m) + "</li>"; }).join("") + "</ul>" : "<p>Approve to place this order automatically with " + esc(vendor) + ", or reject it.</p>") + "</div>" +
@@ -2055,19 +2511,19 @@
         html = "<div class='ccm-od-action-t'><strong>Sent to " + esc(vendor) + "</strong><p>" +
           (refs.length ? "Vendor reference: " + esc(refs.join(", ")) + ". " : "") +
           (d.edd ? "Expected delivery: " + esc(d.edd) + "." : "The vendor has the order.") +
+          ((d.vendor_receipt || {}).manual_note ? " Still to place by hand — " + esc(d.vendor_receipt.manual_note) : "") +
           "</p></div>";
-      } else if (n.status === "approved" && mode === "woo_only") {
-        tone = "ok";
-        html = "<div class='ccm-od-action-t'><strong>Approved — WooCommerce only</strong><p>No Amazon or Grand & Toy match on the line items. This order stays in WooCommerce; nothing was sent to a supplier catalog.</p></div>";
+      } else if (n.status === "approved" && mode === "manual") {
+        tone = "warn";
+        html = "<div class='ccm-od-action-t'><strong>Approved — manual order required</strong><p>Orders for " + esc(plainText(d.vendor_label || "this vendor")) + " aren’t sent automatically. Please contact the vendor directly to place this order.</p></div>";
       } else if (n.status === "approved" && mode === "failed") {
         tone = "bad";
-        var why = plainMsg(auto.message) || "The automatic place with the supplier failed.";
+        var why = sendFailure(d, auto, vendor) || "The automatic place with the supplier failed.";
         if (why && !/[.!?]$/.test(why)) why += ".";
         html =
           "<div class='ccm-od-action-t'><strong>Approved, but not sent yet</strong><p>" + esc(why) + "</p></div>" +
           "<div class='ccm-od-action-b'>" +
           "<button type='button' class='ccm-btn ccm-od-approve' id='od-retry'>Retry auto-send</button>" +
-          manualPlaceLinks(d) +
           "</div>";
       } else if (n.status === "approved") {
         tone = "warn";
@@ -2085,24 +2541,9 @@
       var r = d.vendor_receipt || {};
       var mode = receiptMode(d);
       var $card = $("#od-receipt-card");
-      if (mode === "pending" || mode === "needs_approval" || (mode === "processing" && !(r.vendors || []).length)) {
+      if (mode === "pending" || mode === "needs_approval" || mode === "manual" || ((mode === "processing" || mode === "failed") && !(r.vendors || []).length)) {
         $card.prop("hidden", true);
         $("#od-receipt").empty();
-        return;
-      }
-      if (mode === "woo_only") {
-        $("#od-receipt-sub").text("This requisition stays in WooCommerce — no supplier catalog order was placed.");
-        $("#od-receipt").html(
-          "<div class='ccm-od-receipt is-woo'>" +
-          "<p class='ccm-od-receipt-lead'>WooCommerce order <strong>#" + esc(String(d.number || id)) + "</strong> is the system of record.</p>" +
-          "<dl class='ccm-od-dl'>" +
-          row("Status", "Approved · Woo only") +
-          row("Supplier catalog", "None matched") +
-          row("Order total", money2((d.totals && d.totals.grand_total != null) ? d.totals.grand_total : d.total)) +
-          row("Tax", money2((d.totals && d.totals.total_tax) || 0)) +
-          "</dl></div>"
-        );
-        $card.prop("hidden", false);
         return;
       }
       var blocks = (r.vendors || []).map(function (v) {
@@ -2123,7 +2564,7 @@
           (v.placed_at ? row("Placed", esc(v.placed_at)) : "") +
           (v.order_total != null ? row("Vendor total", money2(v.order_total)) : "") +
           (v.trial_mode ? row("Mode", "Trial / stage") : "") +
-          (v.message ? row("Note", esc(plainMsg(v.message))) : "") +
+          (v.message && (WCSSM.is_admin || v.placed) ? row("Note", esc(plainMsg(v.message))) : "") +
           "</dl>" +
           "<div class='ccm-od-receipt-sec'><div class='ccm-od-addr-h'>Lines sent</div>" + lineHtml + "</div>" +
           (shipLines.length ? "<div class='ccm-od-receipt-sec'><div class='ccm-od-addr-h'>Ship-to on vendor order</div>" + shipLines.map(esc).join("<br>") + "</div>" : "") +
@@ -2135,12 +2576,197 @@
       $card.prop("hidden", false);
     }
 
+    /* ---------- Edit items while the order waits for approval (SOW 1.16) ---------- */
+    var D = null, E = null, oeTimer = null;
+    function oeLines() { return E.lines.concat(E.added); }
+    function oeSub() { return oeLines().reduce(function (a, l) { return a + (l.removed ? 0 : l.qty * l.unit); }, 0); }
+    function oeDirty() {
+      return E.added.length > 0 || E.lines.some(function (l) { return l.removed || l.qty !== l.orig; });
+    }
+    function startEdit() {
+      E = {
+        lines: (D.items || []).map(function (it) {
+          return { key: "i" + it.item_id, item_id: it.item_id, name: plainText(it.name), sku: it.sku || "", image: it.image || "",
+            vendor: it.vendor_label || VEND[it.vendor] || "", unit: +it.unit_price || 0, qty: +it.qty || 1, orig: +it.qty || 1, removed: false };
+        }),
+        added: [], results: [], busy: false,
+      };
+      renderEdit();
+      oeSearch("");
+    }
+    function stopEdit() { E = null; render(D); }
+    function oeFind(key) { return oeLines().filter(function (l) { return l.key === key; })[0]; }
+    function oeStepper(l) {
+      return "<div class='ccm-no-step'>" +
+        "<button type='button' data-oe-step='-1' data-oe='" + l.key + "' aria-label='Decrease quantity of " + esc(l.name) + "'" + (l.qty < 2 ? " disabled" : "") + ">−</button>" +
+        "<input type='number' min='1' max='999' value='" + l.qty + "' data-oe-qty='" + l.key + "' aria-label='Quantity of " + esc(l.name) + "'>" +
+        "<button type='button' data-oe-step='1' data-oe='" + l.key + "' aria-label='Increase quantity of " + esc(l.name) + "'" + (l.qty >= 999 ? " disabled" : "") + ">+</button></div>";
+    }
+    function oeRow(l, isNew) {
+      var tag = isNew ? "<span class='ccm-pill p-approved'>Added</span>" : l.removed ? "<span class='ccm-pill p-rejected'>Removed</span>" : l.qty !== l.orig ? "<span class='ccm-pill p-pending'>Was " + l.orig + "</span>" : "";
+      return "<div class='ccm-od-item ccm-oe-item" + (l.removed ? " is-removed" : "") + "'>" +
+        "<img class='ccm-od-img' src='" + esc(l.image) + "' alt='' loading='lazy'>" +
+        "<div class='ccm-od-item-n'><div class='ccm-strong'>" + esc(l.name) + "</div>" +
+        "<div class='ccm-muted ccm-small'>" + [l.sku ? "SKU " + esc(l.sku) : "", l.vendor ? "<span class='ccm-pill p-neutral'>" + esc(l.vendor) + "</span>" : "", tag].filter(Boolean).join(" ") + "</div>" +
+        "<div class='ccm-muted ccm-small'>" + money2(l.unit) + " each</div></div>" +
+        "<div class='ccm-oe-ctrl'>" + (l.removed ? "" : oeStepper(l)) +
+        "<button type='button' class='ccm-linkbtn' data-oe-rm='" + l.key + "'>" + (l.removed ? "Undo" : "Remove") + "</button></div>" +
+        "<div class='ccm-od-item-t'>" + (l.removed ? "<s>" + money2(l.orig * l.unit) + "</s>" : money2(l.qty * l.unit)) + "</div></div>";
+    }
+    function renderEdit() {
+      $("#od-edit").prop("hidden", true);
+      $("#od-action button").prop("disabled", true);
+      var have = {};
+      oeLines().forEach(function (l) { have[l.key] = true; });
+      var res = E.results.filter(function (p) { return !have["p" + p.id]; });
+      var kept = oeLines().filter(function (l) { return !l.removed; }).length;
+      $("#od-items").html(
+        "<div class='ccm-oe-note'><strong>Editing items</strong>Change quantities, remove items or add approved products. Budget, order limit and vendor are rechecked when you save.</div>" +
+        E.lines.map(function (l) { return oeRow(l, false); }).join("") +
+        E.added.map(function (l) { return oeRow(l, true); }).join("") +
+        "<div class='ccm-oe-add'><label class='ccm-field grow'>Add a product" +
+        "<input class='ccm-input' type='search' id='oe-q' placeholder='Search " + (D.is_ink || normOrder(D).isInk ? "ink" : "approved") + " products…' autocomplete='off'></label>" +
+        "<div class='ccm-oe-res' id='oe-res'>" + (res.length ? res.map(function (p) {
+          return "<div class='ccm-oe-r'><img class='ccm-od-img' src='" + esc(p.image || "") + "' alt='' loading='lazy'>" +
+            "<div><div class='ccm-strong'>" + esc(plainText(p.name)) + "</div><div class='ccm-muted ccm-small'>" +
+            [p.sku ? "SKU " + esc(p.sku) : "", money2(p.price), p.vendor_label ? esc(p.vendor_label) : ""].filter(Boolean).join(" · ") + "</div></div>" +
+            "<button type='button' class='ccm-btn sm' data-oe-add='" + p.id + "'>Add</button></div>";
+        }).join("") : "<p class='ccm-muted ccm-small'>" + (E.searching ? "Searching…" : "No matching products.") + "</p>") + "</div></div>"
+      );
+      var cur = +((D.totals || {}).subtotal) || 0, next = oeSub();
+      $("#od-totals").html(
+        row("Current subtotal", money2(cur)) +
+        "<div class='is-total'><dt>New subtotal</dt><dd>" + money2(next) + "</dd></div>" +
+        "<div class='ccm-oe-foot'>" +
+        (!kept ? "<p class='ccm-oe-warn'>An order needs at least one item. To cancel it, reject the order instead.</p>" : "<p class='ccm-muted ccm-small'>Tax is recalculated when you save.</p>") +
+        "<div class='ccm-oe-btns'><button type='button' class='ccm-btn' id='oe-cancel'>Cancel</button>" +
+        "<button type='button' class='ccm-btn primary' id='oe-save'" + (!kept || !oeDirty() || E.busy ? " disabled" : "") + ">" + (E.busy ? "Saving…" : "Save changes") + "</button></div></div>"
+      );
+    }
+    function oeSearch(q) {
+      E.searching = true;
+      get("orders/" + id + "/edit-products", { search: q }).done(function (r) {
+        if (!E) return;
+        E.results = (r && r.items) || [];
+        E.searching = false;
+        var focus = document.activeElement && document.activeElement.id === "oe-q", val = $("#oe-q").val();
+        renderEdit();
+        if (focus) { $("#oe-q").val(val).trigger("focus"); }
+      }).fail(function (x) { if (E) { E.searching = false; E.results = []; renderEdit(); toast(errMsg(x, "Couldn’t load products")); } });
+    }
+    function oeSave() {
+      if (!E || E.busy) return;
+      E.busy = true; renderEdit();
+      var lines = E.lines.map(function (l) { return { item_id: l.item_id, qty: l.removed ? 0 : l.qty }; })
+        .concat(E.added.map(function (l) { return { product_id: l.product_id, qty: l.qty }; }));
+      req("PUT", "orders/" + id + "/items", { lines: lines }).then(function (r) {
+        E = null;
+        var p = (r && r.policy) || {};
+        toast("Order #" + id + " updated" + (r && r.changed ? " · new total " + money2(r.after) : "") + (p.in_policy ? " · now within policy" : ""));
+        return load();
+      }, function (x) {
+        if (E) { E.busy = false; renderEdit(); }
+        toast(errMsg(x, "Couldn’t save the changes"));
+      });
+    }
+    $(document).off(".oe")
+      .on("click.oe", "#od-edit", function () { if (D) startEdit(); })
+      .on("click.oe", "#oe-cancel", function () {
+        if (E && oeDirty() && !window.confirm("Discard your changes to this order?")) return;
+        stopEdit();
+      })
+      .on("click.oe", "#oe-save", oeSave)
+      .on("click.oe", "[data-oe-step]", function () {
+        var l = oeFind($(this).data("oe")); if (!l) return;
+        l.qty = Math.min(999, Math.max(1, l.qty + +$(this).data("oe-step"))); renderEdit();
+      })
+      .on("change.oe", "[data-oe-qty]", function () {
+        var l = oeFind($(this).data("oe-qty")); if (!l) return;
+        var v = parseInt(this.value, 10);
+        l.qty = isNaN(v) ? l.qty : Math.min(999, Math.max(1, v)); renderEdit();
+      })
+      .on("click.oe", "[data-oe-rm]", function () {
+        var key = $(this).data("oe-rm"), l = oeFind(key); if (!l) return;
+        if (l.item_id) l.removed = !l.removed;
+        else E.added = E.added.filter(function (a) { return a.key !== key; });
+        renderEdit();
+      })
+      .on("click.oe", "[data-oe-add]", function () {
+        var pid = +$(this).data("oe-add"), p = E.results.filter(function (x) { return x.id === pid; })[0]; if (!p) return;
+        E.added.push({ key: "p" + p.id, product_id: p.id, name: plainText(p.name), sku: p.sku || "", image: p.image || "", vendor: p.vendor_label || "", unit: +p.price || 0, qty: 1, orig: 0 });
+        renderEdit();
+      })
+      .on("input.oe", "#oe-q", function () {
+        var q = $.trim(this.value);
+        clearTimeout(oeTimer);
+        oeTimer = setTimeout(function () { if (E) oeSearch(q); }, 250);
+      });
+    window.addEventListener("beforeunload", function (e) { if (E && oeDirty()) { e.preventDefault(); e.returnValue = ""; } });
+
+    /* ---------- Delivery details (SOW 1.23) ---------- */
+    var SHIP_EDIT = false;
+    function renderShip(d) {
+      var sh = d.shipment || {}, $c = $("#od-ship-card");
+      if (!sh.editable && !sh.has) { $c.prop("hidden", true); return; }
+      $c.prop("hidden", false);
+      $("#od-ship-edit").prop("hidden", !sh.editable || SHIP_EDIT).text(sh.tracking || (sh.edd && sh.edd_source === "manual") ? "Edit" : "Add");
+      if (SHIP_EDIT) {
+        var opts = "<option value=''>Choose a carrier</option>" + Object.keys(d.carriers || {}).map(function (k) {
+          return "<option value='" + esc(k) + "'" + (sh.carrier === k ? " selected" : "") + ">" + esc(d.carriers[k]) + "</option>";
+        }).join("");
+        $("#od-ship").html(
+          "<div class='ccm-ship-form'>" +
+          "<label class='ccm-field'>Carrier<select class='ccm-select' id='sh-carrier'>" + opts + "</select></label>" +
+          "<label class='ccm-field'>Tracking number<input class='ccm-input' id='sh-tracking' maxlength='64' autocomplete='off' value='" + esc(sh.tracking || "") + "' placeholder='e.g. 1Z999AA10123456784'></label>" +
+          "<label class='ccm-field'>Expected delivery<input class='ccm-input' type='date' id='sh-edd' value='" + esc(sh.edd_source === "manual" ? sh.edd : "") + "'></label>" +
+          (sh.edd_source === "amazon" ? "<p class='ccm-muted ccm-small'>Amazon expects " + esc(sh.edd_label) + ". Leave the date empty to keep Amazon’s date.</p>" : "") +
+          "<p class='ccm-muted ccm-small'>The store gets an email when you save.</p>" +
+          "<div class='ccm-ship-btns'><button type='button' class='ccm-btn sm' id='sh-cancel'>Cancel</button><button type='button' class='ccm-btn sm primary' id='sh-save'>Save</button></div></div>"
+        );
+        return;
+      }
+      var rows = "";
+      rows += row("Expected delivery", sh.edd_label ? esc(sh.edd_label) + (sh.edd_source === "amazon" ? " <span class='ccm-pill p-neutral'>From Amazon</span>" : "") : "<span class='ccm-muted'>Not set</span>");
+      rows += row("Carrier", sh.carrier_label ? esc(sh.carrier_label) : "<span class='ccm-muted'>Not set</span>");
+      rows += row("Tracking", sh.tracking ? (sh.url ? "<a class='ccm-link' style='padding:0' target='_blank' rel='noopener' href='" + esc(sh.url) + "'>" + esc(sh.tracking) + " ↗</a>" : esc(sh.tracking)) : "<span class='ccm-muted'>Not set</span>");
+      $("#od-ship").html("<dl class='ccm-od-dl'>" + rows + "</dl>" + (!sh.editable ? "<p class='ccm-muted ccm-small'>Delivery details can be added once the order is approved.</p>" : ""));
+    }
+    $(document).off(".odShip")
+      .on("click.odShip", "#od-ship-edit", function () { SHIP_EDIT = true; renderShip(D); $("#sh-carrier").trigger("focus"); })
+      .on("click.odShip", "#sh-cancel", function () { SHIP_EDIT = false; renderShip(D); })
+      .on("click.odShip", "#sh-save", function () {
+        var $b = $(this).prop("disabled", true).text("Saving…");
+        req("POST", "orders/" + id + "/shipment", { carrier: $("#sh-carrier").val() || "", tracking: $.trim($("#sh-tracking").val() || ""), edd: $("#sh-edd").val() || "" }).then(function (r) {
+          SHIP_EDIT = false;
+          toast(r && r.shipment && r.shipment.changed === false ? "No changes to save" : "Delivery details saved · the store was emailed");
+          return load();
+        }, function (x) { $b.prop("disabled", false).text("Save"); toast(errMsg(x, "Couldn’t save the delivery details")); });
+      });
+
+    function renderReturns(d) {
+      var list = d.returns || [];
+      $("#od-ret-card").prop("hidden", !list.length);
+      $("#od-ret").html(list.map(function (r) {
+        return "<div class='ccm-ret-row'><div><button type='button' class='ccm-idlink' data-od-rt='" + r.id + "'>" + esc(r.number) + "</button>" +
+          "<div class='ccm-muted ccm-small'>" + esc(r.reason_label) + " · " + r.items + " item" + (r.items === 1 ? "" : "s") + " · " + esc(fd(r.created_at)) + "</div></div>" + retPill(r) + "</div>";
+      }).join(""));
+    }
+    $(document).off("click.odRet").on("click.odRet", "[data-od-rt]", function () { openReturn(+$(this).data("odRt"), function () { load(); }); });
+
     function render(d) {
+      D = d;
+      renderShip(d);
+      renderReturns(d);
       var n = normOrder(d), s = d.store || {}, items = d.items || [], t = d.totals || {}, L = d.ledger || {};
       var req = d.requester || {};
       var units = items.reduce(function (a, it) { return a + (+it.qty || 0); }, 0);
       $("#od-status").attr("class", n.pillCls).text(n.statusLabel);
+      $("#od-ink-pill").remove();
+      if (n.isInk) {
+        $("#od-status").after("<span class='ccm-pill p-ink' id='od-ink-pill' style='margin-left:8px'>Ink order</span>");
+      }
       $("#od-sub").text(
+        (n.isInk ? "Ink order · " : "") +
         "Placed " + (n.date ? fd(n.date) + " at " + ft(n.date) : "—") + " · " +
         [plainText(s.name || "No store"), s.city].filter(Boolean).join(", ") + " · " +
         units + (units === 1 ? " item" : " items") + " · " + money2(t.grand_total != null ? t.grand_total : d.total)
@@ -2181,12 +2807,15 @@
         "<div class='is-total'><dt>Total</dt><dd>" + money2(t.grand_total != null ? t.grand_total : d.total) + "</dd></div>"
       );
 
-      var who = req.name || n.customer || "the store";
+      $("#od-edit").prop("hidden", n.status !== "pending" || !!E);
+      if (E) { if (n.status === "pending") renderEdit(); else { E = null; toast("This order is no longer awaiting approval, so it can’t be edited."); } }
+
+      var who = d.placed_by ? d.placed_by + " (Supply Ops) for " + (req.name || n.customer || "the store") : req.name || n.customer || "the store";
       var hist = [{ text: "Placed by " + who, label: fdt(n.date), kind: "new" }];
       (d.timeline || []).slice().reverse().forEach(function (ev) {
         var f = EVENT_TEXT[ev.type] || AUTO_EVT[ev.type];
         var h = f && f(ev.payload || {});
-        if (h) hist.push({ text: h.text + (h.note ? " — " + h.note : ""), label: fdt(ev.created_at), kind: h.kind });
+        if (h) pushHistory(hist, h, fdt(ev.created_at));
       });
       $("#od-history").html(hist.map(function (h) {
         return "<div class='ccm-ev'><span class='ccm-evdot ev-" + h.kind + "' aria-hidden='true'></span><div><div class='ccm-evt'>" + esc(h.text) + "</div><div class='ccm-evm'>" + esc(h.label) + "</div></div></div>";
@@ -2197,7 +2826,7 @@
         row("Store", esc(plainText(s.name || "—"))) +
         (s.code ? row("Store code", esc(s.code)) : "") +
         row("Location", esc([s.city, s.state].filter(Boolean).join(", ") || "—")) +
-        row("Ordered by", esc(req.name || n.customer || "—")) +
+        row("Ordered by", esc(d.placed_by ? d.placed_by + " (Supply Ops)" : req.name || n.customer || "—")) +
         (req.email ? row("Email", esc(req.email)) : "") +
         (req.phone ? row("Phone", esc(req.phone)) : "") +
         (req.company ? row("Company", esc(req.company)) : "")
@@ -2311,6 +2940,7 @@
     function state() {
       return JSON.stringify({
         name: v("#se-name"), code: v("#se-code"), city: v("#se-city"), state: v("#se-state"), address: v("#se-address"),
+        postcode: v("#se-postcode"), country: v("#se-country") || "CA",
         phone: v("#se-phone"), hours: v("#se-hours"), user: v("#se-user"),
         ld: $("#se-limits-default").is(":checked"), budget: v("#se-budget"), quota: v("#se-quota"),
         wd: $("#se-win-default").is(":checked"), from: v("#se-from"), to: v("#se-to"), rep: $("#se-repeat").is(":checked"),
@@ -2371,7 +3001,8 @@
         $("#se-title").text(plainText(s.name || "Edit store"));
         $("#se-sub").text("Code " + (s.code || "—") + " · " + [s.city, s.state].filter(Boolean).join(", ") + " · ID " + id);
         $("#se-name").val(plainText(s.name || "")); $("#se-code").val(s.code || ""); $("#se-city").val(s.city || ""); $("#se-state").val(s.state || "");
-        $("#se-address").val(s.address || ""); $("#se-phone").val(s.phone || ""); $("#se-hours").val(s.open_hours || "");
+        $("#se-address").val(s.address || ""); $("#se-postcode").val(s.postcode || ""); $("#se-country").val(s.country || "CA");
+        $("#se-phone").val(s.phone || ""); $("#se-hours").val(s.open_hours || "");
         var provs = (all || []).map(function (x) { return x.state; }).filter(function (x, i, a) { return x && a.indexOf(x) === i; }).sort();
         $("#se-provs").html(provs.map(function (p) { return "<option value='" + esc(p) + "'>"; }).join(""));
 
@@ -2407,7 +3038,10 @@
       var ld = $("#se-limits-default").is(":checked"), wd = $("#se-win-default").is(":checked");
       if (!v("#se-name")) return err("Store name is required.");
       if (!v("#se-code")) return err("Store code is required.");
-      if (!v("#se-address")) return err("Address is required.");
+      if (!v("#se-city")) return err("City is required.");
+      if (!v("#se-state")) return err("Province is required.");
+      if (!v("#se-address")) return err("Street address is required.");
+      if (!v("#se-postcode")) return err("Postal code is required.");
       if (!v("#se-phone")) return err("Phone number is required.");
       if (!v("#se-hours")) return err("Open hours are required.");
       if (!(+v("#se-user") > 0)) return err("Choose the store employee.");
@@ -2419,7 +3053,8 @@
       var $b = $(this).prop("disabled", true).text("Saving…");
       req("PUT", "stores/" + id, {
         name: v("#se-name"), code: v("#se-code"), city: v("#se-city"), state: v("#se-state"),
-        address: v("#se-address"), phone: v("#se-phone"), open_hours: v("#se-hours"), user_id: +v("#se-user"),
+        address: v("#se-address"), postcode: v("#se-postcode"), country: v("#se-country") || "CA",
+        phone: v("#se-phone"), open_hours: v("#se-hours"), user_id: +v("#se-user"),
       })
         .then(function () {
           return req("PUT", "stores/" + id + "/policy", {
@@ -2891,6 +3526,142 @@
         run();
       })
       .fail(function (x) { $("#r-rows").html("<tr><td class='ccm-empty'>" + esc(errMsg(x, "Couldn’t load reports")) + "</td></tr>"); });
+  };
+
+  /* ---------- Returns (SOW 1.24): store return requests and Supply Ops decisions ---------- */
+  var RET_TONE = { submitted: "p-pending", approved: "p-approved", rejected: "p-rejected", closed: "p-neutral" };
+  var RET_ACTION = {
+    approved: { btn: "Approve", cls: "primary", label: "Instructions for the store", ph: "e.g. Keep the box. Amazon will email a return label; drop it at Canada Post.", req: false, done: "approved" },
+    rejected: { btn: "Reject", cls: "danger", label: "Reason (the store sees this)", ph: "e.g. Opened items can’t be returned.", req: true, done: "rejected" },
+    closed: { btn: "Close return", cls: "", label: "How it ended (optional)", ph: "e.g. Amazon refunded CA$12.40 on Nov 12.", req: false, done: "closed" },
+  };
+  function retPill(r) {
+    return "<span class='ccm-pill " + (RET_TONE[r.status] || "p-neutral") + "'>" + esc(r.status_label) + "</span>";
+  }
+  function openReturn(id, onChange) {
+    $("#ccm-info .ccm-modal").removeClass("ccm-modal--pol");
+    $("#if-title").text("Return request");
+    $("#if-sub").text("");
+    $("#if-body").html("<div class='ccm-empty'>Loading…</div>");
+    $("#if-foot").empty();
+    openLayer("ccm-info");
+    get("returns/" + id).done(function (r) { drawReturn(r, onChange); })
+      .fail(function (x) { $("#if-body").html("<div class='ccm-empty'>" + esc(errMsg(x, "Couldn’t load the return request")) + "</div>"); });
+  }
+  function drawReturn(r, onChange) {
+    $("#if-title").html(esc(r.number) + " " + retPill(r));
+    $("#if-sub").text("Order #" + r.order_number + " · " + (r.store.name || "No store") + (r.store.code ? " (" + r.store.code + ")" : ""));
+    var rows = [
+      ["Requested by", esc(r.requested_by.name || "—") + (r.requested_by.email ? " <span class='ccm-muted'>· " + esc(r.requested_by.email) + "</span>" : "")],
+      ["Requested", esc(fdt(r.created_at))],
+      ["Reason", esc(r.reason_label)],
+      ["Order", "<a class='ccm-idlink' href='" + base + "orders/view/" + r.order_id + "'>#" + esc(r.order_number) + "</a>"],
+      ["Supplier", esc(r.vendors.join(", ") || "—")],
+      ["Supplier order", esc(r.vendor_ref || "—")],
+      ["Value", esc(money(r.value))],
+    ];
+    var html =
+      "<dl class='ccm-od-dl ccm-ret-dl'>" + rows.map(function (x) { return "<div><dt>" + x[0] + "</dt><dd>" + x[1] + "</dd></div>"; }).join("") + "</dl>" +
+      (r.note ? "<div class='ccm-ret-note'><div class='ccm-ret-note-t'>What the store said</div>" + esc(r.note) + "</div>" : "") +
+      "<table class='ccm-table ccm-ret-items'><thead><tr><th>Item</th><th>SKU</th><th>Supplier</th><th class='num'>Qty</th><th class='num'>Value</th></tr></thead><tbody>" +
+      r.lines.map(function (l) {
+        return "<tr><td class='ccm-strong'>" + esc(l.name) + "</td><td>" + esc(l.sku || "—") + "</td><td>" + esc(l.vendor || "—") + "</td><td class='num'>" + (+l.qty) + "</td><td class='num'>" + money(l.unit * l.qty) + "</td></tr>";
+      }).join("") + "</tbody></table>" +
+      "<div class='ccm-card-t' style='margin:16px 0 10px'>History</div><div class='ccm-tl'>" +
+      r.history.slice().reverse().map(function (h) {
+        return "<div class='ccm-tl-row'><div class='ccm-strong'>" + esc(h.label) + (h.by ? " <span class='ccm-muted ccm-small'>by " + esc(h.by) + "</span>" : "") + "</div>" +
+          "<div class='ccm-muted ccm-small'>" + esc(fdt(h.at)) + "</div>" + (h.note ? "<div class='ccm-ret-hnote'>" + esc(h.note) + "</div>" : "") + "</div>";
+      }).join("") + "</div>" +
+      "<div class='ccm-ret-decide' id='rt-decide' hidden><label class='ccm-field'><span id='rt-dl'></span><textarea class='ccm-input ccm-textarea' id='rt-note' rows='3' maxlength='1000'></textarea></label><div class='ccm-err' role='alert' id='rt-err' hidden></div></div>";
+    $("#if-body").html(html);
+    var foot = r.next.map(function (s) {
+      var a = RET_ACTION[s];
+      return a ? "<button type='button' class='ccm-btn " + a.cls + "' data-rt-go='" + s + "'>" + a.btn + "</button>" : "";
+    }).join("");
+    $("#if-foot").html(foot ? foot : "<span class='ccm-muted ccm-small' style='margin-right:auto'>This request is " + esc(r.status_label.toLowerCase()) + ". Nothing more to do.</span><button type='button' class='ccm-btn' data-ccm-close>Close</button>");
+
+    var chosen = null;
+    $("#if-foot").off("click.rt").on("click.rt", "[data-rt-go]", function () {
+      var s = String($(this).data("rtGo")), a = RET_ACTION[s];
+      chosen = s;
+      $("#rt-decide").prop("hidden", false);
+      $("#rt-dl").text(a.label + (a.req ? " *" : ""));
+      $("#rt-note").attr("placeholder", a.ph).trigger("focus");
+      $("#rt-err").prop("hidden", true);
+      $("#if-foot").html("<button type='button' class='ccm-btn' data-rt-back>Back</button><button type='button' class='ccm-btn " + (a.cls || "primary") + "' data-rt-save>" + esc(a.btn) + " " + esc(r.number) + "</button>");
+    });
+    $("#if-foot").off("click.rtb").on("click.rtb", "[data-rt-back]", function () { drawReturn(r, onChange); });
+    $("#if-foot").off("click.rts").on("click.rts", "[data-rt-save]", function () {
+      var $b = $(this), a = RET_ACTION[chosen], note = $.trim($("#rt-note").val() || "");
+      if (a.req && !note) { $("#rt-err").text("Add a reason for the store.").prop("hidden", false); return; }
+      $b.prop("disabled", true).text("Saving…");
+      req("POST", "returns/" + r.id + "/decision", { status: chosen, note: note })
+        .done(function (nr) {
+          toast("Return " + r.number + " " + a.done + ". The store was emailed.");
+          drawReturn(nr, onChange);
+          if (onChange) onChange();
+        })
+        .fail(function (x) {
+          $b.prop("disabled", false).text(a.btn + " " + r.number);
+          $("#rt-err").text(errMsg(x, "Couldn’t save")).prop("hidden", false);
+        });
+    });
+  }
+
+  screens.returns = function () {
+    var S = { items: [], counts: {}, status: "open", q: "" };
+    var P = pager("#rt-pager", function () { render(); });
+    var TABS = [["open", "Open"], ["submitted", "Waiting for review"], ["approved", "Approved"], ["closed", "Closed"], ["rejected", "Rejected"], ["all", "All"]];
+    function view() {
+      var q = S.q.toLowerCase();
+      return S.items.filter(function (r) {
+        if (S.status === "open" && ["submitted", "approved"].indexOf(r.status) < 0) return false;
+        if (S.status !== "open" && S.status !== "all" && r.status !== S.status) return false;
+        if (!q) return true;
+        var hay = [r.number, "#" + r.order_number, r.order_number, r.store.name, r.store.code, r.requested_by.name, r.requested_by.email, r.reason_label]
+          .concat(r.lines.map(function (l) { return l.name + " " + l.sku; })).join(" ").toLowerCase();
+        return hay.indexOf(q) >= 0;
+      });
+    }
+    function render() {
+      var rows = view(), page = P.slice(rows, [S.status, S.q]);
+      $("#rt-tabs").html(TABS.map(function (t) {
+        var n = t[0] === "all" ? S.items.length : t[0] === "open" ? S.items.filter(function (r) { return r.status === "submitted" || r.status === "approved"; }).length : S.items.filter(function (r) { return r.status === t[0]; }).length;
+        var on = S.status === t[0];
+        return "<button type='button' class='ccm-tab" + (on ? " on" : "") + "' role='tab' aria-selected='" + on + "' data-status='" + t[0] + "'>" + t[1] + " <span class='ccm-count'>" + n + "</span></button>";
+      }).join(""));
+      $("#rt-rows").html(page.map(function (r) {
+        var first = r.lines[0] ? r.lines[0].name : "";
+        return "<tr>" +
+          "<td><button type='button' class='ccm-idlink' data-rt='" + r.id + "'>" + esc(r.number) + "</button></td>" +
+          "<td><a class='ccm-idlink' href='" + base + "orders/view/" + r.order_id + "'>#" + esc(r.order_number) + "</a></td>" +
+          "<td><div class='ccm-strong'>" + esc(r.store.name || "—") + "</div><div class='ccm-muted ccm-small'>" + esc(r.requested_by.name || "") + "</div></td>" +
+          "<td><div class='ccm-ellipsis' style='max-width:240px' title='" + esc(first) + "'>" + esc(first) + "</div><div class='ccm-muted ccm-small'>" + r.items + " item" + (r.items === 1 ? "" : "s") + (r.lines.length > 1 ? " · " + r.lines.length + " products" : "") + "</div></td>" +
+          "<td>" + esc(r.reason_label) + "</td>" +
+          "<td>" + esc(fd(r.created_at)) + "</td>" +
+          "<td>" + retPill(r) + "</td>" +
+          "<td class='num'><button type='button' class='ccm-btn sm" + (r.status === "submitted" ? " primary" : "") + "' data-rt='" + r.id + "'>" + (r.status === "submitted" ? "Review" : "View") + "</button></td>" +
+          "</tr>";
+      }).join(""));
+      $("#rt-empty").prop("hidden", rows.length > 0);
+      $("#rt-foot").text(P.label("return requests"));
+    }
+    function load() {
+      return get("returns", { status: "all" }).done(function (d) {
+        S.items = (d && d.items) || [];
+        S.items.forEach(function (r) { r.store.name = plainText(r.store.name); });
+        render();
+      }).fail(function (x) {
+        $("#rt-rows").html("<tr><td colspan='8' class='ccm-empty'>" + esc(errMsg(x, "Couldn’t load return requests")) + "</td></tr>");
+      });
+    }
+    $("#rt-tabs").on("click", "[data-status]", function () { S.status = String($(this).data("status")); render(); });
+    $("#rt-q").on("input", function () { S.q = $.trim(this.value); render(); });
+    $("#rt-rows").on("click", "[data-rt]", function () { openReturn(+$(this).data("rt"), load); });
+    load().done(function () {
+      var m = /[?&]r=(\d+)/.exec(location.search);
+      if (m) openReturn(+m[1], load);
+    });
   };
 
   $(function () {

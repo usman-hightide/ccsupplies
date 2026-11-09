@@ -38,15 +38,15 @@ class WCSS_Ledger {
         global $wpdb;
         $t = self::table();
         $now = current_time( 'mysql' );
-        // Upsert
+        // Upsert. orders_count is UNSIGNED, so a negative delta can't go through VALUES(): it would be clamped to 0.
         $wpdb->query( $wpdb->prepare(
             "INSERT INTO $t (store_id, ym, orders_count, spend_total, updated_at)
              VALUES (%d,%s,%d,%f,%s)
              ON DUPLICATE KEY UPDATE
-               orders_count = GREATEST(orders_count + VALUES(orders_count), 0),
-               spend_total  = GREATEST(spend_total  + VALUES(spend_total),  0),
+               orders_count = GREATEST(CAST(orders_count AS SIGNED) + %d, 0),
+               spend_total  = GREATEST(spend_total + %f, 0),
                updated_at   = VALUES(updated_at)",
-            $store_id, $ym, $orders_delta, $amount_delta, $now
+            $store_id, $ym, max( 0, $orders_delta ), max( 0.0, $amount_delta ), $now, $orders_delta, $amount_delta
         ) );
     }
 

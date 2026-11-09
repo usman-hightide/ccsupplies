@@ -33,10 +33,16 @@ class WCSS_Email_Logger {
             }
         }
 
+        // The log is readable by Supply Managers, and a password link would let them take over that account.
+        $message = (string) ( $args['message'] ?? '' );
+        if ( $context === 'wcss_password_link' || preg_match( '/lost-password|action=rp/i', $message ) ) {
+            $message = 'Password link removed from this log for security.';
+        }
+
         self::log_email(
             $to,
             (string) $args['subject'],
-            (string) ( $args['message'] ?? '' ),
+            $message,
             $headers,
             $context
         );

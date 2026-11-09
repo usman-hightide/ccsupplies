@@ -8,6 +8,7 @@ $_SERVER['HTTP_HOST'] = 'ccsupplies.local'; $_SERVER['REQUEST_URI'] = '/';
 define('WP_USE_THEMES', false);
 require __DIR__ . '/../app/public/wp-load.php';
 if ( ! preg_match( '#\.local(/|$)#', home_url() ) ) { fwrite( STDERR, "Refusing to run: not a .local site (" . home_url() . ")\n" ); exit( 1 ); }
+$ledger_ym = (new WC_DateTime())->date_i18n('Y-m'); $ledger_bk = WCSS_Ledger::get(8177, $ledger_ym); // Throwaway orders must not change Test store's month totals.
 wp_set_current_user((int) get_users(['role' => 'administrator', 'number' => 1, 'fields' => 'ID'])[0]);
 $GLOBALS['mails'] = 0; add_filter('pre_wp_mail', function () { $GLOBALS['mails']++; return false; }, 1);
 
@@ -91,6 +92,7 @@ try {
 
   ok('No request left the mock (no real Amazon/other calls)', empty($GLOBALS['M']['unexpected']), json_encode($GLOBALS['M']['unexpected']));
 } finally {
+  $ledger_now = WCSS_Ledger::get(8177, $ledger_ym); WCSS_Ledger::bump(8177, $ledger_ym, (int) $ledger_bk['orders_count'] - (int) $ledger_now['orders_count'], (float) $ledger_bk['spend_total'] - (float) $ledger_now['spend_total']);
   if ($created) { global $wpdb; $wpdb->query("DELETE FROM {$wpdb->prefix}wcss_email_logs WHERE subject REGEXP '#(" . implode('|', array_map('intval', $created)) . ")([^0-9]|$)'"); } // blocked test emails, never sent
   foreach ($created as $id) { if (function_exists('as_unschedule_all_actions')) as_unschedule_all_actions('cc_auto_vendor_submit_async', ['order_id' => $id], 'cc-auto-vendor'); $x = wc_get_order($id); if ($x) $x->delete(true); }
   delete_option('cc_amazon_place_lock');

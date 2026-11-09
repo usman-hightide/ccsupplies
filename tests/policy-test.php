@@ -8,6 +8,7 @@ $_SERVER['HTTP_HOST'] = 'ccsupplies.local'; $_SERVER['REQUEST_URI'] = '/';
 define('WP_USE_THEMES', false);
 require __DIR__ . '/../app/public/wp-load.php';
 if ( ! preg_match( '#\.local(/|$)#', home_url() ) ) { fwrite( STDERR, "Refusing to run: not a .local site (" . home_url() . ")\n" ); exit( 1 ); }
+$ledger_ym = (new WC_DateTime())->date_i18n('Y-m'); $ledger_bk = WCSS_Ledger::get(8177, $ledger_ym); // Throwaway orders must not change Test store's month totals.
 $admin = (int) get_users(['role' => 'administrator', 'number' => 1, 'fields' => 'ID'])[0];
 wp_set_current_user($admin);
 // Never email anyone (vendors/stores) from tests.
@@ -29,7 +30,7 @@ try {
   [$U0, $A0] = WCSS_Order_Policy::month_usage($SID);
   $Q1 = $U0 + 1; $B1 = round($A0 + 125, 2);
   update_post_meta($SID, WCSS_Store_CPT::META_QUOTA, $Q1); update_post_meta($SID, WCSS_Store_CPT::META_BUDGET, $B1);
-  $o = get_option('wcss_settings'); $o['order_window_start'] = 1; $o['order_window_end'] = 31; $o['limit_mode'] = 'review'; $o['default_monthly_budget'] = 125; $o['order_window_from'] = ''; $o['order_window_to'] = ''; update_option('wcss_settings', $o);
+  $o = get_option('wcss_settings'); $o['order_window_start'] = 1; $o['order_window_end'] = 31; $o['limit_mode'] = 'review'; $o['default_monthly_budget'] = 125; $o['province_weeks_on'] = 0; $o['order_window_from'] = ''; $o['order_window_to'] = ''; update_option('wcss_settings', $o);
 
   // B1 fallback: empty store budget -> default 125
   update_post_meta($SID, WCSS_Store_CPT::META_BUDGET, '');
@@ -94,9 +95,11 @@ try {
   ok('Orders API exposes policy verdict', isset($d['policy']['in_policy']) && $d['policy']['in_policy'] === false, json_encode($d['policy'] ?? null));
 
   // checkout: review mode never blocks; block mode blocks (as store employee with cart)
-  wp_set_current_user(243);
+  wp_set_current_user(get_user_by('login', 'storeowner')->ID); // linked to Test store
   if (function_exists('wc_load_cart')) wc_load_cart();
+  add_filter('woocommerce_is_purchasable', '__return_true', 99); // fixture product has no vendor; ordering rules are tested in vendor-required-test.php
   WC()->cart->empty_cart(); WC()->cart->add_to_cart($PROD, 1); WC()->cart->calculate_totals();
+  ok('Fixture: cart has the item', WC()->cart->get_cart_contents_count() === 1);
   ok('Review mode: checkout/gateway not blocked', WCSS_Order_Quota::get_violations_messages() === [], json_encode(WCSS_Order_Quota::get_violations_messages()));
   $o = get_option('wcss_settings'); $o['limit_mode'] = 'block'; update_option('wcss_settings', $o);
   $msgs = WCSS_Order_Quota::get_violations_messages();
@@ -159,6 +162,7 @@ try {
   [$st, $d] = rest('POST', '/wcss/v1/stores/apply-limits', ['budget' => -5]);
   ok('apply-limits rejects negative budget', $st === 400);
 } finally {
+  $ledger_now = WCSS_Ledger::get(8177, $ledger_ym); WCSS_Ledger::bump(8177, $ledger_ym, (int) $ledger_bk['orders_count'] - (int) $ledger_now['orders_count'], (float) $ledger_bk['spend_total'] - (float) $ledger_now['spend_total']);
   // --- cleanup ---
   if ($created) { global $wpdb; $wpdb->query("DELETE FROM {$wpdb->prefix}wcss_email_logs WHERE subject REGEXP '#(" . implode('|', array_map('intval', $created)) . ")([^0-9]|$)'"); } // blocked test emails, never sent
   foreach ($created as $id) { if (function_exists('as_unschedule_all_actions')) as_unschedule_all_actions('cc_auto_vendor_submit_async', ['order_id' => $id], 'cc-auto-vendor'); $x = wc_get_order($id); if ($x) $x->delete(true); }

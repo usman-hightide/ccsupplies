@@ -26,8 +26,8 @@
       </label>
     </div>
     <table class="ccm-table">
-      <thead><tr><th>Product</th><th>SKU</th><th>Vendor</th><th class="num">Website</th><th class="num">Amazon</th><th class="num">Grand &amp; Toy</th><th>Notes</th><th class="num">Actions</th></tr></thead>
-      <tbody id="p-rows"><tr><td colspan="8" class="ccm-empty">Loading products…</td></tr></tbody>
+      <thead><tr><th>Product</th><th>SKU</th><th>Vendor</th><th class="num">Amazon</th><th class="num">Grand &amp; Toy</th><th>Notes</th><th class="num">Actions</th></tr></thead>
+      <tbody id="p-rows"><tr><td colspan="7" class="ccm-empty">Loading products…</td></tr></tbody>
     </table>
     <div class="ccm-empty" id="p-empty" hidden><strong>No products found</strong>Try another name, SKU or vendor.</div>
     <div class="ccm-listfoot"><span id="p-foot"></span><span class="ccm-muted ccm-small">Green = lowest price available</span><span class="ccm-pager" id="p-pager"></span></div>

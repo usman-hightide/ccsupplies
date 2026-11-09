@@ -34,7 +34,7 @@ class WCSS_Status_Policy {
     /**
      * When checkout creates the order, make sure it’s pending (not processing/on-hold).
      */
-    public function force_pending_on_checkout( $order_id, $posted_data, $order ) {
+    public function force_pending_on_checkout( $order_id, $posted_data = [], $order = null ) {
         if ( ! $order instanceof WC_Order ) {
             $order = wc_get_order( $order_id );
         }

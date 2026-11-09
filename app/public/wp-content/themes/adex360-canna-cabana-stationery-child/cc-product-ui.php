@@ -76,6 +76,9 @@ function cc_product_ui_add_to_cart_message( $message, $products, $show_qty = fal
 }
 add_filter( 'wc_add_to_cart_message_html', 'cc_product_ui_add_to_cart_message', 20, 3 );
 
+// Stores don't need this on the product page. An empty message means WooCommerce shows nothing.
+add_filter( 'woocommerce_cart_product_not_enough_stock_already_in_cart_message', '__return_empty_string' );
+
 /**
  * Stores don't need the raw stock count ("9998 in stock"); keep low-stock warnings.
  *

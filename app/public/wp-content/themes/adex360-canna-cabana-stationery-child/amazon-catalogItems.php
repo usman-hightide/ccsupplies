@@ -14,9 +14,9 @@ function amazon_get_access_token() {
             ),
             'body' => array(
                 'grant_type'    => 'refresh_token',
-                'refresh_token' => AMAZON_REFRESH_TOKEN,
-                'client_id'     => AMAZON_CLIENT_ID,
-                'client_secret' => AMAZON_CLIENT_SECRET,
+                'refresh_token' => ( class_exists( 'WCSS_Vendor_Connections' ) ? WCSS_Vendor_Connections::amazon( 'refresh_token' ) : AMAZON_REFRESH_TOKEN ),
+                'client_id'     => ( class_exists( 'WCSS_Vendor_Connections' ) ? WCSS_Vendor_Connections::amazon( 'client_id' ) : AMAZON_CLIENT_ID ),
+                'client_secret' => ( class_exists( 'WCSS_Vendor_Connections' ) ? WCSS_Vendor_Connections::amazon( 'client_secret' ) : AMAZON_CLIENT_SECRET ),
             ),
         )
     );

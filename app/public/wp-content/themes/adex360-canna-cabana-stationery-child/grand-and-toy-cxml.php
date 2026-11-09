@@ -18,10 +18,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Stage SubmitPO endpoint. Production is intentionally not defined.
- * Uses CC_GT_STAGE_ENDPOINT from wp-config.php when that constant is the stage host.
+ * SubmitPO endpoint for the current mode. Stage unless an administrator switched Grand & Toy to
+ * Production in WP Admin → WooCommerce → Vendor connections (name kept for existing callers).
+ * Without that screen: stage only, from CC_GT_STAGE_ENDPOINT when that constant is the stage host.
  */
 function cc_gt_stage_endpoint() {
+    if ( class_exists( 'WCSS_Vendor_Connections' ) ) {
+        return WCSS_Vendor_Connections::gt_endpoint();
+    }
     $stage = 'https://stage.grandandtoy.com/B2BIntegration/SubmitPO/SubmitPO_wholesale.aspx';
     if ( defined( 'CC_GT_STAGE_ENDPOINT' ) && CC_GT_STAGE_ENDPOINT !== '' ) {
         $configured = (string) CC_GT_STAGE_ENDPOINT;
@@ -39,6 +43,25 @@ function cc_gt_stage_endpoint() {
  * @return array<string, mixed>
  */
 function cc_gt_credentials() {
+    // Credentials for the current mode (stage or production) from Vendor connections; stage falls back to wp-config.php.
+    if ( class_exists( 'WCSS_Vendor_Connections' ) ) {
+        $missing = WCSS_Vendor_Connections::missing( 'gt' );
+        if ( $missing ) {
+            return array(
+                'errors' => array(
+                    'Grand & Toy ' . WCSS_Vendor_Connections::label( 'gt' ) . ' credentials are missing: ' . implode( ', ', $missing ) . '. Add them in WP Admin → WooCommerce → Vendor connections.',
+                ),
+            );
+        }
+        $sender = trim( WCSS_Vendor_Connections::gt( 'sender' ) );
+        return array(
+            'errors'        => array(),
+            'from_identity' => trim( WCSS_Vendor_Connections::gt( 'from_identity' ) ),
+            'to_identity'   => trim( WCSS_Vendor_Connections::gt( 'to_identity' ) ),
+            'shared_secret' => WCSS_Vendor_Connections::gt( 'shared_secret' ),
+            'stock_sender'  => $sender !== '' ? $sender : 'LOCATION1',
+        );
+    }
     $required = array(
         'CC_GT_FROM_IDENTITY'  => 'From Identity',
         'CC_GT_TO_IDENTITY'    => 'To Identity',
@@ -102,6 +125,10 @@ function cc_gt_sanitize_cxml( $xml ) {
         'http://www.grandandtoy.com/B2BIntegration/SubmitPO/SubmitPO_wholesale.aspx',
     );
 
+    // In Production mode the real URL is the target, so leave it alone.
+    if ( class_exists( 'WCSS_Vendor_Connections' ) && WCSS_Vendor_Connections::gt_production() ) {
+        return $xml;
+    }
     return str_ireplace( $production, cc_gt_stage_endpoint(), $xml );
 }
 
@@ -430,6 +457,11 @@ function cc_gt_submit_order( array $order ) {
         && ! $status_bad
         && empty( $result['errors'] );
 
+    // Keep G&T's own reason (e.g. "500 Parsing error") so a failed send is never blank.
+    if ( ! $result['ok'] && empty( $result['errors'] ) && $status_bad ) {
+        $result['errors'] = array( trim( 'Grand & Toy answered ' . $status . ' ' . (string) ( $result['parsed']['status_text'] ?? '' ) ) . '.' );
+    }
+
     return $result;
 }
 
@@ -629,8 +661,11 @@ function cc_gt_post_cxml( $xml ) {
         'errors'       => array(),
     );
 
-    if ( $host !== 'stage.grandandtoy.com' ) {
-        $result['errors'][] = 'Refusing to post because the endpoint is not the Grand & Toy stage host.';
+    $allowed = class_exists( 'WCSS_Vendor_Connections' )
+        ? WCSS_Vendor_Connections::gt_allowed_host( (string) $host )
+        : ( $host === 'stage.grandandtoy.com' );
+    if ( ! $allowed ) {
+        $result['errors'][] = 'Refusing to post because the endpoint is not the Grand & Toy host for the current mode.';
         return $result;
     }
 
@@ -838,7 +873,8 @@ function cc_gt_format_result( $title, array $result ) {
 
     $lines[] = '';
     $lines[] = '----- request -----';
-    $lines[] = (string) ( $result['request_xml'] ?? '' );
+    // Never print the shared secret, even on this admin-only page.
+    $lines[] = preg_replace( '#<SharedSecret>.*?</SharedSecret>#s', '<SharedSecret>********</SharedSecret>', (string) ( $result['request_xml'] ?? '' ) );
     $lines[] = '';
     $lines[] = '----- response -----';
     $lines[] = (string) ( $result['response_xml'] ?? '' );
@@ -920,8 +956,9 @@ function cc_gt_prepare_order( array $order ) {
     $order_id = trim( (string) ( $order['order_id'] ?? '' ) );
     if ( $order_id === '' ) {
         $errors[] = 'orderID is required. Use a new id for every test.';
-    } elseif ( ! preg_match( '/^[A-Za-z0-9._-]{1,64}$/', $order_id ) ) {
-        $errors[] = 'orderID must be 1-64 letters, numbers, dots, underscores, or hyphens.';
+    } elseif ( ! preg_match( '/^[A-Za-z0-9._-]{1,20}$/', $order_id ) ) {
+        // Grand & Toy answers "500 Parsing error" when orderID is longer than 20 characters.
+        $errors[] = 'orderID must be 1-20 letters, numbers, dots, underscores, or hyphens.';
     }
 
     $backorder = strtoupper( trim( (string) ( $order['backorder_method'] ?? 'BO' ) ) );

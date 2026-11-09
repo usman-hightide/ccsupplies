@@ -47,6 +47,13 @@ class WCSS_REST_Vendors {
             'callback' => [ $this, 'update' ],
         ]);
 
+        // Active / inactive: { active: bool }
+        register_rest_route( self::NS, '/vendors/(?P<id>\d+)/status', [
+            'methods' => 'POST',
+            'permission_callback' => [ $this, 'can_manage' ],
+            'callback' => [ $this, 'set_status' ],
+        ]);
+
         // Per-product results of the last price fetches (cc_vendor_prices) + last sync run log.
         register_rest_route( self::NS, '/vendors/(?P<id>\d+)/price-log', [
             'methods' => 'GET',
@@ -222,6 +229,7 @@ class WCSS_REST_Vendors {
             'id'      => (int) $t->term_id,
             'name'    => $this->clean_name( (string) $t->name ),
             'slug'    => $t->slug,
+            'active'  => WCSS_Vendor_Status::is_active( $t->term_id ),
             'phone'   => (string) get_term_meta( $t->term_id, 'wcss_vendor_phone', true ),
             'email'   => (string) get_term_meta( $t->term_id, 'wcss_vendor_email', true ),
             'address' => (string) get_term_meta( $t->term_id, 'wcss_vendor_address', true ),
@@ -354,11 +362,34 @@ class WCSS_REST_Vendors {
         return rest_ensure_response( $this->dto( $t ) );
     }
 
+    /** POST /vendors/{id}/status — the Activate / Deactivate button. */
+    public function set_status( WP_REST_Request $req ) {
+        $id = (int) $req['id'];
+        $t  = get_term( $id, 'wcss_vendor' );
+        if ( ! $t || is_wp_error( $t ) ) return new WP_Error( 'not_found', 'Vendor not found', [ 'status' => 404 ] );
+
+        $data = $req->get_json_params() ?: [];
+        if ( ! array_key_exists( 'active', $data ) ) {
+            return new WP_Error( 'bad_status', 'Choose active or inactive.', [ 'status' => 400 ] );
+        }
+        $active = (bool) $data['active'];
+        $was    = WCSS_Vendor_Status::is_active( $id );
+        $hidden = WCSS_Vendor_Status::set_active( $id, $active );
+        if ( $was !== $active ) {
+            do_action( 'wcss_vendor_changed', 'updated', $id, $t->name, [ 'status' => $active ? 'Active' : 'Inactive' ] );
+        }
+        $out = $this->dto( $t );
+        $out['hidden_products'] = $hidden;
+        return rest_ensure_response( $out );
+    }
+
     public function delete( WP_REST_Request $req ) {
         $id = (int) $req['id'];
         $old = get_term( $id, 'wcss_vendor' );
+        $was_inactive = ! WCSS_Vendor_Status::is_active( $id );
         $del = wp_delete_term( $id, 'wcss_vendor' );
         if ( is_wp_error( $del ) ) return $del;
+        if ( $was_inactive ) WCSS_Vendor_Status::refresh_all();
         if ( $del && $old && ! is_wp_error( $old ) ) {
             do_action( 'wcss_vendor_changed', 'deleted', $id, $old->name, [] );
         }

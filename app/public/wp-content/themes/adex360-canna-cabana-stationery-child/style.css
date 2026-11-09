@@ -3,7 +3,7 @@
 	Description: Canna Cabana Stationery is a lightweight and minimalist WordPress theme that was built specifically to work seamlessly with the Elementor site builder plugin. The theme is free, open-source, and designed for users who want a flexible, easy-to-use, and customizable website. The theme, which is optimized for performance, provides a solid foundation for users to build their own unique designs using the Elementor drag-and-drop site builder. Its simplicity and flexibility make it a great choice for both beginners and experienced Web Creators.
 	Author: Adex360
 	Author URI: https://adex360.com/
-	Version: 1.0.19
+	Version: 1.0.27
 	Template: adex360-cannacabana-stationery
 	Requires at least: 6.0
 	Tested up to: 6.8
@@ -228,6 +228,18 @@ body.post-type-archive-product .elementor-592 .elementor-element-61267de6 {
   white-space: nowrap;
 }
 
+/* Phones: two half-width buttons don't fit a narrow card, so let them take full width and stack. */
+@media (max-width: 480px) {
+  .woocommerce .elementor-element.elementor-products-grid ul.products li.product > .button,
+  .woocommerce .elementor-element.elementor-products-grid ul.products li.product > a.button,
+  .woocommerce ul.products.elementor-grid li.product > .button,
+  .woocommerce ul.products.elementor-grid li.product > a.button,
+  .woocommerce ul.products li.product > .button,
+  .woocommerce ul.products li.product > a.button {
+    max-width: 100%;
+  }
+}
+
 .woocommerce .elementor-element.elementor-products-grid ul.products li.product > a.added_to_cart,
 .woocommerce ul.products.elementor-grid li.product > a.added_to_cart,
 .woocommerce ul.products li.product a.added_to_cart,
@@ -254,6 +266,15 @@ body.post-type-archive-product .elementor-592 .elementor-element-61267de6 {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+@media (max-width: 480px) {
+  .woocommerce .elementor-element.elementor-products-grid ul.products li.product > a.added_to_cart,
+  .woocommerce ul.products.elementor-grid li.product > a.added_to_cart,
+  .woocommerce ul.products li.product a.added_to_cart,
+  .woocommerce-page ul.products li.product a.added_to_cart {
+    max-width: 100%;
+  }
 }
 
 .woocommerce ul.products li.product a.added_to_cart:hover,
@@ -460,4 +481,70 @@ body.post-type-archive-product .elementor-592 .elementor-element-61267de6 {
   .woocommerce-order .woocommerce-customer-details address {
     max-width: none;
   }
+}
+
+/* Product no vendor can supply: Add to cart stays visible but can't be used. */
+.woocommerce .button.wcss-atc-disabled,
+.woocommerce .button.wcss-atc-disabled:hover,
+.woocommerce .button.wcss-atc-disabled:focus,
+.woocommerce ul.products li.product .button.wcss-atc-disabled,
+.woocommerce ul.products li.product .button.wcss-atc-disabled:hover {
+  background: #f1f1f1 !important;
+  border-color: #dcdcdc !important;
+  color: #9a9a9a !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+  cursor: not-allowed !important;
+}
+
+.button.wcss-atc-disabled {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+ul.products .button.wcss-atc-disabled svg {
+  display: none;
+}
+
+/* Product page: same layout as an orderable product (status pill, then the big button). */
+.wcss-unavailable {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  width: 100%;
+}
+.wcss-unavailable__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #fff4e0;
+  color: #8a5300;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.wcss-unavailable__status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.woocommerce .wcss-unavailable .button.wcss-atc-disabled {
+  width: 100%;
+  min-height: 52px;
+  padding: 15px !important;
+  border: 1px solid #dcdcdc !important;
+  border-radius: 100px !important;
+  font-size: 16px;
+  font-weight: 600;
+}
+.wcss-unavailable .button.wcss-atc-disabled svg {
+  flex: none;
+  margin-right: 8px;
 }

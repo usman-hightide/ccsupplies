@@ -17,6 +17,12 @@ $order_id = absint( get_query_var( 'wcss_id' ) );
       <h1 class="ccm-h1"><span>Order #<?php echo (int) $order_id; ?></span> <span id="od-status"></span></h1>
       <p class="ccm-sub" id="od-sub">Loading order…</p>
     </div>
+    <div class="ccm-actions">
+      <button type="button" class="ccm-btn danger" id="od-delete">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>
+        Delete order
+      </button>
+    </div>
   </div>
 
   <section class="ccm-od-action" id="od-action" hidden></section>
@@ -33,7 +39,7 @@ $order_id = absint( get_query_var( 'wcss_id' ) );
   <div class="ccm-od">
     <div class="ccm-od-main">
       <section class="ccm-card ccm-od-card">
-        <div class="ccm-card-h"><h2 class="ccm-card-t">Items</h2><span class="ccm-count" id="od-count"></span></div>
+        <div class="ccm-card-h"><div class="ccm-od-items-h"><h2 class="ccm-card-t">Items</h2><span class="ccm-count" id="od-count"></span></div><button type="button" class="ccm-btn sm" id="od-edit" hidden>Edit items</button></div>
         <div class="ccm-od-items" id="od-items"><div class="ccm-empty">Loading…</div></div>
         <dl class="ccm-od-totals" id="od-totals"></dl>
       </section>
@@ -61,6 +67,14 @@ $order_id = absint( get_query_var( 'wcss_id' ) );
         <div class="ccm-card-h"><h2 class="ccm-card-t">Store &amp; requester</h2></div>
         <dl class="ccm-od-dl" id="od-store"></dl>
         <div class="ccm-od-addr" id="od-addr"></div>
+      </section>
+      <section class="ccm-card ccm-od-card" id="od-ship-card" hidden>
+        <div class="ccm-card-h"><h2 class="ccm-card-t">Delivery</h2><button type="button" class="ccm-btn sm" id="od-ship-edit">Edit</button></div>
+        <div id="od-ship"></div>
+      </section>
+      <section class="ccm-card ccm-od-card" id="od-ret-card" hidden>
+        <div class="ccm-card-h"><h2 class="ccm-card-t">Returns</h2><a class="ccm-btn sm" href="<?php echo esc_url( home_url( '/manager/returns' ) ); ?>">All returns</a></div>
+        <div id="od-ret"></div>
       </section>
       <section class="ccm-card ccm-od-card">
         <div class="ccm-card-h"><h2 class="ccm-card-t">This store’s month</h2><span class="ccm-count" id="od-month"></span></div>

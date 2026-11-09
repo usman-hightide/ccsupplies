@@ -26,6 +26,7 @@ class WCSS_Email_Center {
             'vendor_failed'        => [ 'Vendors', 'Vendor rejected order',       'The vendor rejected the order, or sending it failed.' ],
             'vendor_changed'       => [ 'Vendors', 'Vendor details changed',      'A vendor is added, edited, removed or its budget changes.' ],
             'policy_changed'       => [ 'System',  'Ordering policy changed',     'Budget, orders per month or ordering window changes.' ],
+            'return_requested'     => [ 'Returns', 'Return requested',            'A store asks to return items (ordered in error, damaged, wrong or missing).' ],
         ];
     }
 
@@ -38,6 +39,34 @@ class WCSS_Email_Center {
         add_action( 'cc_auto_vendor_submit_done', [ $this, 'on_vendor_result' ], 10, 2 );
         add_action( 'wcss_vendor_changed', [ $this, 'on_vendor_changed' ], 10, 4 );
         add_action( 'wcss_policy_updated', [ $this, 'on_policy_updated' ], 10, 3 );
+        add_action( 'wcss_return_changed', [ $this, 'on_return_changed' ], 10, 2 );
+        add_action( 'init', [ __CLASS__, 'add_return_event_once' ], 30 );
+    }
+
+    /** A store sent a new return request (SOW 1.24). Decisions are Supply Ops' own, so only new ones are sent. */
+    public function on_return_changed( $ret, $old ) {
+        if ( $old === '' && is_array( $ret ) ) self::notify( 'return_requested', [ 'return' => $ret ] );
+    }
+
+    /**
+     * Returns are new: whoever already gets "Order needs approval" also gets "Return requested",
+     * once, so requests don't go unseen. Supply Ops can untick it in Supply Manager → Emails.
+     */
+    public static function add_return_event_once() {
+        if ( get_option( 'wcss_return_event_added' ) ) return;
+        $list = get_option( self::OPTION, null );
+        if ( is_array( $list ) ) {
+            foreach ( $list as &$r ) {
+                $ev = (array) ( $r['events'] ?? [] );
+                if ( in_array( 'order_needs_approval', $ev, true ) && ! in_array( 'return_requested', $ev, true ) ) {
+                    $ev[] = 'return_requested';
+                }
+                $r['events'] = $ev;
+            }
+            unset( $r );
+            update_option( self::OPTION, $list, false );
+        }
+        update_option( 'wcss_return_event_added', current_time( 'mysql' ), false );
     }
 
     /* ===================== Recipients ===================== */
@@ -58,7 +87,7 @@ class WCSS_Email_Center {
         }
 
         $seed   = [];
-        $events = [ 'order_new', 'order_needs_approval', 'order_approved', 'order_rejected', 'order_reopened', 'vendor_failed' ];
+        $events = [ 'order_new', 'order_needs_approval', 'order_approved', 'order_rejected', 'order_reopened', 'vendor_failed', 'return_requested' ];
         foreach ( get_users( [ 'role' => 'shop_manager' ] ) as $u ) {
             if ( is_email( $u->user_email ) ) {
                 $seed[ strtolower( $u->user_email ) ] = [ 'email' => $u->user_email, 'name' => $u->display_name, 'active' => true, 'events' => $events ];
@@ -177,6 +206,34 @@ class WCSS_Email_Center {
         return [ 'ok' => (bool) $ok, 'error' => $ok ? '' : ( $error ?: 'The mail server did not accept the message.' ) ];
     }
 
+    /**
+     * Email a user a link to choose their own password. Sent straight away so the caller can report failures.
+     *
+     * @return array{ok:bool,error:string}
+     */
+    public static function send_password_link( WP_User $user, bool $welcome = false ): array {
+        $key = get_password_reset_key( $user );
+        if ( is_wp_error( $key ) ) {
+            return [ 'ok' => false, 'error' => $key->get_error_message() ];
+        }
+        $url  = add_query_arg(
+            [ 'key' => $key, 'id' => $user->ID ],
+            wc_get_endpoint_url( 'lost-password', '', wc_get_page_permalink( 'myaccount' ) )
+        );
+        $html = WCSS_Email_Template::render( [
+            'eyebrow' => $welcome ? 'Welcome' : 'Account',
+            'title'   => 'Set your password',
+            'intro'   => $welcome
+                ? 'An account has been created for you on the Canna Cabana Internal Supply Store. Choose a password to start ordering.'
+                : 'Supply Ops sent you this link so you can choose a new password. Your current password keeps working until you do.',
+            'details' => [ [ 'Username', $user->user_login ], [ 'Email', $user->user_email ] ],
+            'note'    => [ 'title' => 'About this link', 'lines' => [ 'It works once and expires after 24 hours. If it expires, ask Supply Ops to send a new one.' ], 'tone' => 'info' ],
+            'action'  => [ 'label' => 'Set your password', 'url' => $url ],
+            'reason'  => 'You received this because Supply Ops set up or updated your account.',
+        ] );
+        return self::send( $user->user_email, 'Set your Canna Cabana supply password', $html, 'wcss_password_link' );
+    }
+
     /* ===================== Triggers ===================== */
 
     public function on_new_order( $order_id, $order = null ) {
@@ -240,20 +297,37 @@ class WCSS_Email_Center {
             ];
             switch ( $event ) {
                 case 'order_new':
-                    $subject = sprintf( 'New order #%s from %s', $no, $store );
-                    $a += [ 'title' => sprintf( 'New order #%s', $no ), 'status' => [ 'label' => 'New', 'tone' => 'info' ],
-                            'intro' => sprintf( '%s placed an order for %s.', $store, self::money( $order ) ) ];
+                    $is_ink = class_exists( 'WCSS_Ink_Order' ) && WCSS_Ink_Order::order_is_ink( $order );
+                    $subject = $is_ink
+                        ? sprintf( 'New ink order #%s from %s', $no, $store )
+                        : sprintf( 'New order #%s from %s', $no, $store );
+                    $a += [
+                        'title'  => $is_ink ? sprintf( 'New ink order #%s', $no ) : sprintf( 'New order #%s', $no ),
+                        'status' => [ 'label' => $is_ink ? 'Ink · new' : 'New', 'tone' => 'info' ],
+                        'intro'  => sprintf( '%s placed %s for %s.', $store, $is_ink ? 'an ink order' : 'an order', self::money( $order ) ),
+                    ];
                     break;
                 case 'order_needs_approval':
                     $p = $ctx['policy'] ?? (array) $order->get_meta( '_wcss_policy' );
-                    $subject = sprintf( 'Approval needed: order #%s from %s', $no, $store );
+                    $is_ink = class_exists( 'WCSS_Ink_Order' ) && WCSS_Ink_Order::order_is_ink( $order );
+                    $subject = $is_ink
+                        ? sprintf( 'Ink order needs approval: #%s from %s', $no, $store )
+                        : sprintf( 'Approval needed: order #%s from %s', $no, $store );
                     $a['action']['label'] = 'Review order';
-                    $a += [ 'title' => sprintf( 'Order #%s needs your approval', $no ), 'status' => [ 'label' => 'Needs approval', 'tone' => 'warn' ],
-                            'intro' => 'This order is outside the store’s ordering policy, so it was not sent to a vendor. Approve or reject it in Supply Manager.',
-                            'note'  => [ 'title' => 'Why it needs approval', 'lines' => (array) ( $p['messages'] ?? [] ), 'tone' => 'warn' ] ];
+                    $a += [
+                        'title'  => $is_ink
+                            ? sprintf( 'Ink order #%s needs your approval', $no )
+                            : sprintf( 'Order #%s needs your approval', $no ),
+                        'status' => [ 'label' => $is_ink ? 'Ink · needs approval' : 'Needs approval', 'tone' => 'warn' ],
+                        'intro'  => $is_ink
+                            ? 'This is an ink order. Ink always waits for Supply Ops review — it was not sent to a vendor yet. Approve or reject it in Supply Manager.'
+                            : 'This order is outside the store’s ordering policy, so it was not sent to a vendor. Approve or reject it in Supply Manager.',
+                        'note'   => [ 'title' => 'Why it needs approval', 'lines' => (array) ( $p['messages'] ?? [] ), 'tone' => 'warn' ],
+                    ];
                     break;
                 case 'order_approved':
-                    $override = (bool) $order->get_meta( '_wcss_policy_override' );
+                    // Every ink order is reviewed, so approving one isn't an exception to the policy.
+                    $override = (bool) $order->get_meta( '_wcss_policy_override' ) && ! ( class_exists( 'WCSS_Ink_Order' ) && WCSS_Ink_Order::order_is_ink( $order ) );
                     $subject  = sprintf( 'Order #%s approved', $no );
                     $a += [ 'title' => sprintf( 'Order #%s approved', $no ), 'status' => [ 'label' => $override ? 'Approved as an exception' : 'Approved', 'tone' => 'ok' ],
                             'intro' => $override ? sprintf( 'Supply Ops approved %s’s order even though it is outside the ordering policy.', $store )
@@ -300,6 +374,33 @@ class WCSS_Email_Center {
             return [ 'subject' => '[Supply Manager] ' . $subject, 'args' => $a ];
         }
 
+        if ( $event === 'return_requested' ) {
+            $r = $ctx['return'] ?? null;
+            if ( ! is_array( $r ) ) return null;
+            $store   = $r['store']['name'] . ( $r['store']['code'] ? ' (' . $r['store']['code'] . ')' : '' );
+            $details = [
+                [ 'Return', $r['number'] ],
+                [ 'Order', '#' . $r['order_number'] ],
+                [ 'Store', $store ?: '—' ],
+                [ 'Requested by', trim( $r['requested_by']['name'] . ' · ' . $r['requested_by']['email'], ' ·' ) ],
+                [ 'Reason', $r['reason_label'] ],
+                [ 'Value', WCSS_Email_Template::money( $r['value'] ) ],
+            ];
+            if ( $r['vendors'] ) $details[] = [ 'Supplier', implode( ', ', $r['vendors'] ) ];
+            if ( $r['vendor_ref'] !== '' ) $details[] = [ 'Supplier order', $r['vendor_ref'] ];
+            $a = [
+                'eyebrow' => $label,
+                'title'   => sprintf( 'Return %s from %s', $r['number'], $r['store']['name'] ?: 'a store' ),
+                'status'  => [ 'label' => 'Waiting for review', 'tone' => 'warn' ],
+                'intro'   => 'A store asked to return items. Review it in Supply Manager → Returns: approve it with instructions for the store, or reject it with a reason.',
+                'details' => $details,
+                'items'   => array_map( function ( $l ) { return [ 'name' => $l['name'], 'qty' => (int) $l['qty'], 'sku' => (string) ( $l['sku'] ?? '' ) ]; }, $r['lines'] ),
+                'action'  => [ 'label' => 'Review return', 'url' => home_url( '/manager/returns' ) ],
+            ];
+            if ( $r['note'] !== '' ) $a['note'] = [ 'title' => 'What the store said', 'lines' => [ $r['note'] ], 'tone' => 'warn' ];
+            return [ 'subject' => sprintf( '[Supply Manager] Return %s requested for order #%s (%s)', $r['number'], $r['order_number'], $r['store']['name'] ?: 'store' ), 'args' => $a ];
+        }
+
         if ( $event === 'vendor_changed' ) {
             $verbs   = [ 'created' => 'added', 'updated' => 'updated', 'deleted' => 'removed', 'budget' => 'budget changed' ];
             $verb    = $verbs[ $ctx['action'] ?? 'updated' ] ?? 'updated';
@@ -323,6 +424,8 @@ class WCSS_Email_Center {
         if ( $event === 'policy_changed' ) {
             $names = [
                 'default_monthly_budget' => 'Default monthly budget', 'default_monthly_quota' => 'Default orders per month',
+                'province_weeks_summary' => 'Province ordering weeks',
+                'week_reminder' => 'Email stores when their week opens',
                 'order_window_start' => 'Ordering window opens (day)', 'order_window_end' => 'Ordering window closes (day)',
                 'order_window_from' => 'Ordering window from', 'order_window_to' => 'Ordering window to', 'order_window_repeat' => 'Repeat every month',
                 'limit_mode' => 'Orders outside the policy', 'budget' => 'Monthly budget', 'quota' => 'Orders per month',
@@ -413,6 +516,18 @@ class WCSS_Email_Center {
 
     /** Context for previews and test sends: a real recent order where one is needed. */
     private static function sample_ctx( string $event ) {
+        if ( $event === 'return_requested' ) {
+            // The newest real request, or a made-up one so the preview always works.
+            $real = class_exists( 'WCSS_Returns' ) ? WCSS_Returns::query( [ 'limit' => 1 ] ) : [];
+            if ( $real ) return [ 'return' => $real[0] ];
+            return [ 'return' => [
+                'number' => 'R-1001', 'order_number' => '9049', 'store' => [ 'id' => 0, 'name' => 'Test store', 'code' => '001' ],
+                'requested_by' => [ 'name' => 'Store employee', 'email' => 'store@example.com' ], 'reason_label' => 'Delivered damaged',
+                'note' => 'The box was crushed and two pens are broken.', 'value' => 14.44, 'vendors' => [ 'Amazon' ], 'vendor_ref' => 'Amazon 701-0000000-0000000',
+                'lines' => [ [ 'name' => 'Pilot G2 pens, 12 pack', 'sku' => 'PG2-12', 'qty' => 2 ] ],
+            ] ];
+        }
+
         if ( $event === 'vendor_changed' ) {
             return [ 'action' => 'updated', 'name' => 'Grand & Toy', 'changes' => [ 'email' => 'orders@grandandtoy.example', 'contact' => 'Account team' ] ];
         }

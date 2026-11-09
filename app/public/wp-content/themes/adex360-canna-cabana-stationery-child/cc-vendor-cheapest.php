@@ -54,11 +54,11 @@ function cc_vendor_cheapest_unit_price( $product ) {
 }
 
 /**
- * Filter product price to cheapest cached (vendor DB), else keep WooCommerce price.
+ * Filter product price to cheapest cached (vendor DB), else keep the stored price.
  * Covers price / regular / sale — Elementor and loops may read any of these.
  *
- * Rule: min(Amazon ok, G&T ok, Woo) via `_cc_cheapest_*`. If no positive
- * cheapest meta, leave the native Woo price unchanged.
+ * Rule: min(Amazon ok, G&T ok, manual vendor) via `_cc_cheapest_*`. If no positive
+ * cheapest meta, leave the stored price unchanged (such a product can't be ordered).
  *
  * @param string|float $price   Price.
  * @param WC_Product   $product Product.
@@ -147,6 +147,67 @@ function cc_vendor_cheapest_stamp_from_post( $post ) {
 }
 
 /**
+ * No vendor, no ordering: Canna Cabana holds no stock, so every order must go to a vendor.
+ * Not purchasable also blocks add-to-cart and drops the line from existing carts.
+ *
+ * @param bool       $purchasable Purchasable so far.
+ * @param WC_Product $product     Product.
+ * @return bool
+ */
+function cc_vendor_cheapest_require_vendor( $purchasable, $product ) {
+	if ( ! $purchasable || ! $product || ! is_a( $product, 'WC_Product' ) || $product->is_type( 'variable' ) ) {
+		return $purchasable;
+	}
+	return function_exists( 'cc_vendor_prices_product_is_orderable' ) ? cc_vendor_prices_product_is_orderable( $product ) : $purchasable;
+}
+add_filter( 'woocommerce_is_purchasable', 'cc_vendor_cheapest_require_vendor', 30, 2 );
+add_filter( 'woocommerce_variation_is_purchasable', 'cc_vendor_cheapest_require_vendor', 30, 2 );
+
+/**
+ * Say why a product page has no Add to cart button.
+ */
+function cc_vendor_cheapest_no_vendor_notice() {
+	global $product;
+	if ( ! $product || ! is_a( $product, 'WC_Product' ) || $product->is_type( 'variable' ) ) {
+		return;
+	}
+	if ( function_exists( 'cc_vendor_prices_product_is_orderable' ) && ! cc_vendor_prices_product_is_orderable( $product ) ) {
+		echo '<div class="wcss-unavailable"><p class="wcss-unavailable__status">' . esc_html__( 'Not available to order yet', 'adex360' ) . '</p>';
+		echo cc_vendor_cheapest_disabled_button(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		echo '</div>';
+	}
+}
+// Fires where the button would be, including in the Elementor product page layout.
+add_action( 'woocommerce_simple_add_to_cart', 'cc_vendor_cheapest_no_vendor_notice', 5 );
+
+/**
+ * Disabled Add to cart button for a product no vendor can supply.
+ *
+ * @return string
+ */
+function cc_vendor_cheapest_disabled_button() {
+	return '<button type="button" class="button wcss-atc-disabled" disabled title="' . esc_attr__( 'Not available to order yet', 'adex360' ) . '">'
+		. '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.6 12.4a2 2 0 0 0 2 1.6h8.1a2 2 0 0 0 2-1.6L21 7H6"/></svg>'
+		. esc_html__( 'Add to cart', 'adex360' ) . '</button>';
+}
+
+/**
+ * Shop cards: same Add to cart label, but disabled, instead of WooCommerce's "Read more" link.
+ *
+ * @param string     $html    Button HTML.
+ * @param WC_Product $product Product.
+ * @return string
+ */
+function cc_vendor_cheapest_loop_button( $html, $product ) {
+	if ( $product && is_a( $product, 'WC_Product' ) && ! $product->is_type( 'variable' )
+		&& function_exists( 'cc_vendor_prices_product_is_orderable' ) && ! cc_vendor_prices_product_is_orderable( $product ) ) {
+		return cc_vendor_cheapest_disabled_button();
+	}
+	return $html;
+}
+add_filter( 'woocommerce_loop_add_to_cart_link', 'cc_vendor_cheapest_loop_button', 30, 2 );
+
+/**
  * Attach cheapest vendor meta when product is added to cart.
  *
  * @param array $cart_item_data Cart item data.
@@ -161,7 +222,7 @@ function cc_vendor_cheapest_add_cart_item_data( $cart_item_data, $product_id, $v
 	}
 
 	$resolved = cc_vendor_prices_resolve_cheapest( $pid );
-	$vendor   = (string) ( $resolved['vendor'] ?? 'woo' );
+	$vendor   = (string) ( $resolved['vendor'] ?? 'none' );
 	$price    = $resolved['price'];
 
 	// Auto-tag procurement vendor only when a vendor won.
@@ -182,7 +243,7 @@ function cc_vendor_cheapest_add_cart_item_data( $cart_item_data, $product_id, $v
 			}
 		}
 	} else {
-		$cart_item_data['cc_cheapest_vendor'] = 'woo';
+		$cart_item_data['cc_cheapest_vendor'] = $vendor;
 		if ( $price !== null && (float) $price > 0 ) {
 			$cart_item_data['cc_cheapest_price'] = (float) $price;
 		}
@@ -283,7 +344,7 @@ function cc_vendor_cheapest_refresh_cart_lines( $cart ) {
 		}
 		$pid      = (int) $product->get_id();
 		$resolved = cc_vendor_prices_resolve_cheapest( $product );
-		$vendor   = (string) ( $resolved['vendor'] ?? 'woo' );
+		$vendor   = (string) ( $resolved['vendor'] ?? 'none' );
 		$price    = $resolved['price'];
 
 		$cart->cart_contents[ $key ]['cc_cheapest_vendor'] = $vendor;

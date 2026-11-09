@@ -53,13 +53,13 @@ function wp_amazon_get_access_token() {
 					'refresh_token',
 
 				'refresh_token' =>
-					AMAZON_REFRESH_TOKEN,
+					( class_exists( 'WCSS_Vendor_Connections' ) ? WCSS_Vendor_Connections::amazon( 'refresh_token' ) : AMAZON_REFRESH_TOKEN ),
 
 				'client_id' =>
-					AMAZON_CLIENT_ID,
+					( class_exists( 'WCSS_Vendor_Connections' ) ? WCSS_Vendor_Connections::amazon( 'client_id' ) : AMAZON_CLIENT_ID ),
 
 				'client_secret' =>
-					AMAZON_CLIENT_SECRET,
+					( class_exists( 'WCSS_Vendor_Connections' ) ? WCSS_Vendor_Connections::amazon( 'client_secret' ) : AMAZON_CLIENT_SECRET ),
 			),
 		)
 	);
@@ -292,11 +292,63 @@ if (
 
 
 $result['items'] =
-	$items;
+	wcss_amazon_checkout_items_for_order( $items );
 
 
 return $result;
 
+}
+
+/**
+ * Lines for the order page's vendor receipt.
+ *
+ * @param array $items Normalized cart items.
+ * @return array
+ */
+function wcss_amazon_checkout_receipt_lines( array $items ) {
+	$lines = array();
+	foreach ( $items as $item ) {
+		$lines[] = array(
+			'name'       => (string) ( $item['title'] ?? '' ),
+			'vendor_id'  => (string) ( $item['asin'] ?? '' ),
+			'qty'        => (int) ( $item['quantity'] ?? 1 ),
+			'unit_price' => (float) ( $item['price'] ?? 0 ),
+		);
+	}
+	return $lines;
+}
+
+/**
+ * The Amazon Business cart is shared. For an order placed from the Supply Manager portal,
+ * keep only that order's items and quantities so nothing else in the cart gets ordered.
+ *
+ * @param array $items Amazon cart items.
+ * @return array
+ */
+function wcss_amazon_checkout_items_for_order( array $items ) {
+	$order_id = function_exists( 'wcss_amazon_get_request_order_id' ) ? wcss_amazon_get_request_order_id() : 0;
+	$order    = ( $order_id && function_exists( 'wc_get_order' ) ) ? wc_get_order( $order_id ) : false;
+	if ( ! $order || ! $order->get_meta( '_wcss_manager_order' ) ) {
+		return $items;
+	}
+
+	$qty = array();
+	foreach ( $order->get_items() as $line ) {
+		$asin = strtoupper( (string) $line->get_meta( '_cc_vendor_id', true ) );
+		if ( $asin !== '' ) {
+			$qty[ $asin ] = ( $qty[ $asin ] ?? 0 ) + (int) $line->get_quantity();
+		}
+	}
+
+	$kept = array();
+	foreach ( $items as $item ) {
+		$asin = strtoupper( (string) ( $item['productIdentifier'] ?? ( $item['asin'] ?? '' ) ) );
+		if ( isset( $qty[ $asin ] ) ) {
+			$item['quantity'] = $qty[ $asin ];
+			$kept[]           = $item;
+		}
+	}
+	return $kept;
 }
 
 /*                                                                       
@@ -791,6 +843,17 @@ function wcss_amazon_checkout_approval_block( $wc_order_id ) {
 		);
 	}
 
+	// A Supply Ops order is finished by hand, so stop it being placed a second time.
+	if ( $order->get_meta( '_wcss_manager_order' ) ) {
+		$sent = $order->get_meta( '_wcss_auto_vendor_submit', true );
+		if ( is_array( $sent ) && ( $sent['status'] ?? '' ) === 'submitted' ) {
+			return array(
+				'success' => false,
+				'message' => 'This order has already been placed on Amazon.',
+			);
+		}
+	}
+
 	if ( 'approved' === $order->get_status() ) {
 		return null;
 	}
@@ -858,6 +921,11 @@ function wcss_amazon_checkout_cap_status( $wc_order_id ) {
 	$order = wc_get_order( $wc_order_id );
 
 	if ( ! $order ) {
+		return $empty;
+	}
+
+	// Supply Ops can order above the cap, for example for a new store opening.
+	if ( $order->get_meta( '_wcss_manager_order' ) ) {
 		return $empty;
 	}
 
@@ -1031,7 +1099,8 @@ function wcss_amazon_checkout_prefill_from_order( $wc_order_id ) {
 	}
 
 	$email = (string) $order->get_billing_email();
-	if ( $email === '' && ! empty( $defaults['email'] ) ) {
+	// Amazon needs the Business account's email; a Supply Ops order has the store's on it.
+	if ( ( $email === '' || $order->get_meta( '_wcss_manager_order' ) ) && ! empty( $defaults['email'] ) ) {
 		$email = $defaults['email'];
 	}
 
@@ -1261,7 +1330,10 @@ $order_payload = null;
 
 if (
 
-isset( $_POST['amazon_checkout_action'] )
+// The Calculate Shipping request posts this whole form too, so it must never place the order.
+! isset( $_POST['amazon_shipping_calculation'] )
+
+&& isset( $_POST['amazon_checkout_action'] )
 
 && 'place_order' ===
 
@@ -1392,10 +1464,9 @@ if (
 				)
 			),
 
+		// Set by the administrator in WP Admin → WooCommerce → Vendor connections, never by the browser.
 		'trial_mode' =>
-			! empty(
-				$_POST['trial_mode']
-			),
+			! ( class_exists( 'WCSS_Vendor_Connections' ) && WCSS_Vendor_Connections::amazon_live() ),
 	);
 
 
@@ -1690,6 +1761,8 @@ if (
 						array(
 							'status'            => ! empty( $order_result['success'] ) ? 'placed' : 'place_failed',
 							'source'            => 'amazon_checkout_place_order',
+							'trial_mode'        => ! empty( $form_data['trial_mode'] ),
+							'intended_lines'    => wcss_amazon_checkout_receipt_lines( $normalized_items ),
 							'cart_id'           => defined( 'AMAZON_CART_ID' ) ? AMAZON_CART_ID : '',
 							'region'            => defined( 'AMAZON_REGION' ) ? AMAZON_REGION : 'CA',
 							'user_email'        => defined( 'AMAZON_USER_EMAIL' ) ? AMAZON_USER_EMAIL : '',
@@ -1713,6 +1786,36 @@ if (
 							'placed_at'         => current_time( 'mysql' ),
 						)
 					);
+
+					// Supply Ops order placed: mark it done and show the order, so it can't be placed twice.
+					$manager_placed = wc_get_order( $wc_order_id_for_save );
+					if ( $manager_placed && $manager_placed->get_meta( '_wcss_manager_order' ) && ! empty( $order_result['success'] ) ) {
+						cc_auto_vendor_submit_save_meta(
+							$manager_placed,
+							array(
+								'attempted'      => true,
+								'status'         => 'submitted',
+								'winning_vendor' => 'amazon',
+								'vendors'        => array( 'amazon' ),
+								'message'        => 'Placed on Amazon by Supply Ops.',
+								'completed_at'   => gmdate( 'c' ),
+							)
+						);
+						// History line "Sent to Amazon", the same as for orders sent automatically.
+						if ( class_exists( 'WCSS_Order_Events' ) ) {
+							WCSS_Order_Events::log(
+								(int) $wc_order_id_for_save,
+								'auto_vendor_submit',
+								array(
+									'status'  => 'submitted',
+									'vendors' => array( 'amazon' ),
+									'message' => 'Placed on Amazon by Supply Ops.',
+								)
+							);
+						}
+						wp_safe_redirect( home_url( '/manager/orders/view/' . $wc_order_id_for_save . '/' ) );
+						exit;
+					}
 				}
 				}
 			}
@@ -1942,6 +2045,68 @@ if (
 				'message' => 'Your Amazon cart is empty.',
 			),
 			422
+		);
+	}
+
+	/*
+	 * Orders placed from the Supply Manager portal: the cart estimate below always covers the
+	 * whole shared cart, so preview this order's own lines in Trial Mode instead. Trial Mode
+	 * creates no Amazon order.
+	 */
+	$manager_order_id = function_exists( 'wcss_amazon_get_request_order_id' ) ? wcss_amazon_get_request_order_id() : 0;
+	$manager_order    = $manager_order_id ? wc_get_order( $manager_order_id ) : false;
+
+	if ( $manager_order && $manager_order->get_meta( '_wcss_manager_order' ) ) {
+		$preview_form                          = $form_data;
+		$preview_form['trial_mode']            = true;
+		$preview_form['purchase_order_number'] = (string) $manager_order->get_order_number();
+		$preview_form['group_identifier']      = AMAZON_GROUP_ID;
+
+		$preview_result = wp_amazon_ordering_request(
+			'POST',
+			'https://na.business-api.amazon.com/ordering/2022-10-30/orders',
+			wp_amazon_checkout_build_order_payload( $cart_result['items'], $preview_form )
+		);
+		$preview_totals = wcss_amazon_extract_charge_totals( $preview_result );
+
+		if ( empty( $preview_result['success'] ) || empty( $preview_totals['subtotal'] ) ) {
+			wp_send_json(
+				array(
+					'success' => false,
+					'message' => (string) ( $preview_result['message'] ?: ( $preview_result['data']['errors'][0]['message'] ?? 'Amazon could not calculate this order.' ) ),
+				),
+				422
+			);
+		}
+
+		wcss_amazon_save_order_snapshot(
+			$manager_order_id,
+			array(
+				'source'            => 'amazon_shipping_calculation',
+				'cart_subtotal'     => round( (float) $preview_totals['subtotal'], 2 ),
+				'shipping_amount'   => round( (float) $preview_totals['shipping'], 2 ),
+				'shipping_discount' => round( (float) $preview_totals['shipping_discount'], 2 ),
+				'discount_amount'   => round( (float) $preview_totals['discount'], 2 ),
+				'tax_amount'        => round( (float) $preview_totals['tax'], 2 ),
+				'order_total'       => round( (float) $preview_totals['total'], 2 ),
+				'currency'          => (string) $preview_totals['currency'],
+				'shipping'          => array_merge( $form_data, array( 'country' => 'CA' ) ),
+			)
+		);
+
+		$preview_money = array();
+		foreach ( array( 'subtotal', 'shipping', 'shipping_discount', 'discount', 'tax', 'total' ) as $preview_key ) {
+			$preview_money[ $preview_key ] = number_format( (float) $preview_totals[ $preview_key ], 2, '.', '' );
+		}
+		$preview_money['currency'] = (string) $preview_totals['currency'];
+
+		wp_send_json(
+			array(
+				'success' => true,
+				'message' => 'Shipping and total calculated successfully.',
+				'totals'  => $preview_money,
+			),
+			200
 		);
 	}
 
@@ -2780,6 +2945,12 @@ get_header();
 							</label>
 
 						</div><!-- .amazon-trial-mode -->
+
+						<?php if ( class_exists( 'WCSS_Vendor_Connections' ) && WCSS_Vendor_Connections::amazon_live() ) : ?>
+							<div class="amazon-live-warning" role="alert" style="margin:12px 0;padding:10px 12px;border-left:4px solid #C8372D;background:#FFF5F4;color:#7A1D16;font-weight:600;">
+								Amazon is LIVE: Place Order buys these items and charges the Amazon Business account.
+							</div>
+						<?php endif; ?>
 
 
 						<!-- CALCULATE SHIPPING -->

@@ -10,6 +10,7 @@ $initials     = strtoupper( substr( $name_words[0] ?? '?', 0, 1 ) . substr( $nam
 
 $pending_count = class_exists( 'WCSS_REST_Reports' ) ? WCSS_REST_Reports::pending_summary()['count'] : 0;
 $store_count   = (int) wp_count_posts( 'store_location' )->publish;
+$returns_count = class_exists( 'WCSS_Returns' ) ? WCSS_Returns::waiting_count() : 0;
 $vendor_count  = (int) wp_count_terms( [ 'taxonomy' => 'wcss_vendor', 'hide_empty' => false ] );
 
 $logout_url = function_exists( 'wc_get_account_endpoint_url' )
@@ -42,6 +43,14 @@ $nav_groups = array(
 			'active' => ( $view === 'orders' ),
 			'icon'   => $svg( '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>' ),
 			'badge'  => $pending_count,
+		),
+		array(
+			'label'  => 'Returns',
+			'url'    => home_url( '/manager/returns' ),
+			'active' => ( $view === 'returns' ),
+			'icon'   => $svg( '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>' ),
+			'badge'  => $returns_count,
+			'badge_label' => 'return requests waiting for review',
 		),
 		array(
 			'label'  => 'Stores',
@@ -91,6 +100,16 @@ $nav_groups = array(
 		),
 	),
 );
+// Inactive vendors drop out of the menu; the group goes when neither catalog is left.
+if ( ! WCSS_Vendor_Status::key_is_active( 'amazon' ) ) {
+	unset( $nav_groups['Supplier catalogs'][0] );
+}
+if ( ! WCSS_Vendor_Status::key_is_active( 'gt' ) ) {
+	unset( $nav_groups['Supplier catalogs'][1] );
+}
+if ( ! $nav_groups['Supplier catalogs'] ) {
+	unset( $nav_groups['Supplier catalogs'] );
+}
 ?>
 
 <nav class="ccm-side" aria-label="Main navigation">
@@ -114,7 +133,7 @@ $nav_groups = array(
         <?php echo $item['icon']; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
         <?php echo esc_html( $item['label'] ); ?>
         <?php if ( ! empty( $item['badge'] ) ) : ?>
-          <span class="ccm-nbadge" aria-label="<?php echo esc_attr( $item['badge'] . ' orders awaiting approval' ); ?>"><?php echo (int) $item['badge']; ?></span>
+          <span class="ccm-nbadge" aria-label="<?php echo esc_attr( $item['badge'] . ' ' . ( $item['badge_label'] ?? 'orders awaiting approval' ) ); ?>"><?php echo (int) $item['badge']; ?></span>
         <?php endif; ?>
       </a>
     <?php endforeach; ?>

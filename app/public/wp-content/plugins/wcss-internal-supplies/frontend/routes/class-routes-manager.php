@@ -35,7 +35,7 @@ class WCSS_Route_Manager {
         add_rewrite_tag( '%wcss_id%',     '([0-9]+)' );
 
         // Allowed sections under /manager
-        $sections = '(products|stores|orders|reports|dashboard|amazon|gt|emails)';
+        $sections = '(products|stores|orders|returns|reports|dashboard|amazon|gt|emails)';
         
         add_rewrite_rule(
             '^manager/vendorslist/?$',
@@ -77,6 +77,12 @@ class WCSS_Route_Manager {
             'top'
         );
 
+        // New sections (Returns, SOW 1.24) need the saved rules rebuilt once, or the first visit is Not found.
+        if ( get_option( 'wcss_manager_routes_ver' ) !== 'returns-1' ) {
+            flush_rewrite_rules( false );
+            update_option( 'wcss_manager_routes_ver', 'returns-1', false );
+        }
+
         // add_rewrite_rule(
         //     '^manager/vendors/?$',
         //     'index.php?wcss=vendors',
@@ -103,6 +109,7 @@ class WCSS_Route_Manager {
             'amazon'      => 'Amazon catalog',
             'gt'          => 'Grand & Toy',
             'emails'      => 'Emails',
+            'returns'     => 'Returns',
         ];
         $page = $labels[ $view ] ?? '';
         $id   = absint( get_query_var( 'wcss_id' ) );
@@ -397,6 +404,7 @@ class WCSS_Route_Manager {
 
             case 'orders':
                 if ( $action === 'view'   ) return $base . 'orders-view.php';
+                if ( $action === 'new'    ) return $base . 'orders-new.php';
                 if ( $action === 'amazon-view' ) return $base . 'orders-amazon-view.php';
                 if ( $action === 'gt-view' ) return $base . 'orders-gt-view.php';
                 if ( $action === null || $action === '' ) return $base . 'orders.php';
@@ -416,6 +424,9 @@ class WCSS_Route_Manager {
 
             case 'emails':
                 return ( $action === null || $action === '' ) ? $base . 'emails.php' : false;
+
+            case 'returns':
+                return ( $action === null || $action === '' ) ? $base . 'returns.php' : false;
 
             case 'gt':
                 return ( $action === null || $action === '' ) ? $base . 'gt.php' : false;

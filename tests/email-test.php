@@ -10,6 +10,7 @@ $_SERVER['HTTP_HOST'] = 'ccsupplies.local'; $_SERVER['REQUEST_URI'] = '/';
 define('WP_USE_THEMES', false);
 require __DIR__ . '/../app/public/wp-load.php';
 if ( ! preg_match( '#\.local(/|$)#', home_url() ) ) { fwrite( STDERR, "Refusing to run: not a .local site (" . home_url() . ")\n" ); exit( 1 ); }
+$ledger_ym = (new WC_DateTime())->date_i18n('Y-m'); $ledger_bk = WCSS_Ledger::get(8177, $ledger_ym); // Throwaway orders must not change Test store's month totals.
 wp_set_current_user((int) get_users(['role' => 'administrator', 'number' => 1, 'fields' => 'ID'])[0]);
 
 // Capture instead of sending. $FAIL_NEXT makes the next send fail like a refused SMTP server.
@@ -47,7 +48,7 @@ try {
   delete_option(WCSS_Email_Center::OPTION);
   [$st, $d] = rest('GET', '/wcss/v1/emails/settings');
   $mgr = array_map(function ($u) { return strtolower($u->user_email); }, get_users(['role' => 'shop_manager']));
-  ok('Settings API lists all 9 notification events', $st === 200 && count($d['events']) === 9, $st);
+  ok('Settings API lists all 10 notification events', $st === 200 && count($d['events']) === 10, $st);
   ok('First load seeds recipients from shop managers', count($d['recipients']) === count($mgr) && in_array(strtolower($d['recipients'][0]['email']), $mgr, true), json_encode(array_column($d['recipients'], 'email')));
 
   [$st] = rest('PUT', '/wcss/v1/emails/recipients', ['recipients' => [['email' => 'not-an-email', 'events' => []]]]);
@@ -67,9 +68,12 @@ try {
   $o = mk_order();
   ok('New order → only A (ticked "New order placed")', count(sent('wcss_event_order_new')) === 1 && sent('wcss_event_order_new', $A), json_encode(array_column(sent('wcss_event_order_new'), 'to')));
   ok('Paused recipient gets nothing', ! sent(null, $C));
-  ok('Store employee still gets their order confirmation', (bool) sent('wcss_new_order_store_employee'));
-  $store_mail = sent('wcss_new_order_store_employee')[0]['html'] ?? '';
-  ok('Store email never names the vendor', stripos($store_mail, '>Vendor<') === false);
+  // The store's confirmation goes out once checkout has checked the order against the policy.
+  $before = count($MAIL); (new WCSS_Notifications())->store_order_received(wc_get_order($o->get_id()), WCSS_Order_Policy::evaluate_order(wc_get_order($o->get_id())));
+  $store_mail = array_slice($MAIL, $before);
+  ok('Store employee still gets their order confirmation', count(array_filter($store_mail, function ($m) { return in_array($m['ctx'], ['wcss_new_order_store_employee', 'wcss_store_needs_approval'], true); })) === 1, json_encode(array_column($store_mail, 'ctx')));
+  $store_mail = $store_mail[0]['html'] ?? '';
+  ok('Store email never names the vendor', $store_mail !== '' && stripos($store_mail, '>Vendor<') === false);
   ok('No old-style shop_manager emails any more', ! array_filter($MAIL, function ($m) { return strpos($m['ctx'], 'shop_manager') !== false; }));
 
   $MAIL = [];
@@ -168,10 +172,10 @@ try {
     [$st, $d] = rest('GET', '/wcss/v1/emails/preview', null, ['event' => $ev]);
     if ($st !== 200 || strpos($d['html'] ?? '', '<html') === false) { $all_prev = false; echo "   preview $ev → $st\n"; }
   }
-  ok('Preview works for all 9 notifications', $all_prev);
+  ok('Preview works for all 10 notifications', $all_prev);
   $MAIL = [];
   [$st, $d] = rest('POST', '/wcss/v1/emails/test', ['event' => 'all', 'to' => 'qa@example.com']);
-  ok('"Send all tests" sends 9 [TEST] emails to one address', $st === 200 && $d['sent'] === 9 && count(sent(null, 'qa@example.com')) === 9 && strpos($MAIL[0]['subject'], '[TEST]') === 0, json_encode($d));
+  ok('"Send all tests" sends 10 [TEST] emails to one address', $st === 200 && $d['sent'] === 10 && count(sent(null, 'qa@example.com')) === 10 && strpos($MAIL[0]['subject'], '[TEST]') === 0, json_encode($d));
   [$st, $d] = rest('GET', '/wcss/v1/emails/log', null, ['q' => 'qa@example.com']);
   ok('Log API lists sent emails', $st === 200 && isset($d['items']));
   if (! empty($d['items'][0]['id'])) {
@@ -184,6 +188,7 @@ try {
   ok('Store employee cannot read email settings', rest('GET', '/wcss/v1/emails/settings')[0] === 403);
   ok('Store employee cannot send email', rest('POST', '/wcss/v1/emails/send', ['to' => 'x@example.com', 'subject' => 's', 'message' => 'm'])[0] === 403);
 } finally {
+  $ledger_now = WCSS_Ledger::get(8177, $ledger_ym); WCSS_Ledger::bump(8177, $ledger_ym, (int) $ledger_bk['orders_count'] - (int) $ledger_now['orders_count'], (float) $ledger_bk['spend_total'] - (float) $ledger_now['spend_total']);
   wp_set_current_user((int) get_users(['role' => 'administrator', 'number' => 1, 'fields' => 'ID'])[0]);
   foreach ($orders as $id) { if (function_exists('as_unschedule_all_actions')) as_unschedule_all_actions('cc_auto_vendor_submit_async', ['order_id' => $id], 'cc-auto-vendor'); $x = wc_get_order($id); if ($x) $x->delete(true); }
   foreach ($terms as $t) if ($t && term_exists($t, 'wcss_vendor')) wp_delete_term($t, 'wcss_vendor');

@@ -288,8 +288,9 @@ function cc_vendor_prices_woo_unit_price( $product ) {
 }
 
 /**
- * Recompute `_cc_cheapest_*` meta from DB rows + Woo catalog price.
- * Tie-break: woo → amazon → gt.
+ * Recompute `_cc_cheapest_*` meta. Only real vendors compete: Amazon / G&T live rows, plus the
+ * stored product price when a manual vendor is assigned (it has no price feed).
+ * Tie-break: amazon → gt → manual. No winner = vendor "none", and the product can't be ordered.
  *
  * @param int $product_id Product ID.
  * @return array{price:float|null,vendor:string}
@@ -298,17 +299,17 @@ function cc_vendor_prices_recompute_cheapest( $product_id ) {
 	$product_id = (int) $product_id;
 	$product    = function_exists( 'wc_get_product' ) ? wc_get_product( $product_id ) : null;
 	if ( ! $product ) {
-		return array( 'price' => null, 'vendor' => 'woo' );
+		return array( 'price' => null, 'vendor' => 'none' );
 	}
 
 	$candidates = array();
-	$woo        = cc_vendor_prices_woo_unit_price( $product );
-	// Ignore $0 catalog prices — they are placeholders, not real offers.
-	if ( $woo !== null && $woo > 0 ) {
+	$stored     = cc_vendor_prices_woo_unit_price( $product );
+	// Ignore $0 stored prices — they are placeholders, not real offers.
+	if ( $stored !== null && $stored > 0 && cc_vendor_prices_manual_vendors( $product_id ) ) {
 		$candidates[] = array(
-			'vendor' => 'woo',
-			'price'  => $woo,
-			'rank'   => 0,
+			'vendor' => 'manual',
+			'price'  => $stored,
+			'rank'   => 2,
 		);
 	}
 
@@ -324,21 +325,21 @@ function cc_vendor_prices_recompute_cheapest( $product_id ) {
 			continue;
 		}
 		$v = cc_vendor_prices_normalize_vendor( (string) $row->vendor );
-		if ( $v === '' ) {
+		if ( $v === '' || ! cc_vendor_prices_vendor_is_active( $v ) ) {
 			continue;
 		}
 		$candidates[] = array(
 			'vendor' => $v,
 			'price'  => $price,
-			'rank'   => ( $v === 'amazon' ) ? 1 : 2,
+			'rank'   => ( $v === 'amazon' ) ? 0 : 1,
 		);
 	}
 
 	if ( ! $candidates ) {
 		delete_post_meta( $product_id, '_cc_cheapest_price' );
-		update_post_meta( $product_id, '_cc_cheapest_vendor', 'woo' );
+		update_post_meta( $product_id, '_cc_cheapest_vendor', 'none' );
 		update_post_meta( $product_id, '_cc_cheapest_synced_at', gmdate( 'c' ) );
-		return array( 'price' => null, 'vendor' => 'woo' );
+		return array( 'price' => null, 'vendor' => 'none' );
 	}
 
 	usort(
@@ -363,7 +364,7 @@ function cc_vendor_prices_recompute_cheapest( $product_id ) {
 }
 
 /**
- * Resolved cheapest price for display / cart (Woo fallback).
+ * Resolved cheapest price for display / cart. vendor is amazon|gt|manual, or none when no vendor can supply it.
  *
  * @param int|WC_Product $product Product or ID.
  * @return array{price:float|null,vendor:string,source:string}
@@ -373,7 +374,7 @@ function cc_vendor_prices_resolve_cheapest( $product ) {
 		$product = function_exists( 'wc_get_product' ) ? wc_get_product( (int) $product ) : null;
 	}
 	if ( ! $product || ! is_a( $product, 'WC_Product' ) ) {
-		return array( 'price' => null, 'vendor' => 'woo', 'source' => 'none' );
+		return array( 'price' => null, 'vendor' => 'none', 'source' => 'none' );
 	}
 
 	$pid      = (int) $product->get_id();
@@ -381,45 +382,92 @@ function cc_vendor_prices_resolve_cheapest( $product ) {
 	$cached_v = get_post_meta( $pid, '_cc_cheapest_vendor', true );
 
 	// Positive cached price only — $0 was wrongly saved from empty G&T/Amazon responses.
-	if ( $cached_p !== '' && $cached_p !== null && is_numeric( $cached_p ) && (float) $cached_p > 0 ) {
-		$vendor = cc_vendor_prices_normalize_vendor( (string) $cached_v );
-		if ( $vendor === '' && (string) $cached_v === 'woo' ) {
-			$vendor = 'woo';
-		}
-		if ( $vendor === '' ) {
-			$vendor = 'woo';
-		}
+	$vendor = (string) $cached_v === 'manual' ? 'manual' : cc_vendor_prices_normalize_vendor( (string) $cached_v );
+	if ( $vendor !== '' && $cached_p !== '' && $cached_p !== null && is_numeric( $cached_p ) && (float) $cached_p > 0 ) {
 		return array(
 			'price'  => (float) $cached_p,
 			'vendor' => $vendor,
 			'source' => 'meta',
 		);
 	}
-
-	// Repair stale $0 / empty cheapest meta from the live vendor rows + Woo price.
-	if ( function_exists( 'cc_vendor_prices_recompute_cheapest' ) ) {
-		$fixed = cc_vendor_prices_recompute_cheapest( $pid );
-		if ( isset( $fixed['price'] ) && $fixed['price'] !== null && (float) $fixed['price'] > 0 ) {
-			return array(
-				'price'  => (float) $fixed['price'],
-				'vendor' => (string) ( $fixed['vendor'] ?? 'woo' ),
-				'source' => 'recompute',
-			);
-		}
+	if ( (string) $cached_v === 'none' ) {
+		return array( 'price' => null, 'vendor' => 'none', 'source' => 'none' );
 	}
 
-	$woo = cc_vendor_prices_woo_unit_price( $product );
+	// Stale meta (a $0 price, or the old "woo" vendor): work it out from the real vendors.
+	$fixed = cc_vendor_prices_recompute_cheapest( $pid );
 	return array(
-		'price'  => ( $woo !== null && $woo > 0 ) ? $woo : null,
-		'vendor' => 'woo',
-		'source' => 'woo',
+		'price'  => $fixed['price'],
+		'vendor' => (string) $fixed['vendor'],
+		'source' => 'recompute',
 	);
 }
 
 /**
+ * Is Amazon / G&T active? Inactive vendors are never priced or ordered from.
+ *
+ * @param string $key amazon|gt.
+ * @return bool
+ */
+function cc_vendor_prices_vendor_is_active( $key ) {
+	return ! class_exists( 'WCSS_Vendor_Status' ) || WCSS_Vendor_Status::key_is_active( (string) $key );
+}
+
+/**
+ * Names of the manual (non Amazon / G&T) vendors assigned to a product.
+ *
+ * @param int $product_id Product or variation ID.
+ * @return string[]
+ */
+function cc_vendor_prices_manual_vendors( $product_id ) {
+	$product_id = (int) $product_id;
+	$parent     = (int) wp_get_post_parent_id( $product_id );
+	$terms      = taxonomy_exists( 'wcss_vendor' ) ? wp_get_object_terms( $parent ? $parent : $product_id, 'wcss_vendor' ) : array();
+	if ( is_wp_error( $terms ) ) {
+		return array();
+	}
+	$names = array();
+	foreach ( $terms as $term ) {
+		if ( class_exists( 'WCSS_Vendor_Status' ) && ! WCSS_Vendor_Status::is_active( $term->term_id ) ) {
+			continue;
+		}
+		if ( cc_vendor_prices_normalize_vendor( $term->slug ) === '' ) {
+			$names[] = html_entity_decode( $term->name, ENT_QUOTES, 'UTF-8' );
+		}
+	}
+	return $names;
+}
+
+/**
+ * Every order must go to a vendor: a product can be ordered only when a real vendor can supply it.
+ *
+ * @param int|WC_Product $product Product or ID.
+ * @return bool
+ */
+function cc_vendor_prices_product_is_orderable( $product ) {
+	$resolved = cc_vendor_prices_resolve_cheapest( $product );
+	return $resolved['vendor'] !== 'none' && $resolved['price'] !== null && (float) $resolved['price'] > 0;
+}
+
+/**
+ * Ticking or unticking a manual vendor changes who can supply the product.
+ *
+ * @param int    $object_id Product ID.
+ * @param array  $terms     Terms.
+ * @param array  $tt_ids    Term taxonomy IDs.
+ * @param string $taxonomy  Taxonomy.
+ */
+function cc_vendor_prices_on_vendor_terms_set( $object_id, $terms, $tt_ids, $taxonomy ) {
+	if ( $taxonomy === 'wcss_vendor' ) {
+		cc_vendor_prices_recompute_cheapest( (int) $object_id );
+	}
+}
+add_action( 'set_object_terms', 'cc_vendor_prices_on_vendor_terms_set', 10, 4 );
+
+/**
  * Human label for cheapest vendor key.
  *
- * @param string $vendor amazon|gt|woo.
+ * @param string $vendor amazon|gt|manual|none.
  * @return string
  */
 function cc_vendor_prices_vendor_label( $vendor ) {
@@ -430,11 +478,14 @@ function cc_vendor_prices_vendor_label( $vendor ) {
 	if ( $vendor === 'gt' ) {
 		return __( 'Grand & Toy', 'adex360' );
 	}
-	return __( 'Store', 'adex360' );
+	if ( $vendor === 'manual' ) {
+		return __( 'Manual vendor', 'adex360' );
+	}
+	return __( 'No vendor', 'adex360' );
 }
 
 /**
- * When Woo product price changes, refresh cheapest meta from cached vendor rows.
+ * When a product is saved, refresh cheapest meta from cached vendor rows.
  *
  * @param int $product_id Product ID.
  */

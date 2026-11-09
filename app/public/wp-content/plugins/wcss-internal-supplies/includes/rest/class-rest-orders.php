@@ -116,6 +116,12 @@ class WCSS_REST_Orders {
             'callback'=>[ $this,'orders_patch' ],
         ]);
 
+        // Permanent delete (cleanup). Body must repeat the order ID: { "confirm": <id> }.
+        register_rest_route( self::NS, '/orders/(?P<id>\d+)', [
+            'methods'=>'DELETE', 'permission_callback'=>[ $this,'can_manage' ],
+            'callback'=>[ $this,'orders_delete' ],
+        ]);
+
         // registring route for debugging... 
         
         register_rest_route( self::NS, '/whoami', [
@@ -249,7 +255,9 @@ class WCSS_REST_Orders {
                 // 409 with flat payload (WP REST puts these under response.data)
                 return new WP_Error(
                     'wcss_limit_block',
-                    __( 'Approving this order is outside the store’s ordering policy: ', 'wcss' ) . implode( ' ', $policy['messages'] ),
+                    in_array( 'ink_review', $policy['reasons'], true )
+                        ? __( 'Ink orders always need Supply Ops approval. Approving sends this one to the supplier.', 'wcss' )
+                        : __( 'Approving this order is outside the store’s ordering policy: ', 'wcss' ) . implode( ' ', $policy['messages'] ),
                     [
                         'status'        => 409,
                         'store_id'      => $store_id,
@@ -277,6 +285,21 @@ class WCSS_REST_Orders {
         WCSS_Order_Events::log( $o->get_id(), 'status_change', [ 'new'=>$status, 'note'=>$note, 'override'=>$override ] );
     
         return rest_ensure_response([ 'ok'=>true ]);
+    }
+
+    /**
+     * Permanently delete an order and all linked records (Supply Manager cleanup).
+     */
+    public function orders_delete( WP_REST_Request $req ) {
+        $id   = (int) $req['id'];
+        $body = $req->get_json_params() ?: [];
+        if ( (int) ( $body['confirm'] ?? 0 ) !== $id ) {
+            return new WP_Error( 'wcss_confirm', 'Confirm the order number to delete it.', [ 'status' => 400 ] );
+        }
+        if ( ! class_exists( 'WCSS_Order_Delete' ) ) {
+            return new WP_Error( 'unavailable', 'Order delete is not available.', [ 'status' => 503 ] );
+        }
+        return rest_ensure_response( WCSS_Order_Delete::purge( $id ) );
     }
 
     /**
@@ -353,6 +376,13 @@ class WCSS_REST_Orders {
 
     /* ------------ DTO & helpers ------------ */
 
+    /** Who placed an order from the Supply Manager portal; '' for a store's own order. */
+    private function placed_by( WC_Order $o ): string {
+        $meta = $o->get_meta( '_wcss_manager_order' );
+        $user = is_array( $meta ) && ! empty( $meta['by'] ) ? get_userdata( (int) $meta['by'] ) : null;
+        return $user ? (string) $user->display_name : ( $meta ? 'Supply Ops' : '' );
+    }
+
     private function dto_order( WC_Order $o ): array {
 
             // $store_id = (int) $o->get_meta( '_wcss_store_id' );
@@ -385,11 +415,7 @@ class WCSS_REST_Orders {
             // }
 
                         // NEW: shipment meta
-            $shipment = [
-                'tracking' => (string) $o->get_meta( '_wcss_tracking' ),
-                'carrier'  => (string) $o->get_meta( '_wcss_carrier' ),
-                'edd'      => (string) $o->get_meta( '_wcss_edd' ), // optional: YYYY-MM-DD
-            ];
+            $shipment = WCSS_Shipment::get( $o ) + [ 'editable' => WCSS_Shipment::editable( $o ) ];
 
         $vendor_summary = $this->dto_order_vendor_summary( $o );
 
@@ -405,14 +431,16 @@ class WCSS_REST_Orders {
             'vendor'     => $vendor_summary['vendor'],
             'vendor_label' => $vendor_summary['vendor_label'],
             'vendors'    => $vendor_summary['vendors'],
-            'edd'        => $o->get_meta('_wcss_expected_delivery_date'),
+            'edd'        => $shipment['edd_label'],
             'ref'        => $o->get_meta('_wcss_internal_ref'),
             'store'      => $store,
             'shipment' => $shipment,
+            'placed_by'  => $this->placed_by( $o ),
             'has_amazon_order' => (bool) $o->get_meta( '_wcss_amazon_order_data' ),
             'has_gt_order'     => (bool) $o->get_meta( '_wcss_gt_order_data' ),
             'auto_submit'      => $this->dto_auto_submit_summary( $o ),
             'policy'           => $this->dto_policy( $o ),
+            'order_type'       => ( class_exists( 'WCSS_Ink_Order' ) && WCSS_Ink_Order::order_is_ink( $o ) ) ? 'ink' : 'stationery',
         ];
 
     }
@@ -459,20 +487,26 @@ class WCSS_REST_Orders {
      * @return array{vendor:string,vendor_label:string,vendors:array<int,string>}
      */
     private function dto_order_vendor_summary( $o ) {
-        $keys = array();
+        $keys   = array();
+        $manual = array();
 
         foreach ( $o->get_items() as $item ) {
             $vendor = sanitize_key( (string) $item->get_meta( '_cc_vendor', true ) );
             if ( $vendor === '' ) {
+                $name = $this->manual_vendor_of_line( $o, $item );
+                if ( $name !== '' ) {
+                    $manual[ $name ] = true;
+                }
                 continue;
             }
             $keys[ $vendor ] = true;
         }
+        $manual = array_keys( $manual );
 
         $vendors = array_keys( $keys );
         sort( $vendors );
 
-        if ( ! $vendors ) {
+        if ( ! $vendors && ! $manual ) {
             return array(
                 'vendor'       => '',
                 'vendor_label' => '—',
@@ -491,11 +525,35 @@ class WCSS_REST_Orders {
             }
         }
 
+        $labels = array_merge( $labels, $manual );
+        if ( $manual ) {
+            $vendor = $vendors ? 'mixed' : 'manual';
+        } else {
+            $vendor = count( $vendors ) === 1 ? $vendors[0] : 'mixed';
+        }
+
         return array(
-            'vendor'       => count( $vendors ) === 1 ? $vendors[0] : 'mixed',
+            'vendor'       => $vendor,
             'vendor_label' => implode( ' + ', $labels ),
             'vendors'      => $vendors,
         );
+    }
+
+    /**
+     * Name of the manual vendor a line is placed with by hand, or ''.
+     * Manual lines carry no _cc_vendor tag; only orders marked for hand placing count,
+     * so an order that was never sent doesn't look as if it has a vendor.
+     */
+    private function manual_vendor_of_line( $o, $item ): string {
+        $auto = $o->get_meta( '_wcss_auto_vendor_submit' );
+        if ( ! is_array( $auto ) || ( ( $auto['status'] ?? '' ) !== 'manual' && empty( $auto['manual_note'] ) ) ) {
+            return '';
+        }
+        if ( ! function_exists( 'cc_vendor_prices_manual_vendors' ) ) {
+            return '';
+        }
+        $pid = (int) ( $item->get_variation_id() ?: $item->get_product_id() );
+        return implode( ' + ', cc_vendor_prices_manual_vendors( $pid ) );
     }
 
 
@@ -514,6 +572,8 @@ class WCSS_REST_Orders {
 
         // Who placed the order (store employee) — for Supply Manager order detail.
         $dto['requester'] = $this->dto_requester( $o );
+        $dto['carriers']  = array_map( static function ( $c ) { return $c[0]; }, WCSS_Shipment::CARRIERS );
+        $dto['returns']   = class_exists( 'WCSS_Returns' ) ? WCSS_Returns::for_order( $o->get_id() ) : [];
 
         // Items (include SKU, product/variation IDs, cart vendor selection)
         $dto['items'] = [];
@@ -546,6 +606,8 @@ class WCSS_REST_Orders {
                 $vendor_label = 'Grand & Toy';
             } elseif ( $vendor_key !== '' ) {
                 $vendor_label = $vendor_key;
+            } else {
+                $vendor_label = $this->manual_vendor_of_line( $o, $item );
             }
 
             $dto['items'][] = [
@@ -583,8 +645,14 @@ class WCSS_REST_Orders {
 
         // Attach ledger only if store set
         if ( ! empty( $dto['store']['id'] ) && class_exists( 'WCSS_Ledger' ) ) {
-            $ym  = gmdate('Y-m');
+            $ym  = wp_date('Y-m');
             $row = WCSS_Ledger::get( (int) $dto['store']['id'], $ym ) ?: [ 'orders_count'=>0, 'spend_total'=>0 ];
+            // Count the month the same way the ordering rules do (approved + waiting for approval,
+            // ink excluded), so this card matches what the store sees in its cart.
+            if ( class_exists( 'WCSS_Order_Policy' ) ) {
+                [ $used_n, $used_amt ] = WCSS_Order_Policy::month_usage( (int) $dto['store']['id'] );
+                $row = [ 'orders_count' => (int) $used_n, 'spend_total' => round( (float) $used_amt, 2 ) ];
+            }
             $quota  = (int) WCSS_Store_CPT::get_field( (int) $dto['store']['id'], 'quota' );
             $budget = (float) WCSS_Store_CPT::get_field( (int) $dto['store']['id'], 'budget' );
 
@@ -741,24 +809,11 @@ class WCSS_REST_Orders {
     public function orders_update_shipment( WP_REST_Request $req ) {
         $o = wc_get_order( (int) $req['id'] );
         if ( ! $o ) return new WP_Error('not_found','Order not found',[ 'status'=>404 ]);
-    
-        $tracking = trim( (string) $req->get_param('tracking') );
-        $carrier  = trim( (string) $req->get_param('carrier') );
-        $edd      = trim( (string) $req->get_param('edd') );
-    
-        if ( $tracking !== '' ) $o->update_meta_data( '_wcss_tracking', $tracking );
-        if ( $carrier  !== '' ) $o->update_meta_data( '_wcss_carrier', $carrier );
-        if ( $edd      !== '' ) $o->update_meta_data( '_wcss_edd', $edd );
-    
-        $o->save();
-        if ( $tracking || $carrier || $edd ) {
-            WCSS_Order_Events::log( $o->get_id(), 'shipment_update', [
-                'tracking' => $tracking, 'carrier' => $carrier, 'edd' => $edd
-            ] );
-        }
-        return rest_ensure_response([ 'ok' => true ]);
+        $res = WCSS_Shipment::save( $o, (string) $req->get_param('carrier'), (string) $req->get_param('tracking'), (string) $req->get_param('edd') );
+        if ( is_wp_error( $res ) ) return $res;
+        return rest_ensure_response( [ 'ok' => true, 'shipment' => $res ] );
     }
-    
+
     public function orders_update_receiving( WP_REST_Request $req ) {
         $o = wc_get_order( (int) $req['id'] );
         if ( ! $o ) return new WP_Error('not_found','Order not found',[ 'status'=>404 ]);
@@ -902,7 +957,7 @@ class WCSS_REST_Orders {
     }
 
     /**
-     * Plain-English vendor receipt for Supply Managers (Amazon / G&T / Woo-only).
+     * Plain-English vendor receipt for Supply Managers (Amazon / G&T / manual vendor).
      *
      * @param WC_Order           $o   Order.
      * @param array<string,mixed> $dto Detail DTO in progress.
@@ -992,7 +1047,8 @@ class WCSS_REST_Orders {
             $vendors[] = [
                 'key'         => 'gt',
                 'label'       => 'Grand & Toy',
-                'placed'      => ! empty( $gt['po_id'] ) || in_array( (string) ( $gt['status'] ?? '' ), [ 'submitted', 'placed', 'accepted' ], true ),
+                // The PO number is made before sending, so a failed send has one too: trust the status only.
+                'placed'      => in_array( (string) ( $gt['status'] ?? '' ), [ 'submitted', 'placed', 'accepted' ], true ),
                 'status'      => (string) ( $gt['status'] ?? '' ),
                 'ref'         => (string) ( $gt['po_id'] ?? '' ),
                 'placed_at'   => (string) ( $gt['submitted_at'] ?? '' ),
@@ -1016,9 +1072,14 @@ class WCSS_REST_Orders {
             ];
         }
 
-        $mode = 'pending';
+        $mode    = 'pending';
+        $message = (string) ( $auto['message'] ?? '' );
         if ( in_array( $status, [ 'woo_only', 'skipped' ], true ) ) {
-            $mode = 'woo_only';
+            // Orders from before every order had to reach a vendor: nothing was ever sent.
+            $mode    = 'failed';
+            $message = 'No vendor was assigned, so this order was never sent. Assign a vendor to the product, then retry.';
+        } elseif ( $status === 'manual' ) {
+            $mode = 'manual';
         } elseif ( $status === 'submitted' || ( $vendors && array_reduce( $vendors, static function ( $ok, $v ) { return $ok || ! empty( $v['placed'] ); }, false ) ) ) {
             $mode = 'sent';
         } elseif ( in_array( $status, [ 'failed', 'partial' ], true ) ) {
@@ -1032,11 +1093,11 @@ class WCSS_REST_Orders {
         return [
             'mode'           => $mode,
             'auto_status'    => $status !== '' ? $status : ( $mode === 'pending' ? '' : $mode ),
-            'message'        => (string) ( $auto['message'] ?? '' ),
+            'message'        => $message,
+            'manual_note'    => (string) ( $auto['manual_note'] ?? '' ),
             'winning_vendor' => (string) ( $auto['winning_vendor'] ?? ( $dto['vendor'] ?? '' ) ),
             'completed_at'   => (string) ( $auto['completed_at'] ?? '' ),
             'vendors'        => $vendors,
-            'woo_only'       => $mode === 'woo_only',
             'can_retry'      => in_array( $status, [ 'failed', 'partial', 'processing' ], true )
                 || ( $o->get_status() === 'approved' && $mode === 'failed' ),
         ];

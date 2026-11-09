@@ -17,6 +17,124 @@ class WCSS_MyAccount_Customize {
         add_filter( 'woocommerce_account_menu_items', [ $this, 'add_profile_menu' ], 998 );
         add_action( 'woocommerce_account_profile_endpoint', [ $this, 'render_profile' ] );
 
+        add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_styles' ] );
+        add_action( 'woocommerce_before_account_orders', [ $this, 'orders_heading' ] );
+        add_action( 'woocommerce_my_account_my_orders_column_order-date', [ $this, 'order_date_cell' ] );
+        add_action( 'woocommerce_my_account_my_orders_column_order-status', [ $this, 'order_status_cell' ] );
+        add_action( 'woocommerce_my_account_my_orders_column_order-total', [ $this, 'order_total_cell' ] );
+        add_action( 'woocommerce_edit_account_form_start', [ $this, 'account_details_note' ] );
+        add_action( 'woocommerce_view_order', [ $this, 'view_order_header' ], 5 );
+
+    }
+
+    public function enqueue_styles() {
+        if ( ! function_exists( 'is_account_page' ) || ! is_account_page() ) return;
+        $file = 'frontend/assets/css/my-account.css';
+        wp_enqueue_style( 'wcss-my-account', WCSS_URL . $file, [], filemtime( WCSS_DIR . $file ) );
+    }
+
+    public function orders_heading( $has_orders ) {
+        if ( ! $has_orders ) return;
+        echo '<div class="wcss-acc-head"><h2>' . esc_html__( 'Your orders', 'wcss' ) . '</h2><p>' . esc_html__( 'Track every order your store has placed.', 'wcss' ) . '</p></div>';
+    }
+
+    public function order_date_cell( $order ) {
+        $date = $order->get_date_created();
+        if ( $date ) {
+            echo '<time datetime="' . esc_attr( $date->date( 'c' ) ) . '">' . esc_html( $date->date_i18n( 'M j, Y' ) ) . '</time>';
+        }
+    }
+
+    public function order_status_cell( $order ) {
+        $tones = [
+            'approved'          => 'is-ok',
+            'processing'        => 'is-ok',
+            'completed'         => 'is-ok',
+            'awaiting-approval' => 'is-wait',
+            'on-hold'           => 'is-wait',
+            'rejected'          => 'is-bad',
+            'cancelled'         => 'is-bad',
+            'failed'            => 'is-bad',
+        ];
+        $status = $order->get_status();
+        echo '<span class="wcss-status ' . esc_attr( $tones[ $status ] ?? 'is-neutral' ) . '">' . esc_html( wc_get_order_status_name( $status ) ) . '</span>';
+        if ( doing_action( 'woocommerce_my_account_my_orders_column_order-status' ) ) $this->order_delivery_line( $order );
+    }
+
+    /** Order list: a short delivery line under the status once there is a date or tracking. */
+    public function order_delivery_line( $order ) {
+        if ( ! class_exists( 'WCSS_Shipment' ) || ! in_array( $order->get_status(), [ 'approved', 'processing', 'completed' ], true ) ) return;
+        $sh = WCSS_Shipment::get( $order );
+        if ( $sh['edd_label'] !== '' ) {
+            echo '<span class="wcss-acc-items">' . esc_html( sprintf( __( 'Expected %s', 'wcss' ), $sh['edd_label'] ) ) . '</span>';
+        } elseif ( $sh['tracking'] !== '' ) {
+            echo '<span class="wcss-acc-items">' . esc_html__( 'Shipped', 'wcss' ) . '</span>';
+        }
+    }
+
+    /** Single order: delivery date, carrier and a tracking link. */
+    public function view_order_delivery( WC_Order $order ) {
+        if ( ! class_exists( 'WCSS_Shipment' ) ) return;
+        $status = $order->get_status();
+        if ( ! in_array( $status, [ 'approved', 'processing', 'completed' ], true ) ) return;
+        $sh = WCSS_Shipment::get( $order );
+        ?>
+        <div class="wcss-acc-card wcss-acc-delivery">
+          <h3><?php esc_html_e( 'Delivery', 'wcss' ); ?></h3>
+          <?php if ( ! $sh['has'] ) : ?>
+            <p class="wcss-acc-muted"><?php esc_html_e( 'Your order is with the supplier. The delivery date and tracking show here as soon as we have them.', 'wcss' ); ?></p>
+          <?php else : ?>
+            <dl>
+              <?php if ( $sh['edd_label'] !== '' ) : ?>
+                <div><dt><?php esc_html_e( 'Expected delivery', 'wcss' ); ?></dt><dd><?php echo esc_html( $sh['edd_label'] ); ?></dd></div>
+              <?php endif; ?>
+              <?php if ( $sh['carrier_label'] !== '' ) : ?>
+                <div><dt><?php esc_html_e( 'Carrier', 'wcss' ); ?></dt><dd><?php echo esc_html( $sh['carrier_label'] ); ?></dd></div>
+              <?php endif; ?>
+              <?php if ( $sh['tracking'] !== '' ) : ?>
+                <div><dt><?php esc_html_e( 'Tracking number', 'wcss' ); ?></dt><dd>
+                  <?php if ( $sh['url'] ) : ?>
+                    <a href="<?php echo esc_url( $sh['url'] ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $sh['tracking'] ); ?> &rarr;</a>
+                  <?php else : echo esc_html( $sh['tracking'] ); endif; ?>
+                </dd></div>
+              <?php endif; ?>
+            </dl>
+          <?php endif; ?>
+        </div>
+        <?php
+    }
+
+    public function order_total_cell( $order ) {
+        $count = (int) $order->get_item_count();
+        echo '<span class="wcss-acc-total">' . wp_kses_post( $order->get_formatted_order_total() ) . '</span>';
+        /* translators: %d: number of items */
+        echo '<span class="wcss-acc-items">' . esc_html( sprintf( _n( '%d item', '%d items', $count, 'wcss' ), $count ) ) . '</span>';
+    }
+
+    /** Top of a single order. Replaces WooCommerce's "Order #x was placed on…" sentence. */
+    public function view_order_header( $order_id ) {
+        $order = wc_get_order( $order_id );
+        if ( ! $order ) return;
+        $date = $order->get_date_created();
+        ?>
+        <a class="wcss-acc-back" href="<?php echo esc_url( wc_get_account_endpoint_url( 'orders' ) ); ?>">&larr; <?php esc_html_e( 'Back to orders', 'wcss' ); ?></a>
+        <div class="wcss-acc-card wcss-acc-orderhead">
+          <div>
+            <h2><?php echo esc_html( sprintf( __( 'Order #%s', 'wcss' ), $order->get_order_number() ) ); ?></h2>
+            <?php if ( $date ) : ?>
+              <p><?php echo esc_html( sprintf( __( 'Placed %s', 'wcss' ), $date->date_i18n( 'M j, Y' ) ) ); ?></p>
+            <?php endif; ?>
+          </div>
+          <?php $this->order_status_cell( $order ); ?>
+        </div>
+        <?php
+        $this->view_order_delivery( $order );
+    }
+
+    public function account_details_note() {
+        echo '<div class="wcss-acc-head"><h2>' . esc_html__( 'Account details', 'wcss' ) . '</h2></div>';
+        echo '<div class="wcss-acc-readonly"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>'
+            . esc_html__( 'These details are managed by Supply Ops. Contact them if anything needs to change.', 'wcss' ) . '</span></div>';
     }
 
     public function map_explore_link( $url, $endpoint, $value, $permalink ) {
@@ -38,7 +156,7 @@ class WCSS_MyAccount_Customize {
         unset( $items['downloads'] );     // Downloads
         unset( $items['edit-address'] );  // Addresses
         unset( $items['dashboard']);
-        // Add "Explore products" linking to the shop page.
+        // Add "Explore Products" linking to the shop page.
         // We'll map its URL below so it doesn't need a registered endpoint.
         $new = [];
     
@@ -46,13 +164,13 @@ class WCSS_MyAccount_Customize {
         foreach ( $items as $key => $label ) {
             $new[ $key ] = $label;
             if ( 'orders' === $key ) {
-                $new['wcss-explore'] = __( 'Explore products', 'wcss' );
+                $new['wcss-explore'] = __( 'Explore Products', 'wcss' );
             }
         }
     
         // If "orders" wasn't present, append it at the end
         if ( ! isset( $new['wcss-explore'] ) ) {
-            $new['wcss-explore'] = __( 'Explore products', 'wcss' );
+            $new['wcss-explore'] = __( 'Explore Products', 'wcss' );
         }
     
         return $new;
@@ -138,37 +256,42 @@ class WCSS_MyAccount_Customize {
         $budget = get_post_meta( $store_id, WCSS_Store_CPT::META_BUDGET, true );
         $has_budget = $enf && $budget !== '' && (float) $budget > 0;
     
+        $countries = function_exists( 'WC' ) && WC()->countries ? WC()->countries->get_countries() : [];
+        $code_c    = strtoupper( (string) ( $country ?: 'CA' ) ); // Stores default to Canada, same as checkout.
+        $country   = $countries[ $code_c ] ?? $code_c;
+        $phone     = get_post_meta( $store_id, '_wcss_store_phone', true );
         ?>
-        <style>
-          .wcss-profile{border:1px solid #e5e7eb;border-radius:10px;padding:16px;background:#fafafa}
-          .wcss-profile h3{margin-top:0}
-          .wcss-grid{display:grid;grid-template-columns:160px 1fr;gap:8px}
-          .wcss-mono{font-family:ui-monospace, SFMono-Regular, Menlo, monospace}
-        </style>
-        <div class="wcss-profile">
-          <h3><?php esc_html_e('Store Profile', 'wcss'); ?></h3>
-          <div class="wcss-grid">
-            <div><?php esc_html_e('Store', 'wcss'); ?></div><div><?php echo esc_html( $name ); ?></div>
-            <div><?php esc_html_e('Code', 'wcss'); ?></div><div class="wcss-mono"><?php echo esc_html( $code ); ?></div>
-            <div><?php esc_html_e('Address', 'wcss'); ?></div><div><?php echo esc_html( $addr ); ?></div>
-            <div><?php esc_html_e('City', 'wcss'); ?></div><div><?php echo esc_html( $city ); ?></div>
-            <div><?php esc_html_e('State', 'wcss'); ?></div><div><?php echo esc_html( $state ); ?></div>
-            <div><?php esc_html_e('Postcode', 'wcss'); ?></div><div><?php echo esc_html( $postcode ); ?></div>
-            <div><?php esc_html_e('Country', 'wcss'); ?></div><div><?php echo esc_html( $country ); ?></div>
-            <div><?php esc_html_e('Monthly order quota', 'wcss'); ?></div>
-            <div><?php echo $quota > 0 ? esc_html( $quota ) : '<em>' . esc_html__('Unlimited','wcss') . '</em>'; ?></div>
-            <div><?php esc_html_e('Monthly budget', 'wcss'); ?></div>
-            <div>
-              <?php
-              if ( $has_budget ) {
-                  echo wp_kses_post( wc_price( (float) $budget ) );
-              } else {
-                  echo '<em>' . esc_html__( 'No limit', 'wcss' ) . '</em>';
-              }
-              ?>
-            </div>
+        <div class="wcss-acc-head"><h2><?php esc_html_e( 'Store profile', 'wcss' ); ?></h2></div>
+        <div class="wcss-acc-card wcss-acc-store">
+          <div>
+            <strong><?php echo esc_html( $name ); ?></strong>
+            <span><?php echo esc_html( trim( $city . ( $city && $state ? ', ' : '' ) . $state ) ); ?></span>
           </div>
+          <?php if ( $code !== '' ) : ?>
+            <span class="wcss-acc-code"><?php echo esc_html( sprintf( __( 'Store %s', 'wcss' ), $code ) ); ?></span>
+          <?php endif; ?>
         </div>
+        <div class="wcss-acc-card">
+          <h3><?php esc_html_e( 'Ship-to address', 'wcss' ); ?></h3>
+          <dl class="wcss-acc-rows">
+            <div><dt><?php esc_html_e( 'Address', 'wcss' ); ?></dt><dd><?php echo esc_html( $addr ); ?></dd></div>
+            <div><dt><?php esc_html_e( 'City', 'wcss' ); ?></dt><dd><?php echo esc_html( $city ); ?></dd></div>
+            <div><dt><?php esc_html_e( 'Province', 'wcss' ); ?></dt><dd><?php echo esc_html( $state ); ?></dd></div>
+            <div><dt><?php esc_html_e( 'Postal code', 'wcss' ); ?></dt><dd><?php echo esc_html( $postcode ); ?></dd></div>
+            <div><dt><?php esc_html_e( 'Country', 'wcss' ); ?></dt><dd><?php echo esc_html( $country ); ?></dd></div>
+            <?php if ( $phone !== '' ) : ?>
+              <div><dt><?php esc_html_e( 'Phone', 'wcss' ); ?></dt><dd><?php echo esc_html( $phone ); ?></dd></div>
+            <?php endif; ?>
+          </dl>
+        </div>
+        <div class="wcss-acc-card">
+          <h3><?php esc_html_e( 'Monthly limits', 'wcss' ); ?></h3>
+          <dl class="wcss-acc-rows">
+            <div><dt><?php esc_html_e( 'Orders per month', 'wcss' ); ?></dt><dd><?php echo $quota > 0 ? esc_html( $quota ) : esc_html__( 'Unlimited', 'wcss' ); ?></dd></div>
+            <div><dt><?php esc_html_e( 'Monthly budget', 'wcss' ); ?></dt><dd><?php echo $has_budget ? wp_kses_post( wc_price( (float) $budget ) ) : esc_html__( 'No limit', 'wcss' ); ?></dd></div>
+          </dl>
+        </div>
+        <p class="wcss-acc-note"><?php esc_html_e( 'Contact Supply Ops if any of these details need updating.', 'wcss' ); ?></p>
         <?php
     }
 

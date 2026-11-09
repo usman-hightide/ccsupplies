@@ -412,50 +412,27 @@ class WCSS_REST_Reports {
         }
 
         // ---- top vendors (this month) ----
-        $vendorAgg = [];  // name => [orders, revenue]
-        $vendorId  = [];  // name => term_id
-        $page = 1;
-        do {
-            $scan = wc_get_orders([
-                'type'         => 'shop_order',
-                'date_created' => $from.'...'.$to,
-                'status'       => array_keys( wc_get_order_statuses() ),
-                'paginate'     => true,
-                'limit'        => 100,
-                'page'         => $page,
-                'return'       => 'objects',
-            ]);
-            $orders_page = is_object($scan) ? $scan->orders : [];
-            foreach ( $orders_page as $o ) {
-                $seen = [];
-                foreach ( $o->get_items('line_item') as $it ) {
-                    $pid = $it->get_product_id() ?: $it->get_variation_id();
-                    if ( ! $pid ) continue;
-                    $terms = wp_get_post_terms( $pid, 'wcss_vendor' );
-                    if ( is_wp_error($terms) || empty($terms) ) continue;
-                    $t = $terms[0];
-                    $name = $t->name;
-                    $vendorId[$name] = (int) $t->term_id;
-                    if ( empty($vendorAgg[$name]) ) $vendorAgg[$name] = ['orders'=>0,'revenue'=>0.0];
-                    if ( empty($seen[$name]) ) { $vendorAgg[$name]['orders']++; $seen[$name]=true; }
-                    $vendorAgg[$name]['revenue'] += (float) $it->get_total();
-                }
-            }
-            $page++;
-        } while ( is_object($scan) && $page <= max(1,(int)$scan->max_num_pages) );
-
+        // Same numbers as the dashboard's Amazon vs Grand & Toy card and the Spend by vendor report:
+        // approved orders only, each line counted under the vendor it was actually ordered from (SOW 1.28).
         $vendors = [];
-        foreach ( $vendorAgg as $name => $agg ) {
-            $vendors[] = [
-                'id'      => $vendorId[$name] ?? 0,
-                // Term names may be stored as "Grand &amp; Toy"; decode for API/UI.
-                'name'    => html_entity_decode( (string) $name, ENT_QUOTES | ENT_HTML5, 'UTF-8' ),
-                'orders'  => (int) $agg['orders'],
-                'revenue' => (float) $agg['revenue'],
-            ];
+        if ( class_exists( 'WCSS_Reports' ) ) {
+            $rep = WCSS_Reports::run( WCSS_Reports::filters( [
+                'type'  => 'vendors',
+                'range' => 'custom',
+                'from'  => $start->format( 'Y-m-d' ),
+                'to'    => $end->modify( '-1 day' )->format( 'Y-m-d' ),
+            ] ) );
+            foreach ( (array) ( $rep['rows'] ?? [] ) as $r ) {
+                $term      = get_term_by( 'slug', (string) $r['key'], 'wcss_vendor' );
+                $vendors[] = [
+                    'id'      => $term ? (int) $term->term_id : 0,
+                    'name'    => html_entity_decode( (string) $r['vendor'], ENT_QUOTES | ENT_HTML5, 'UTF-8' ),
+                    'orders'  => (int) $r['orders'],
+                    'revenue' => (float) $r['spend'],
+                ];
+            }
+            $vendors = array_slice( $vendors, 0, 10 );
         }
-        usort($vendors, fn($a,$b) => $b['revenue'] <=> $a['revenue']);
-        $vendors = array_slice($vendors, 0, 10);
 
         // ---- per-store ledger for month (WITH store name, quota, budget) ----
         $ledger_map = []; // store_id => row
@@ -475,6 +452,8 @@ class WCSS_REST_Reports {
 
                 $sid = (int) $o->get_meta('_wcss_store_id');
                 if ( ! $sid ) continue;
+                // Compared with store budgets below; ink doesn't use the stationery budget.
+                if ( class_exists( 'WCSS_Ink_Order' ) && WCSS_Ink_Order::order_is_ink( $o ) ) continue;
 
                 if ( empty($ledger_map[$sid]) ) {
                     $quota  = (int) WCSS_Store_CPT::get_field( $sid, 'quota' );

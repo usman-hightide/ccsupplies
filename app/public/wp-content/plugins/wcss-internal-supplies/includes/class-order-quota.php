@@ -115,6 +115,10 @@ class WCSS_Order_Quota {
      *  - block mode: refuse checkout when outside the window / over quota / over budget.
      */
     private function evaluate_limits(): array {
+        // Ink orders always place and wait for Supply Ops — never blocked at checkout.
+        if ( class_exists( 'WCSS_Ink_Order' ) && WCSS_Ink_Order::cart_is_ink() ) {
+            return [];
+        }
         if ( ! class_exists( 'WCSS_Order_Policy' ) || WCSS_Order_Policy::mode( WCSS_Order_Policy::cart_store_id() ) !== 'block' ) {
             return [];
         }

@@ -24,6 +24,7 @@ class WCSS_Reports {
         'over_quota'     => 'Second order this month',
         'over_budget'    => 'Over monthly budget',
         'no_store'       => 'No store linked',
+        'ink_review'     => 'Ink order — Supply Ops review',
     ];
 
     /** Report key => [ title, description, default status ]. */
@@ -185,9 +186,11 @@ class WCSS_Reports {
         if ( is_array( $policy ) && empty( $policy['in_policy'] ) ) $reasons = (array) ( $policy['reasons'] ?? [] );
         if ( ! $reasons && is_array( $override ) ) $reasons = (array) ( $override['reasons'] ?? [] );
         $rejected = in_array( $status, self::STATUS_SETS['rejected'], true );
-        if ( ! $reasons && ! $override && ! $rejected ) return null;
+        if ( ! $reasons && ! $rejected ) return null; // An approval with no policy reason (a Manual order, a normal status change) is not an exception.
 
-        if ( $override ) {
+        if ( $override && in_array( 'ink_review', $reasons, true ) ) {
+            $outcome = 'Approved by Supply Ops'; // Every ink order is reviewed; that isn't an exception.
+        } elseif ( $override ) {
             $outcome = 'Approved as exception';
         } elseif ( $rejected ) {
             $outcome = 'Rejected';
@@ -267,18 +270,19 @@ class WCSS_Reports {
 
             $created = $o->get_date_created();
             $out[]   = [
-                'id'        => $o->get_id(),
-                'number'    => $o->get_order_number(),
-                'ts'        => $created ? $created->getTimestamp() : 0,
-                'date'      => $created ? wp_date( 'Y-m-d H:i', $created->getTimestamp() ) : '',
-                'status'    => $o->get_status(),
-                'status_l'  => wc_get_order_status_name( $o->get_status() ),
-                'store'     => $store,
-                'user'      => $user,
-                'lines'     => $lines,
-                'amount'    => array_sum( array_column( $lines, 'amount' ) ),
-                'units'     => array_sum( array_column( $lines, 'qty' ) ),
-                'exception' => $exc,
+                'id'         => $o->get_id(),
+                'number'     => $o->get_order_number(),
+                'ts'         => $created ? $created->getTimestamp() : 0,
+                'date'       => $created ? wp_date( 'Y-m-d H:i', $created->getTimestamp() ) : '',
+                'status'     => $o->get_status(),
+                'status_l'   => wc_get_order_status_name( $o->get_status() ),
+                'order_type' => ( class_exists( 'WCSS_Ink_Order' ) && WCSS_Ink_Order::order_is_ink( $o ) ) ? 'ink' : 'stationery',
+                'store'      => $store,
+                'user'       => $user,
+                'lines'      => $lines,
+                'amount'     => array_sum( array_column( $lines, 'amount' ) ),
+                'units'      => array_sum( array_column( $lines, 'qty' ) ),
+                'exception'  => $exc,
             ];
         }
         return $out;
@@ -331,10 +335,11 @@ class WCSS_Reports {
                 $agg = []; $months = self::months_in( $f );
                 foreach ( $orders as $o ) {
                     $s = $o['store'];
-                    $agg[ $s['id'] ] = $agg[ $s['id'] ] ?? [ 's' => $s, 'orders' => 0, 'units' => 0, 'spend' => 0.0, 'exc' => 0, 'last' => '' ];
+                    $agg[ $s['id'] ] = $agg[ $s['id'] ] ?? [ 's' => $s, 'orders' => 0, 'units' => 0, 'spend' => 0.0, 'budget_spend' => 0.0, 'exc' => 0, 'last' => '' ];
                     $agg[ $s['id'] ]['orders']++;
                     $agg[ $s['id'] ]['units'] += $o['units'];
                     $agg[ $s['id'] ]['spend'] += $o['amount'];
+                    if ( $o['order_type'] !== 'ink' ) $agg[ $s['id'] ]['budget_spend'] += $o['amount'];
                     $agg[ $s['id'] ]['exc']   += $o['exception'] ? 1 : 0;
                     $agg[ $s['id'] ]['last']   = max( $agg[ $s['id'] ]['last'], $o['date'] );
                 }
@@ -342,11 +347,11 @@ class WCSS_Reports {
                     $budget = $a['s']['budget'] * $months;
                     $rows[] = [ 'store' => $a['s']['name'], 'code' => $a['s']['code'], 'city' => $a['s']['city'], 'province' => $a['s']['province'],
                         'orders' => $a['orders'], 'units' => $a['units'], 'spend' => round( $a['spend'], 2 ), 'budget' => round( $budget, 2 ),
-                        'used' => $budget > 0 ? $a['spend'] / $budget : 0, 'exceptions' => $a['exc'], 'last' => $a['last'] ];
+                        'used' => $budget > 0 ? $a['budget_spend'] / $budget : 0, 'exceptions' => $a['exc'], 'last' => $a['last'] ];
                 }
                 usort( $rows, function ( $a, $b ) { return $b['spend'] <=> $a['spend']; } );
                 $cols = [ [ 'store', 'Store', $text ], [ 'code', 'Code', $text ], [ 'city', 'City', $text ], [ 'province', 'Province', $text ], [ 'orders', 'Orders', $int ], [ 'units', 'Units', $int ],
-                    [ 'spend', 'Spend', $money ], [ 'budget', $months > 1 ? "Budget ({$months} mo)" : 'Budget', $money ], [ 'used', 'Budget used', $pct ], [ 'exceptions', 'Exceptions', $int ], [ 'last', 'Last order', $text ] ];
+                    [ 'spend', 'Spend', $money ], [ 'budget', $months > 1 ? "Budget ({$months} mo)" : 'Budget', $money ], [ 'used', 'Budget used (excl. ink)', $pct ], [ 'exceptions', 'Exceptions', $int ], [ 'last', 'Last order', $text ] ];
                 $chart = self::top_bars( $rows, 'store', 'spend' );
                 break;
 
@@ -436,11 +441,12 @@ class WCSS_Reports {
 
             case 'orders':
                 foreach ( $orders as $o ) {
-                    $rows[] = [ 'order' => '#' . $o['number'], 'id' => $o['id'], 'date' => $o['date'], 'store' => $o['store']['name'], 'user' => $o['user']['name'], 'status' => $o['status_l'],
+                    $rows[] = [ 'order' => '#' . $o['number'], 'id' => $o['id'], 'date' => $o['date'], 'type' => ( ( $o['order_type'] ?? '' ) === 'ink' ) ? 'Ink' : 'Stationery',
+                        'store' => $o['store']['name'], 'user' => $o['user']['name'], 'status' => $o['status_l'],
                         'vendor' => implode( ', ', array_unique( array_column( $o['lines'], 'vendor_l' ) ) ), 'items' => count( $o['lines'] ), 'units' => $o['units'], 'total' => round( $o['amount'], 2 ),
                         'exception' => $o['exception'] ? implode( '; ', $o['exception']['labels'] ) : '' ];
                 }
-                $cols = [ [ 'order', 'Order', $text ], [ 'date', 'Placed', $text ], [ 'store', 'Store', $text ], [ 'user', 'User', $text ], [ 'status', 'Status', $text ], [ 'vendor', 'Vendor', $text ],
+                $cols = [ [ 'order', 'Order', $text ], [ 'date', 'Placed', $text ], [ 'type', 'Type', $text ], [ 'store', 'Store', $text ], [ 'user', 'User', $text ], [ 'status', 'Status', $text ], [ 'vendor', 'Vendor', $text ],
                     [ 'items', 'Lines', $int ], [ 'units', 'Units', $int ], [ 'total', 'Total', $money ], [ 'exception', 'Exception', $text ] ];
                 break;
         }

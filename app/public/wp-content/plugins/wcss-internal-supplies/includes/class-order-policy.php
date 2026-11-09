@@ -27,6 +27,42 @@ class WCSS_Order_Policy {
         add_action( 'woocommerce_proceed_to_checkout', [ $this, 'cart_policy_flag' ], 1 );
         add_filter( 'woocommerce_thankyou_order_received_text', [ $this, 'thankyou_text' ], 20, 2 );
         add_action( 'rest_api_init', [ $this, 'routes' ] );
+        add_action( 'init', [ __CLASS__, 'migrate_budget_125' ], 20 );
+    }
+
+    /* ---------------- one-time data updates ---------------- */
+
+    const BUDGET_125_DONE = 'wcss_migrated_budget_125';
+
+    /**
+     * SOW 1.8: the agreed default budget is $125, but the saved default and the stores bulk-added in
+     * Nov 2025 still carry the old $121. Runs once after deploy: the default and every store at exactly
+     * $121 move to $125. Stores with any other budget (set on purpose, e.g. $1,000) are left alone.
+     */
+    public static function migrate_budget_125() {
+        if ( get_option( self::BUDGET_125_DONE ) ) return;
+        $result = [ 'default' => false, 'stores' => 0, 'at' => current_time( 'mysql' ) ];
+
+        $opts = get_option( 'wcss_settings', [] );
+        if ( is_array( $opts ) && isset( $opts['default_monthly_budget'] ) && abs( (float) $opts['default_monthly_budget'] - 121 ) < 0.001 ) {
+            $opts['default_monthly_budget'] = 125;
+            update_option( 'wcss_settings', $opts );
+            $result['default'] = true;
+        }
+
+        $ids = get_posts( [ 'post_type' => WCSS_Store_CPT::POST_TYPE, 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids' ] );
+        foreach ( $ids as $id ) {
+            $hit = false;
+            foreach ( [ WCSS_Store_CPT::META_BUDGET, '_store_budget' ] as $key ) {
+                $v = get_post_meta( $id, $key, true );
+                if ( $v !== '' && is_numeric( $v ) && abs( (float) $v - 121 ) < 0.001 ) {
+                    update_post_meta( $id, $key, wc_format_decimal( 125 ) );
+                    $hit = true;
+                }
+            }
+            if ( $hit ) $result['stores']++;
+        }
+        update_option( self::BUDGET_125_DONE, $result, false );
     }
 
     /* ---------------- settings ---------------- */
@@ -52,6 +88,54 @@ class WCSS_Order_Policy {
     const STORE_WINDOW_REPEAT = '_wcss_window_repeat';
     const STORE_LIMIT_MODE    = '_wcss_limit_mode';
 
+    /** Province ordering weeks (Ordering policy pop-up). Saved in wcss_settings. */
+    const OPT_PROV_ON   = 'province_weeks_on';
+    const OPT_PROV_DAYS = 'province_weeks';
+
+    /** The provinces with a week, and the days from Supply Ops' requirements. */
+    public static function default_province_weeks(): array {
+        return [
+            'ON' => [ 'name' => 'Ontario',          'start' => 1,  'end' => 7 ],
+            'AB' => [ 'name' => 'Alberta',          'start' => 8,  'end' => 14 ],
+            'MB' => [ 'name' => 'Manitoba',         'start' => 15, 'end' => 21 ],
+            'SK' => [ 'name' => 'Saskatchewan',     'start' => 22, 'end' => 28 ],
+            'BC' => [ 'name' => 'British Columbia', 'start' => 22, 'end' => 28 ],
+        ];
+    }
+
+    public static function province_weeks_on(): bool {
+        return (bool) wcss_get_option( self::OPT_PROV_ON, 0 );
+    }
+
+    /** @return array<string,array{name:string,start:int,end:int}> */
+    public static function province_weeks(): array {
+        $saved = (array) wcss_get_option( self::OPT_PROV_DAYS, [] );
+        $out   = self::default_province_weeks();
+        foreach ( $out as $code => $row ) {
+            if ( isset( $saved[ $code ]['start'], $saved[ $code ]['end'] ) ) {
+                $out[ $code ]['start'] = (int) $saved[ $code ]['start'];
+                $out[ $code ]['end']   = (int) $saved[ $code ]['end'];
+            }
+        }
+        return $out;
+    }
+
+    /** Two-letter province of a store, or '' when it isn't one that has a week. */
+    public static function store_province( int $store_id ): string {
+        $code = strtoupper( (string) WCSS_Checkout_Store_Lock::normalize_province( (string) WCSS_Store_CPT::get_field( $store_id, 'state' ) ) );
+        return isset( self::default_province_weeks()[ $code ] ) ? $code : '';
+    }
+
+    /** Readable summary of the weeks, for the policy-change email. */
+    private static function province_weeks_summary(): string {
+        if ( ! self::province_weeks_on() ) return 'Off';
+        $rows = [];
+        foreach ( self::province_weeks() as $code => $w ) {
+            $rows[] = $code . ' ' . $w['start'] . '–' . $w['end'];
+        }
+        return implode( ', ', $rows );
+    }
+
     /** Rule for orders outside the policy; a store can override the policy's rule. */
     public static function mode( int $store_id = 0 ): string {
         if ( $store_id ) {
@@ -67,7 +151,7 @@ class WCSS_Order_Policy {
     }
 
     /**
-     * Effective ordering window for a store: its own dates when set, else the policy's.
+     * Effective ordering window for a store: its own dates, else its province's week, else the policy's.
      * @return array{from:string,to:string,repeat:bool,start:int,end:int,source:string}
      */
     public static function window_config( int $store_id = 0 ): array {
@@ -79,6 +163,19 @@ class WCSS_Order_Policy {
                 $rep = get_post_meta( $store_id, self::STORE_WINDOW_REPEAT, true );
                 return [ 'from' => $from, 'to' => $to, 'repeat' => $rep === '' ? true : (bool) $rep,
                     'start' => (int) substr( $from, 8, 2 ), 'end' => (int) substr( $to, 8, 2 ), 'source' => 'store' ];
+            }
+        }
+        return self::shared_window( $store_id );
+    }
+
+    /** The window a store follows when it has no dates of its own. */
+    private static function shared_window( int $store_id = 0 ): array {
+        $s = self::settings();
+        if ( $store_id && self::province_weeks_on() ) {
+            $code = self::store_province( $store_id );
+            if ( $code !== '' ) {
+                $w = self::province_weeks()[ $code ];
+                return [ 'from' => '', 'to' => '', 'repeat' => true, 'start' => $w['start'], 'end' => $w['end'], 'source' => 'province' ];
             }
         }
         $dates = $s['order_window_from'] !== '' && $s['order_window_to'] !== '';
@@ -132,7 +229,10 @@ class WCSS_Order_Policy {
 
     /** Plain description of the window, e.g. "7–14 of every month" or "7 Nov 2026 – 14 Nov 2026". */
     public static function window_label( int $store_id = 0 ): string {
-        $w = self::window_config( $store_id );
+        return self::label_for( self::window_config( $store_id ) );
+    }
+
+    private static function label_for( array $w ): string {
         if ( $w['from'] !== '' && ! $w['repeat'] ) {
             return date_i18n( 'j M Y', strtotime( $w['from'] ) ) . ' – ' . date_i18n( 'j M Y', strtotime( $w['to'] ) );
         }
@@ -198,6 +298,10 @@ class WCSS_Order_Policy {
             if ( $exclude_order_id && (int) $id >= $exclude_order_id ) continue;
             $o = wc_get_order( $id );
             if ( ! $o ) continue;
+            // Ink orders are a parallel process — they must not consume stationery quota/budget.
+            if ( class_exists( 'WCSS_Ink_Order' ) && WCSS_Ink_Order::order_is_ink( $o ) ) {
+                continue;
+            }
             $count++;
             $sum += self::order_amount( $o );
         }
@@ -269,14 +373,33 @@ class WCSS_Order_Policy {
         $created = $order->get_date_created();
         $when    = $created ? new DateTimeImmutable( '@' . $created->getTimestamp() ) : null;
         if ( $when ) $when = $when->setTimezone( wp_timezone() );
-        return self::evaluate( (int) $order->get_meta( '_wcss_store_id' ), self::order_amount( $order ), (int) $order->get_id(), $when );
+        $res = self::evaluate( (int) $order->get_meta( '_wcss_store_id' ), self::order_amount( $order ), (int) $order->get_id(), $when );
+        if ( class_exists( 'WCSS_Ink_Order' ) && WCSS_Ink_Order::order_is_ink( $order ) ) {
+            return self::ink_result( $res );
+        }
+        return $res;
+    }
+
+    /** Ink always goes to Supply Ops; the stationery limits don't apply, but callers still read `checks`. */
+    private static function ink_result( array $res ): array {
+        return [
+            'in_policy' => false,
+            'reasons'   => [ 'ink_review' ],
+            'messages'  => [ __( 'Ink order — always reviewed by Supply Ops before sending to a supplier.', 'wcss' ) ],
+            'checks'    => [ 'order_type' => 'ink' ] + $res['checks'],
+        ];
     }
 
     /** Current shopper's cart (checkout preview / block mode). */
     public static function evaluate_cart(): array {
         $store_id = class_exists( 'WCSS_User_Store_Map' ) ? (int) WCSS_User_Store_Map::get_user_store_id() : 0;
         if ( ! $store_id ) return [ 'in_policy' => true, 'reasons' => [], 'messages' => [], 'checks' => [] ];
-        return self::evaluate( $store_id, self::cart_amount() );
+        $res = self::evaluate( $store_id, self::cart_amount() );
+        // Ink cart always needs Supply Ops — do not apply stationery budget/quota window rules.
+        if ( class_exists( 'WCSS_Ink_Order' ) && WCSS_Ink_Order::cart_is_ink() ) {
+            return self::ink_result( $res );
+        }
+        return $res;
     }
 
     /* ---------------- hooks ---------------- */
@@ -314,6 +437,8 @@ class WCSS_Order_Policy {
     /** Review mode: tell the store up front that this order will wait for Supply Ops. */
     public function checkout_notice() {
         if ( ! is_user_logged_in() || self::mode( self::cart_store_id() ) !== 'review' ) return;
+        // Ink has its own dedicated checkout banner (WCSS_Ink_Order::checkout_ink_notice).
+        if ( class_exists( 'WCSS_Ink_Order' ) && WCSS_Ink_Order::cart_is_ink() ) return;
         $res = self::evaluate_cart();
         if ( $res['in_policy'] || ! $res['messages'] ) return;
         $lines = array_values( array_filter( array_map( [ __CLASS__, 'store_facing' ], $res['reasons'] ) ) );
@@ -363,6 +488,9 @@ class WCSS_Order_Policy {
         $res = $order->get_meta( self::META );
         if ( ! is_array( $res ) || ! isset( $res['in_policy'] ) ) return $text;
         if ( empty( $res['in_policy'] ) && ! $order->get_meta( '_wcss_policy_override' ) ) {
+            if ( class_exists( 'WCSS_Ink_Order' ) && WCSS_Ink_Order::order_is_ink( $order ) ) {
+                return esc_html__( 'Thank you. Your ink order was sent to Supply Ops for review. Once it is approved, it will be placed with the supplier — we will email you.', 'wcss' );
+            }
             return esc_html__( 'Thank you. Your order was sent to Supply Ops for approval. Once it is approved, it will be placed with the supplier — we will email you.', 'wcss' );
         }
         return esc_html__( 'Thank you. Your order is approved and is being placed with the supplier.', 'wcss' );
@@ -375,6 +503,7 @@ class WCSS_Order_Policy {
             'over_quota'     => __( 'Your store has already ordered this month.', 'wcss' ),
             'over_budget'    => __( 'It goes over your monthly budget.', 'wcss' ),
             'no_store'       => __( 'Your account is not linked to a store.', 'wcss' ),
+            'ink_review'     => __( 'Ink orders always need Supply Ops approval.', 'wcss' ),
         ];
         return $map[ $reason ] ?? '';
     }
@@ -427,7 +556,7 @@ class WCSS_Order_Policy {
             ],
             'defaults'  => [
                 'budget' => $s['default_monthly_budget'], 'quota' => $s['default_monthly_quota'],
-                'window_label' => self::window_label( 0 ), 'mode' => $s['limit_mode'],
+                'window_label' => self::label_for( self::shared_window( $id ) ), 'mode' => $s['limit_mode'],
             ],
             'effective' => [
                 'budget' => $lim['budget'], 'quota' => $lim['quota'], 'window_label' => self::window_label( $id ),
@@ -495,6 +624,27 @@ class WCSS_Order_Policy {
         $s['in_window_today'] = self::in_window();
         $s['window_label']    = self::window_label();
         $s['today']           = wp_date( 'Y-m-d' );
+
+        // Province weeks, with how many stores each one reaches and which stores it can't.
+        $count = [];
+        $other = [];
+        $ids   = get_posts( [ 'post_type' => WCSS_Store_CPT::POST_TYPE, 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids' ] );
+        foreach ( $ids as $id ) {
+            $code = self::store_province( (int) $id );
+            if ( $code === '' ) {
+                $other[] = [ 'id' => (int) $id, 'name' => html_entity_decode( get_the_title( $id ), ENT_QUOTES, 'UTF-8' ), 'state' => (string) WCSS_Store_CPT::get_field( (int) $id, 'state' ) ];
+            } else {
+                $count[ $code ] = ( $count[ $code ] ?? 0 ) + 1;
+            }
+        }
+        $rows = [];
+        foreach ( self::province_weeks() as $code => $w ) {
+            $rows[] = $w + [ 'code' => $code, 'stores' => $count[ $code ] ?? 0 ];
+        }
+        $s['province_weeks_on']    = self::province_weeks_on();
+        $s['province_weeks']       = $rows;
+        $s['province_weeks_other'] = $other;
+        $s['week_reminder']        = class_exists( 'WCSS_Week_Reminder' ) ? WCSS_Week_Reminder::status() : null;
         return rest_ensure_response( $s );
     }
 
@@ -502,6 +652,25 @@ class WCSS_Order_Policy {
         $b    = $req->get_json_params() ?: [];
         $opts = get_option( 'wcss_settings', [] );
         $before = $opts;
+        $before['province_weeks_summary'] = self::province_weeks_summary();
+        if ( isset( $b['province_weeks'] ) ) {
+            $days = [];
+            foreach ( self::default_province_weeks() as $code => $row ) {
+                $start = (int) ( $b['province_weeks'][ $code ]['start'] ?? 0 );
+                $end   = (int) ( $b['province_weeks'][ $code ]['end'] ?? 0 );
+                if ( $start < 1 || $end > 31 || $start > $end ) {
+                    return new WP_Error( 'wcss_bad', $row['name'] . ': choose days from 1 to 31, with the first day before the last.', [ 'status' => 400 ] );
+                }
+                $days[ $code ] = [ 'start' => $start, 'end' => $end ];
+            }
+            $opts[ self::OPT_PROV_DAYS ] = $days;
+        }
+        if ( isset( $b['province_weeks_on'] ) ) {
+            $opts[ self::OPT_PROV_ON ] = $b['province_weeks_on'] ? 1 : 0;
+        }
+        if ( isset( $b['week_reminder_on'] ) ) {
+            $opts['week_reminder_on'] = $b['week_reminder_on'] ? 1 : 0; // SOW 1.27
+        }
         if ( isset( $b['default_monthly_budget'] ) ) {
             if ( ! is_numeric( $b['default_monthly_budget'] ) || $b['default_monthly_budget'] < 0 ) return new WP_Error( 'wcss_bad', 'Default budget must be a positive number.', [ 'status' => 400 ] );
             $opts['default_monthly_budget'] = round( (float) $b['default_monthly_budget'], 2 );
@@ -541,7 +710,11 @@ class WCSS_Order_Policy {
             $opts['limit_mode'] = $b['limit_mode'] === 'block' ? 'block' : 'review';
         }
         update_option( 'wcss_settings', $opts );
-        $keys = [ 'default_monthly_budget', 'default_monthly_quota', 'order_window_start', 'order_window_end', 'order_window_from', 'order_window_to', 'order_window_repeat', 'limit_mode' ];
+        if ( class_exists( 'WCSS_Week_Reminder' ) ) WCSS_Week_Reminder::sync_schedule();
+        $opts['province_weeks_summary'] = self::province_weeks_summary();
+        $before['week_reminder']        = ! empty( $before['week_reminder_on'] ) ? 'On' : 'Off';
+        $opts['week_reminder']          = ! empty( $opts['week_reminder_on'] ) ? 'On' : 'Off';
+        $keys = [ 'province_weeks_summary', 'week_reminder', 'default_monthly_budget', 'default_monthly_quota', 'order_window_start', 'order_window_end', 'order_window_from', 'order_window_to', 'order_window_repeat', 'limit_mode' ];
         do_action( 'wcss_policy_updated', 'policy', array_intersect_key( $before, array_flip( $keys ) ), array_intersect_key( $opts, array_flip( $keys ) ) );
         return $this->rest_get();
     }

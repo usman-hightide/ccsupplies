@@ -122,7 +122,7 @@ $cc_render_order_address = static function ( $order, $type ) {
 
 	<?php endif; ?>
 
-	<h2 class="woocommerce-column__title"><?php esc_html_e( 'Billing address', 'woocommerce' ); ?></h2>
+	<h2 class="woocommerce-column__title"><?php esc_html_e( 'Ship-to address', 'adex360' ); ?></h2>
 
 	<?php $cc_render_order_address( $order, 'billing' ); ?>
 

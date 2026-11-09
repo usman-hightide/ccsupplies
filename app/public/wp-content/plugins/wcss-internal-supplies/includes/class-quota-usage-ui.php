@@ -27,7 +27,10 @@ class WCSS_Quota_Usage_UI {
         $left   = $c['budget'] > 0 ? max( 0.0, $c['budget'] - $c['used_amount'] ) : 0.0;
         $next   = $review ? __( 'Your next order will need Supply Ops approval.', 'wcss' ) : __( 'New orders can’t be placed right now.', 'wcss' );
 
-        if ( in_array( 'over_quota', $res['reasons'], true ) ) {
+        if ( in_array( 'ink_review', $res['reasons'], true ) ) {
+            $tone = 'warn';
+            $text = __( 'Ink order: Supply Ops approves it before it goes to a supplier. It does not use your monthly budget.', 'wcss' );
+        } elseif ( in_array( 'over_quota', $res['reasons'], true ) ) {
             $tone = 'warn';
             $text = __( 'You have reached your monthly order limit.', 'wcss' ) . ' ' . $next;
         } elseif ( in_array( 'over_budget', $res['reasons'], true ) ) {

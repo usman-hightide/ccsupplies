@@ -50,7 +50,7 @@ class WCSS_REST_Products {
             'args'     => [
                 'name'=>['required'=>true,'sanitize_callback'=>'sanitize_text_field'],
                 'sku'=>['required'=>false,'sanitize_callback'=>'sanitize_text_field'],
-                'price'=>['required'=>true,'sanitize_callback'=>'wc_format_decimal'],
+                'price'=>['required'=>false,'sanitize_callback'=>function( $value ){ return wc_format_decimal( $value ); }], // REST passes the request as arg 2, which wc_format_decimal reads as decimal places.
                 'short_description'=>['required'=>false,'sanitize_callback'=>'wp_kses_post'],
                 'category_ids'=>['required'=>false],      // array
                 'brand'=>['required'=>false,'sanitize_callback'=>'sanitize_text_field'],
@@ -69,6 +69,13 @@ class WCSS_REST_Products {
             'callback'=>[ $this,'update' ],
         ]);
     
+        // Fetch this product's Amazon / G&T prices now ("Refresh prices" button).
+        register_rest_route( self::NS, '/products/(?P<id>\d+)/refresh-prices', [
+            'methods'  => 'POST',
+            'permission_callback' => [ $this, 'can_manage' ],
+            'callback' => [ $this, 'refresh_prices' ],
+        ]);
+
         register_rest_route( self::NS, '/products/(?P<id>\d+)', [
             'methods'  => 'DELETE',
             'permission_callback' => [ $this, 'can_manage' ],
@@ -130,6 +137,11 @@ class WCSS_REST_Products {
             'no_found_rows'  => false,            // we want totals for pagination
             'fields'         => 'ids',            // fetch only IDs; faster
         ];
+
+        // A catalog of an inactive vendor is empty, even for products that have another vendor.
+        if ( $vendor !== '' && ! WCSS_Vendor_Status::key_is_active( self::vendor_key( $vendor ) ) ) {
+            $q_args['post__in'] = [ 0 ];
+        }
 
         // Products-tab vendor filters (Amazon / Grand & Toy) via wcss_vendor slug.
         $allowed_vendor_filters = [ 'amazon', 'grand-toy' ];
@@ -204,10 +216,13 @@ class WCSS_REST_Products {
     
         $vendor_ids    = wp_get_post_terms( $p->get_id(), 'wcss_vendor', [ 'fields' => 'ids' ] );
         if ( is_wp_error( $vendor_ids ) )    $vendor_ids = [];
+        $inactive_vendors = WCSS_Vendor_Status::inactive_ids();
+        $vendor_ids       = array_values( array_diff( array_map( 'intval', $vendor_ids ), $inactive_vendors ) );
 
 
         $vendor_terms = wp_get_post_terms( $p->get_id(), 'wcss_vendor', [ 'fields' => 'all' ] );
         if ( is_wp_error( $vendor_terms ) ) { $vendor_terms = []; }
+        $vendor_terms = WCSS_Vendor_Status::only_active( $vendor_terms );
         $vendor = null;
         if ( ! empty( $vendor_terms ) && $vendor_terms[0] instanceof WP_Term ) {
             $vt = $vendor_terms[0];
@@ -228,17 +243,17 @@ class WCSS_REST_Products {
         $gallery  = array_map( 'intval', (array) $p->get_gallery_image_ids() );
         $images   = array_values( array_filter( array_unique( array_merge( $featured ? [ $featured ] : [], $gallery ) ) ) );
 
-        // Woo catalog unit price (avoid cheapest-display filter via 'edit' context).
-        $woo_price = null;
+        // Stored unit price, used for manual vendors (avoid cheapest-display filter via 'edit' context).
+        $stored_price = null;
         if ( function_exists( 'cc_vendor_prices_woo_unit_price' ) ) {
-            $woo_price = cc_vendor_prices_woo_unit_price( $p );
+            $stored_price = cc_vendor_prices_woo_unit_price( $p );
         } else {
             $raw = $p->get_price( 'edit' );
             if ( $raw === '' || $raw === null ) {
                 $raw = $p->get_regular_price( 'edit' );
             }
             if ( $raw !== '' && $raw !== null && is_numeric( $raw ) ) {
-                $woo_price = (float) $raw;
+                $stored_price = (float) $raw;
             }
         }
 
@@ -259,6 +274,9 @@ class WCSS_REST_Products {
                 $vkey = function_exists( 'cc_vendor_prices_normalize_vendor' )
                     ? cc_vendor_prices_normalize_vendor( (string) $row->vendor )
                     : sanitize_key( (string) $row->vendor );
+                if ( $vkey === '' || ! WCSS_Vendor_Status::key_is_active( $vkey ) ) {
+                    continue;
+                }
                 if ( $vkey === 'amazon' ) {
                     $amazon_price = $vp;
                 } elseif ( $vkey === 'gt' ) {
@@ -271,10 +289,8 @@ class WCSS_REST_Products {
             'id'                => $p->get_id(),
             'name'              => $p->get_name(),
             'sku'               => $p->get_sku(),
-            'price'             => $woo_price !== null ? (float) $woo_price : (float) $p->get_price( 'edit' ),
-            'price_html'        => $woo_price !== null ? wc_price( (float) $woo_price ) : '',
-            'woo_price'         => $woo_price,
-            'woo_price_html'    => $woo_price !== null ? wc_price( (float) $woo_price ) : '—',
+            'price'             => $stored_price !== null ? (float) $stored_price : (float) $p->get_price( 'edit' ),
+            'price_html'        => $stored_price !== null ? wc_price( (float) $stored_price ) : '',
             'amazon_price'      => $amazon_price,
             'amazon_price_html' => $amazon_price !== null ? wc_price( (float) $amazon_price ) : '—',
             'gt_price'          => $gt_price,
@@ -288,8 +304,111 @@ class WCSS_REST_Products {
             'brand'             => $brand_terms  ? $brand_terms[0]  : '',
             'vendor'            => $vendor,
             'vendor_id'         =>$vendor_ids,
+            'orderable'         => function_exists( 'cc_vendor_prices_product_is_orderable' ) ? cc_vendor_prices_product_is_orderable( $p ) : true,
+            // Vendors actually used for this product (terms + live Amazon / G&T eligibility).
+            'assigned_vendor_ids' => array_values( array_diff( WCSS_Vendor_Status::assigned_ids( $p->get_id() ), $inactive_vendors ) ),
+            'amazon_asin'       => (string) get_post_meta( $p->get_id(), 'amazon_asin', true ),
+            'gt_part_id'        => (string) get_post_meta( $p->get_id(), 'wcss_gt_part_id', true ),
+            'eligibility'       => function_exists( 'wcss_get_procurement_eligibility' ) ? wcss_get_procurement_eligibility( $p->get_id() ) : 'unset',
+            'vendor_prices'     => $this->vendor_price_rows( $p->get_id() ),
+            // What stores see (lowest price) + who wins it.
+            'cheapest'          => function_exists( 'cc_vendor_prices_resolve_cheapest' ) ? cc_vendor_prices_resolve_cheapest( $p ) : null,
             'images'            => $images,
         ];
+    }
+
+    /* ---------- Live vendor prices (fetch on save + Refresh button) ---------- */
+
+    /**
+     * Fetch Amazon / G&T prices for one product right now (same code as the hourly cron),
+     * which also recomputes the cheapest price the storefront shows.
+     *
+     * @return array{ran:bool,amazon:?string,gt:?string,seconds:float}
+     */
+    private function refresh_vendor_prices( int $pid ): array {
+        if ( ! function_exists( 'cc_vendor_prices_sync_product' ) ) {
+            return [ 'ran' => false, 'amazon' => null, 'gt' => null, 'seconds' => 0.0 ];
+        }
+        $t = microtime( true );
+        try {
+            $r = cc_vendor_prices_sync_product( $pid );
+        } catch ( Throwable $e ) {
+            $r = [ 'amazon' => 'error', 'gt' => 'error' ];
+        }
+        if ( function_exists( 'wc_delete_product_transients' ) ) wc_delete_product_transients( $pid );
+        clean_post_cache( $pid );
+        return [ 'ran' => true, 'amazon' => $r['amazon'] ?? null, 'gt' => $r['gt'] ?? null, 'seconds' => round( microtime( true ) - $t, 1 ) ];
+    }
+
+    /** Per-vendor price rows for the edit screen. */
+    private function vendor_price_rows( int $pid ): array {
+        $out = [];
+        if ( ! function_exists( 'cc_vendor_prices_get_for_product' ) ) return $out;
+        foreach ( cc_vendor_prices_get_for_product( $pid ) as $row ) {
+            $k = function_exists( 'cc_vendor_prices_normalize_vendor' ) ? cc_vendor_prices_normalize_vendor( (string) $row->vendor ) : (string) $row->vendor;
+            if ( $k === '' || ! WCSS_Vendor_Status::key_is_active( $k ) ) continue;
+            $ts = $row->fetched_at ? strtotime( $row->fetched_at . ' UTC' ) : 0;
+            $out[ $k ] = [
+                'status'     => (string) $row->status,
+                // Vendor not ticked for this product (sync skipped it on purpose).
+                'excluded'   => stripos( (string) $row->error_message, 'eligibility excludes' ) !== false,
+                'price'      => ( $row->status === 'ok' && is_numeric( $row->price ) && (float) $row->price > 0 ) ? (float) $row->price : null,
+                'error'      => wp_html_excerpt( (string) $row->error_message, 140, '…' ),
+                'fetched_at' => $ts ? wp_date( 'j M, H:i', $ts ) : '',
+                'ago'        => $ts ? human_time_diff( $ts, time() ) . ' ago' : '',
+            ];
+        }
+        return $out;
+    }
+
+    /** POST /products/{id}/refresh-prices — the "Refresh prices" button. */
+    public function refresh_prices( WP_REST_Request $req ) {
+        $p = wc_get_product( (int) $req['id'] );
+        if ( ! $p ) return new WP_Error( 'not_found', 'Product not found', [ 'status' => 404 ] );
+        $sync = $this->refresh_vendor_prices( $p->get_id() );
+        $dto  = $this->dto( wc_get_product( $p->get_id() ) );
+        $dto['price_sync'] = $sync;
+        return rest_ensure_response( $dto );
+    }
+
+    /* ---------- Vendor assignment (one product → many vendors) ---------- */
+
+    private static function vendor_key( string $slug ): string {
+        return WCSS_Vendor_Status::vendor_key( $slug );
+    }
+
+    /**
+     * Save vendor terms + Amazon ASIN / G&T part ID, and keep the price-sync
+     * eligibility in step so only ticked live vendors are priced and ordered from.
+     */
+    private function save_vendor_assignment( int $pid, array $body ): void {
+        if ( array_key_exists( 'amazon_asin', $body ) ) {
+            $asin = strtoupper( preg_replace( '/[^A-Z0-9]/i', '', (string) $body['amazon_asin'] ) );
+            $asin = substr( $asin, 0, 16 );
+            if ( $asin === '' ) delete_post_meta( $pid, 'amazon_asin' );
+            else update_post_meta( $pid, 'amazon_asin', $asin );
+        }
+        if ( array_key_exists( 'gt_part_id', $body ) ) {
+            $part = sanitize_text_field( (string) $body['gt_part_id'] );
+            if ( $part === '' ) delete_post_meta( $pid, 'wcss_gt_part_id' );
+            else update_post_meta( $pid, 'wcss_gt_part_id', $part );
+        }
+        if ( ! array_key_exists( 'vendor_ids', $body ) || ! is_array( $body['vendor_ids'] ) || ! taxonomy_exists( 'wcss_vendor' ) ) {
+            return;
+        }
+        $ids = array_values( array_unique( array_filter( array_map( 'intval', $body['vendor_ids'] ) ) ) );
+        wp_set_object_terms( $pid, $ids, 'wcss_vendor', false );
+
+        $keys = [];
+        foreach ( $ids as $id ) {
+            $t = get_term( $id, 'wcss_vendor' );
+            if ( $t && ! is_wp_error( $t ) ) {
+                $k = self::vendor_key( $t->slug );
+                if ( $k !== '' ) $keys[ $k ] = true;
+            }
+        }
+        $el = isset( $keys['amazon'], $keys['gt'] ) ? 'both' : ( isset( $keys['amazon'] ) ? 'amazon' : ( isset( $keys['gt'] ) ? 'gt' : 'none' ) );
+        update_post_meta( $pid, 'wcss_procurement_eligibility', $el );
     }
 
     private function set_terms_by_name( int $post_id, string $taxonomy, ?string $name ): void {
@@ -322,7 +441,10 @@ class WCSS_REST_Products {
             if ( $req['sku'] ) {
                 $p->set_sku( sanitize_text_field( $req['sku'] ) );
             }
-            $p->set_regular_price( wc_format_decimal( $req['price'] ) );
+            // Only manual vendors need a stored price; Amazon / G&T prices are fetched.
+            if ( isset( $req['price'] ) && $req['price'] !== '' ) {
+                $p->set_regular_price( wc_format_decimal( $req['price'] ) );
+            }
 
             if ( isset($req['short_description']) ) {
                 $p->set_short_description( wp_kses_post( $req['short_description'] ) );
@@ -370,6 +492,7 @@ class WCSS_REST_Products {
                     wp_set_object_terms( $p->get_id(), [], 'wcss_vendor', false );
                 }
             }
+            $this->save_vendor_assignment( $p->get_id(), $req->get_json_params() ?: [] );
 
             // Images (attachment IDs)
             if ( isset($req['images']) && is_array($req['images']) ) {
@@ -377,7 +500,11 @@ class WCSS_REST_Products {
                 $p->save();
             }
 
-            return rest_ensure_response( $this->dto( $p ) );
+            // Fetch Amazon / G&T prices now (not on the next hourly cron) so the store price updates at once.
+            $sync = $this->refresh_vendor_prices( $p->get_id() );
+            $dto  = $this->dto( wc_get_product( $p->get_id() ) );
+            $dto['price_sync'] = $sync;
+            return rest_ensure_response( $dto );
         } catch ( Throwable $e ) {
             return new WP_Error( 'wcss_product_create_failed', $e->getMessage(), [ 'status' => 500 ] );
         }
@@ -417,7 +544,8 @@ class WCSS_REST_Products {
             // Vendors
             if ( taxonomy_exists('wcss_vendor') ) {
                 if ( array_key_exists('vendor_ids', $body) && is_array($body['vendor_ids']) ) {
-                    wp_set_object_terms( $p->get_id(), array_map('intval',$body['vendor_ids']), 'wcss_vendor', false );
+                    $body['vendor_ids'] = WCSS_Vendor_Status::keep_inactive( $p->get_id(), $body['vendor_ids'] );
+                    wp_set_object_terms( $p->get_id(), $body['vendor_ids'], 'wcss_vendor', false );
                 } elseif ( array_key_exists('vendor', $body) ) {
                     $name = trim((string)$body['vendor']);
                     if ( $name === '' ) {
@@ -431,13 +559,18 @@ class WCSS_REST_Products {
                     }
                 }
             }
+            $this->save_vendor_assignment( $p->get_id(), $body );
 
             if ( array_key_exists('images', $body) && is_array($body['images']) ) {
                 $this->set_product_images( $p, $body['images'] );
                 $p->save();
             }
 
-            return rest_ensure_response( $this->dto( $p ) );
+            // Fetch Amazon / G&T prices now (not on the next hourly cron) so the store price updates at once.
+            $sync = $this->refresh_vendor_prices( $p->get_id() );
+            $dto  = $this->dto( wc_get_product( $p->get_id() ) );
+            $dto['price_sync'] = $sync;
+            return rest_ensure_response( $dto );
         } catch ( Throwable $e ) {
             return new WP_Error( 'wcss_product_update_failed', $e->getMessage(), [ 'status' => 500 ] );
         }
@@ -452,8 +585,9 @@ class WCSS_REST_Products {
             'hide_empty' => false,
         ] );
         if ( ! is_wp_error( $cats ) ) {
+            $ink = class_exists( 'WCSS_Ink_Order' ) ? WCSS_Ink_Order::category_ids() : [];
             foreach ( $cats as $t ) {
-                $out['categories'][] = [ 'id' => (int) $t->term_id, 'name' => $t->name, 'parent' => (int) $t->parent ];
+                $out['categories'][] = [ 'id' => (int) $t->term_id, 'name' => $t->name, 'parent' => (int) $t->parent, 'ink' => in_array( (int) $t->term_id, $ink, true ) ];
             }
         }
     
@@ -469,7 +603,9 @@ class WCSS_REST_Products {
         $vendors = taxonomy_exists('wcss_vendor') ? get_terms( [ 'taxonomy' => 'wcss_vendor', 'hide_empty' => false ] ) : [];
         if ( ! is_wp_error( $vendors ) ) {
             foreach ( $vendors as $t ) {
-                $out['vendors'][] = [ 'id' => (int) $t->term_id, 'name' => $t->name ];
+                if ( ! WCSS_Vendor_Status::is_active( $t->term_id ) ) continue;
+                // key = amazon | gt for vendors with a live price feed; '' for manual vendors.
+                $out['vendors'][] = [ 'id' => (int) $t->term_id, 'name' => $t->name, 'slug' => $t->slug, 'key' => self::vendor_key( $t->slug ) ];
             }
         }
     

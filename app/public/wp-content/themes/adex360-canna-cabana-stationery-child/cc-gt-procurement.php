@@ -232,8 +232,8 @@ function cc_gt_search_store_products( $term, $limit = 25 ) {
 		$elig = function_exists( 'wcss_get_procurement_eligibility' )
 			? wcss_get_procurement_eligibility( $pid )
 			: 'unset';
-		if ( $elig === 'amazon' ) {
-			continue; // Amazon-only products stay off the G&T catalog.
+		if ( ! in_array( $elig, array( 'unset', 'gt', 'both' ), true ) ) {
+			continue; // Products not assigned to G&T stay off its catalog.
 		}
 		$out[] = array(
 			'id'          => $pid,
@@ -599,8 +599,8 @@ function cc_gt_ajax_woo_cart_add() {
 	$elig = function_exists( 'wcss_get_procurement_eligibility' )
 		? wcss_get_procurement_eligibility( $product_id )
 		: 'unset';
-	if ( $elig === 'amazon' ) {
-		wp_send_json_error( array( 'message' => 'This product is Amazon-only.' ), 400 );
+	if ( ! in_array( $elig, array( 'unset', 'gt', 'both' ), true ) ) {
+		wp_send_json_error( array( 'message' => 'This product is not assigned to Grand & Toy.' ), 400 );
 	}
 
 	$cart_item_data = array(

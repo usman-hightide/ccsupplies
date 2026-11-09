@@ -15,27 +15,37 @@ $store_id = absint( get_query_var( 'wcss_id' ) );
   <div class="ccm-se">
     <form class="ccm-pol ccm-se-main" id="se-form" novalidate>
       <section class="ccm-pol-card">
-        <header class="ccm-pol-ch"><span class="ccm-pol-num" aria-hidden="true">1</span><div><h3>Store details</h3><p>How the store appears in Supply Manager, on orders and on vendor emails.</p></div></header>
+        <header class="ccm-pol-ch"><span class="ccm-pol-num" aria-hidden="true">1</span><div><h3>Store details</h3><p>Name and code as they appear in Supply Manager and on orders.</p></div></header>
         <div class="ccm-pol-grid">
           <label class="ccm-pol-field"><span>Store name <em class="ccm-req">*</em></span><input class="ccm-input" id="se-name" type="text" autocomplete="off"></label>
           <label class="ccm-pol-field"><span>Store code <em class="ccm-req">*</em></span><input class="ccm-input" id="se-code" type="text" autocomplete="off"></label>
-          <label class="ccm-pol-field"><span>City</span><input class="ccm-input" id="se-city" type="text"></label>
-          <label class="ccm-pol-field"><span>Province</span><input class="ccm-input" id="se-state" type="text" list="se-provs" placeholder="e.g. Ontario"><datalist id="se-provs"></datalist></label>
-        </div>
-        <label class="ccm-pol-field"><span>Address <em class="ccm-req">*</em></span><textarea class="ccm-input ccm-se-ta" id="se-address" rows="2"></textarea></label>
-        <div class="ccm-pol-grid">
-          <label class="ccm-pol-field"><span>Phone number <em class="ccm-req">*</em></span><input class="ccm-input" id="se-phone" type="tel"></label>
-          <label class="ccm-pol-field"><span>Open hours <em class="ccm-req">*</em></span><input class="ccm-input" id="se-hours" type="text" placeholder="e.g. Mon–Fri 9 AM–6 PM"></label>
         </div>
       </section>
 
       <section class="ccm-pol-card">
-        <header class="ccm-pol-ch"><span class="ccm-pol-num" aria-hidden="true">2</span><div><h3>Store employee <em class="ccm-req">*</em></h3><p>The one person who places orders for this store.</p></div></header>
+        <header class="ccm-pol-ch"><span class="ccm-pol-num" aria-hidden="true">2</span><div><h3>Ship-to address <em class="ccm-req">*</em></h3><p>Fills checkout automatically. Store employees cannot change these fields.</p></div></header>
+        <div class="ccm-pol-grid">
+          <label class="ccm-pol-field"><span>City <em class="ccm-req">*</em></span><input class="ccm-input" id="se-city" type="text" required></label>
+          <label class="ccm-pol-field"><span>Province <em class="ccm-req">*</em></span><input class="ccm-input" id="se-state" type="text" list="se-provs" placeholder="e.g. Ontario" required><datalist id="se-provs"></datalist></label>
+        </div>
+        <label class="ccm-pol-field"><span>Street address <em class="ccm-req">*</em></span><textarea class="ccm-input ccm-se-ta" id="se-address" rows="2" required placeholder="House number and street"></textarea></label>
+        <div class="ccm-pol-grid">
+          <label class="ccm-pol-field"><span>Postal code <em class="ccm-req">*</em></span><input class="ccm-input" id="se-postcode" type="text" required placeholder="e.g. T3K 2M4" autocomplete="postal-code"></label>
+          <label class="ccm-pol-field"><span>Country</span><input class="ccm-input is-locked" id="se-country" type="text" value="CA" readonly title="Canadian stores ship within Canada"></label>
+        </div>
+        <div class="ccm-pol-grid">
+          <label class="ccm-pol-field"><span>Phone number <em class="ccm-req">*</em></span><input class="ccm-input" id="se-phone" type="tel" required></label>
+          <label class="ccm-pol-field"><span>Open hours <em class="ccm-req">*</em></span><input class="ccm-input" id="se-hours" type="text" placeholder="e.g. Mon–Fri 9 AM–6 PM" required></label>
+        </div>
+      </section>
+
+      <section class="ccm-pol-card">
+        <header class="ccm-pol-ch"><span class="ccm-pol-num" aria-hidden="true">3</span><div><h3>Store employee <em class="ccm-req">*</em></h3><p>The one person who places orders for this store.</p></div></header>
         <label class="ccm-pol-field"><span>Assigned employee</span><select class="ccm-select" id="se-user"></select></label>
       </section>
 
       <section class="ccm-pol-card">
-        <header class="ccm-pol-ch"><span class="ccm-pol-num" aria-hidden="true">3</span><div><h3>Monthly limits</h3><p>How much this store can spend and how many orders it can place each month.</p></div></header>
+        <header class="ccm-pol-ch"><span class="ccm-pol-num" aria-hidden="true">4</span><div><h3>Monthly limits</h3><p>How much this store can spend and how many orders it can place each month.</p></div></header>
         <label class="ccm-pol-switch" for="se-limits-default"><input type="checkbox" id="se-limits-default"><span class="ccm-pol-track" aria-hidden="true"></span>
           <span class="ccm-pol-switch-t"><b>Use the default limits</b><small id="se-limits-default-h">Follow the ordering policy.</small></span></label>
         <div class="ccm-pol-grid" id="se-limits">
@@ -45,7 +55,7 @@ $store_id = absint( get_query_var( 'wcss_id' ) );
       </section>
 
       <section class="ccm-pol-card">
-        <header class="ccm-pol-ch"><span class="ccm-pol-num" aria-hidden="true">4</span><div><h3>Ordering window</h3><p>The dates this store can order without approval.</p></div></header>
+        <header class="ccm-pol-ch"><span class="ccm-pol-num" aria-hidden="true">5</span><div><h3>Ordering window</h3><p>The dates this store can order without approval.</p></div></header>
         <label class="ccm-pol-switch" for="se-win-default"><input type="checkbox" id="se-win-default"><span class="ccm-pol-track" aria-hidden="true"></span>
           <span class="ccm-pol-switch-t"><b>Use the default window</b><small id="se-win-default-h">Follow the ordering policy.</small></span></label>
         <div id="se-win" class="ccm-se-win">
@@ -60,7 +70,7 @@ $store_id = absint( get_query_var( 'wcss_id' ) );
       </section>
 
       <section class="ccm-pol-card">
-        <header class="ccm-pol-ch"><span class="ccm-pol-num" aria-hidden="true">5</span><div><h3>If an order breaks a rule</h3><p>Over budget, over the order limit, or outside the ordering window.</p></div></header>
+        <header class="ccm-pol-ch"><span class="ccm-pol-num" aria-hidden="true">6</span><div><h3>If an order breaks a rule</h3><p>Over budget, over the order limit, or outside the ordering window.</p></div></header>
         <div class="ccm-pol-choices ccm-se-choices" role="radiogroup" aria-label="If an order breaks a rule">
           <label class="ccm-pol-opt"><input type="radio" name="se-mode" value=""><span class="ccm-pol-radio" aria-hidden="true"></span>
             <span class="ccm-pol-opt-t"><b>Follow the policy</b><small id="se-mode-default-h">Use the same rule as every other store.</small></span></label>

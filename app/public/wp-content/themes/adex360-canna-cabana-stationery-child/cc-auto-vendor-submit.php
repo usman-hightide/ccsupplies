@@ -103,14 +103,18 @@ function cc_auto_vendor_submit_bootstrap_amazon() {
 /**
  * Collect cheapest-vendor lines from a Woo order.
  *
+ * Lines with no live vendor are listed apart: `manual` (a person places them) and `unassigned` (nobody can).
+ *
  * @param WC_Order $order Order.
- * @return array{amazon:array<int,array>,gt:array<int,array>,vendors:array<int,string>}
+ * @return array{amazon:array<int,array>,gt:array<int,array>,vendors:array<int,string>,manual:array<string,string[]>,unassigned:array<int,string>}
  */
 function cc_auto_vendor_submit_collect_lines( $order ) {
 	$out = array(
 		'amazon'  => array(),
 		'gt'      => array(),
 		'vendors' => array(),
+		'manual'     => array(),
+		'unassigned' => array(),
 	);
 	if ( ! $order instanceof WC_Order ) {
 		return $out;
@@ -124,8 +128,26 @@ function cc_auto_vendor_submit_collect_lines( $order ) {
 		if ( $vendor === 'grand_and_toy' || $vendor === 'grand-toy' ) {
 			$vendor = 'gt';
 		}
-		if ( $vendor !== 'amazon' && $vendor !== 'gt' ) {
-			continue;
+		$vendor_off = in_array( $vendor, array( 'amazon', 'gt' ), true ) && ! cc_vendor_prices_vendor_is_active( $vendor );
+		if ( ( $vendor !== 'amazon' && $vendor !== 'gt' ) || $vendor_off ) {
+			// No usable vendor on the line: use today's winner, so a product mapped since then can be sent.
+			$line_pid = (int) ( $item->get_variation_id() ? $item->get_variation_id() : $item->get_product_id() );
+			$vendor   = (string) cc_vendor_prices_resolve_cheapest( $line_pid )['vendor'];
+			if ( $vendor === 'manual' ) {
+				$out['manual'][ implode( ', ', cc_vendor_prices_manual_vendors( $line_pid ) ) ][] = (string) $item->get_name();
+				continue;
+			}
+			if ( $vendor !== 'amazon' && $vendor !== 'gt' ) {
+				$out['unassigned'][] = (string) $item->get_name();
+				continue;
+			}
+			$item->update_meta_data( '_cc_vendor', $vendor );
+			if ( $vendor_off ) {
+				// The ID and price belonged to the vendor that was switched off.
+				$item->delete_meta_data( '_cc_vendor_id' );
+				$item->delete_meta_data( '_cc_vendor_price' );
+			}
+			$item->save();
 		}
 
 		$vendor_id = (string) $item->get_meta( '_cc_vendor_id', true );
@@ -305,12 +327,17 @@ function cc_auto_vendor_submit_gt( $order, array $lines, array $ship ) {
 		);
 	}
 
-	$sender = defined( 'CC_GT_STOCK_SENDER' ) ? (string) CC_GT_STOCK_SENDER : '588';
+	$sender = class_exists( 'WCSS_Vendor_Connections' )
+		? WCSS_Vendor_Connections::gt( 'sender' )
+		: ( defined( 'CC_GT_STOCK_SENDER' ) ? (string) CC_GT_STOCK_SENDER : '588' );
+	$gt_live = class_exists( 'WCSS_Vendor_Connections' ) && WCSS_Vendor_Connections::gt_production();
 	if ( $sender === '' ) {
 		$sender = '588';
 	}
 
-	$po_id   = 'AUTO' . $order->get_id() . 'T' . gmdate( 'ymdHis' );
+	// Grand & Toy rejects an orderID over 20 characters with "500 Parsing error".
+	// "A" + order ID + "T" + yymmddhhmmss stays within 20 for order IDs up to 6 digits.
+	$po_id   = 'A' . $order->get_id() . 'T' . gmdate( 'ymdHis' );
 	$payload = array(
 		'sender_identity'  => $sender,
 		'order_id'         => $po_id,
@@ -354,7 +381,8 @@ function cc_auto_vendor_submit_gt( $order, array $lines, array $ship ) {
 		),
 		'wc_order_id'  => $order->get_id(),
 		'submitted_at' => gmdate( 'c' ),
-		'stage_only'   => true,
+		'stage_only'   => ! $gt_live,
+		'gt_mode'      => $gt_live ? 'production' : 'stage',
 		'auto'         => true,
 	);
 	cc_gt_save_order_data( $order->get_id(), $snapshot );
@@ -364,7 +392,7 @@ function cc_auto_vendor_submit_gt( $order, array $lines, array $ship ) {
 		'ok'       => $ok,
 		'status'   => $snapshot['status'],
 		'po_id'    => $po_id,
-		'message'  => $ok ? 'Grand & Toy stage PO submitted.' : ( $errors ? implode( '; ', $errors ) : 'Grand & Toy PO failed.' ),
+		'message'  => $ok ? ( $gt_live ? 'Grand & Toy PO submitted.' : 'Grand & Toy stage PO submitted.' ) : ( $errors ? implode( '; ', $errors ) : 'Grand & Toy PO failed.' ),
 		'snapshot' => $snapshot,
 	);
 }
@@ -728,6 +756,8 @@ function cc_auto_vendor_submit_amazon_place( $order, array $ship, array $added )
 
 	// Buyer email must be the Amazon Business authorized user (not the store employee).
 	$amazon_buyer_email = defined( 'AMAZON_USER_EMAIL' ) ? (string) AMAZON_USER_EMAIL : 'ecom@hightideinc.com';
+	// Trial Mode unless an administrator turned Amazon Live on in WP Admin → WooCommerce → Vendor connections.
+	$amazon_trial = ! ( class_exists( 'WCSS_Vendor_Connections' ) && WCSS_Vendor_Connections::amazon_live() );
 
 	$form_data = array(
 		'full_name'             => $ship['name'] !== '' ? $ship['name'] : 'Canna Cabana',
@@ -743,7 +773,7 @@ function cc_auto_vendor_submit_amazon_place( $order, array $ship, array $added )
 		'postal_code'           => $ship['postal_code'],
 		'purchase_order_number' => (string) $order->get_order_number(),
 		'group_identifier'      => defined( 'AMAZON_GROUP_ID' ) ? (string) AMAZON_GROUP_ID : '',
-		'trial_mode'            => true,
+		'trial_mode'            => $amazon_trial,
 	);
 
 	$required = array( 'full_name', 'email', 'address_line1', 'city', 'state', 'postal_code', 'group_identifier' );
@@ -828,7 +858,7 @@ function cc_auto_vendor_submit_amazon_place( $order, array $ship, array $added )
 		'status'          => $ok ? 'placed' : 'place_failed',
 		'source'          => 'cc_auto_vendor_submit',
 		'auto'            => true,
-		'trial_mode'      => true,
+		'trial_mode'      => $amazon_trial,
 		'cart_id'         => defined( 'AMAZON_CART_ID' ) ? AMAZON_CART_ID : '',
 		'region'          => defined( 'AMAZON_REGION' ) ? AMAZON_REGION : 'CA',
 		'shipping'        => array_merge( $form_data, array( 'country' => 'CA' ) ),
@@ -842,7 +872,7 @@ function cc_auto_vendor_submit_amazon_place( $order, array $ship, array $added )
 		'amazon_order_id' => $amazon_order_id,
 		'amazon_request_id' => (string) ( $result['request_id'] ?? '' ),
 		'order_total'     => null,
-		'message'         => $ok ? 'Amazon order placed (trial mode).' : $fail_message,
+		'message'         => $ok ? ( $amazon_trial ? 'Amazon order placed (trial mode).' : 'Amazon order placed.' ) : $fail_message,
 		'placed_at'       => current_time( 'mysql' ),
 	);
 	if ( $ok && $amazon_order_id !== '' && function_exists( 'wc_get_order' ) ) {
@@ -911,7 +941,7 @@ function cc_auto_vendor_submit_run( $order_id ) {
 		$force       = (bool) apply_filters( 'cc_auto_vendor_submit_force_retry', false, $order_id, $existing );
 		$retryable   = in_array( $prev_status, array( 'needs_approval', 'failed', 'processing', 'partial' ), true );
 		$approved_exception = $retryable && $order->get_meta( '_wcss_policy_override' );
-		// Final states: already submitted or intentionally Woo-only — do not re-fire.
+		// Final states: already submitted, or left for a person to place — do not re-fire.
 		if ( ! $force && ! $approved_exception && ! in_array( $prev_status, array( 'failed', 'processing' ), true ) ) {
 			return $existing;
 		}
@@ -948,25 +978,40 @@ function cc_auto_vendor_submit_run( $order_id ) {
 
 	$collected = cc_auto_vendor_submit_collect_lines( $order );
 	$vendors   = $collected['vendors'];
+	$no_vendor = $collected['unassigned']
+		? 'No vendor assigned: ' . implode( ', ', $collected['unassigned'] ) . '. Assign a vendor to the product, then retry.'
+		: '';
+	$manual    = array();
+	foreach ( $collected['manual'] as $vendor_names => $items ) {
+		$manual[] = 'Place with ' . $vendor_names . ': ' . implode( ', ', $items ) . '.';
+	}
+	$manual_note = implode( ' ', $manual );
 
 	if ( ! $vendors ) {
-		// No Amazon / Grand & Toy match → keep as an approved WooCommerce order (no vendor API).
-		if ( ! in_array( $order->get_status(), array( 'approved', 'completed' ), true ) ) {
+		// Nothing to send. Every order must reach a vendor, so this is never quietly approved.
+		$sendable = $manual_note !== '' && $no_vendor === '';
+		if ( $sendable ) {
 			cc_auto_vendor_submit_approve( $order );
 			$order = wc_get_order( $order_id );
+			// Approving re-enters this function through the status hook, which has done the rest.
+			$done = $order->get_meta( WCSS_AUTO_VENDOR_SUBMIT_META, true );
+			if ( is_array( $done ) && ( $done['status'] ?? '' ) === 'manual' ) {
+				return $done;
+			}
 		}
 		$summary = array(
 			'attempted'      => true,
-			'status'         => 'woo_only',
+			'status'         => $sendable ? 'manual' : 'failed',
 			'winning_vendor' => '',
 			'vendors'        => array(),
-			'message'        => 'No Amazon or Grand & Toy product match — kept as a WooCommerce order.',
+			'message'        => $sendable ? $manual_note : ( $no_vendor !== '' ? $no_vendor : 'This order has no items to send to a vendor.' ),
+			'manual_note'    => $manual_note,
 			'results'        => array(),
 			'completed_at'   => gmdate( 'c' ),
 		);
 		cc_auto_vendor_submit_save_meta( $order, $summary );
 		if ( class_exists( 'WCSS_Order_Events' ) ) {
-			WCSS_Order_Events::log( $order_id, 'auto_vendor_submit', array( 'status' => 'woo_only', 'vendors' => array() ) );
+			WCSS_Order_Events::log( $order_id, 'auto_vendor_submit', array( 'status' => $summary['status'], 'vendors' => array(), 'message' => $summary['message'] ) );
 		}
 		do_action( 'cc_auto_vendor_submit_done', $order_id, $summary );
 		return $summary;
@@ -1036,6 +1081,11 @@ function cc_auto_vendor_submit_run( $order_id ) {
 		cc_auto_vendor_submit_amazon_unlock();
 	}
 
+	// A line with no vendor means the order wasn't fully placed, even if the rest went through.
+	if ( $no_vendor !== '' ) {
+		$fail = true;
+	}
+
 	$winning = count( $vendors ) === 1 ? $vendors[0] : 'mixed';
 	$status  = 'failed';
 	if ( $ok_any && ! $fail ) {
@@ -1048,6 +1098,9 @@ function cc_auto_vendor_submit_run( $order_id ) {
 	foreach ( $results as $vendor_key => $res ) {
 		$messages[] = strtoupper( $vendor_key ) . ': ' . ( $res['message'] ?? '' );
 	}
+	if ( $no_vendor !== '' ) {
+		$messages[] = $no_vendor;
+	}
 
 	$summary = array(
 		'attempted'      => true,
@@ -1055,6 +1108,7 @@ function cc_auto_vendor_submit_run( $order_id ) {
 		'winning_vendor' => $winning,
 		'vendors'        => $vendors,
 		'message'        => implode( ' | ', $messages ),
+		'manual_note'    => $manual_note,
 		'results'        => $results,
 		'ship_to'        => $ship,
 		'completed_at'   => gmdate( 'c' ),
@@ -1105,7 +1159,7 @@ function cc_auto_vendor_submit_on_awaiting_approval( $order_id ) {
 add_action( 'woocommerce_order_status_awaiting-approval', 'cc_auto_vendor_submit_on_awaiting_approval', 30, 1 );
 
 /**
- * Supply Ops approved an order → auto-place with Amazon / G&T (or mark Woo-only).
+ * Supply Ops approved an order → auto-place with Amazon / G&T.
  *
  * Runs for held policy exceptions, failed prior attempts, and orders that never
  * started auto-submit (e.g. filter was off at checkout).
@@ -1133,23 +1187,13 @@ function cc_auto_vendor_submit_on_approved( $order_id ) {
 	$meta   = $order->get_meta( WCSS_AUTO_VENDOR_SUBMIT_META, true );
 	$status = is_array( $meta ) ? (string) ( $meta['status'] ?? '' ) : '';
 
-	// Already done — normalize legacy "skipped" label for the order detail UI.
-	if ( in_array( $status, array( 'submitted', 'woo_only' ), true ) ) {
-		return;
-	}
-	if ( $status === 'skipped' ) {
-		cc_auto_vendor_submit_save_meta(
-			$order,
-			array(
-				'status'  => 'woo_only',
-				'message' => 'No Amazon or Grand & Toy product match — kept as a WooCommerce order.',
-			)
-		);
+	// "checkout": placed by Supply Ops, who finish it on the vendor's checkout page.
+	if ( in_array( $status, array( 'submitted', 'manual', 'checkout' ), true ) ) {
 		return;
 	}
 
-	// needs_approval | failed | processing | partial | empty → place (or Woo-only).
-	// Run sync on Approve so the order detail page can show Sent / Woo-only / Failed immediately
+	// needs_approval | failed | processing | partial | empty → place.
+	// Run sync on Approve so the order detail page can show Sent / Failed immediately
 	// (Amazon lock contention still re-queues itself via Action Scheduler inside run()).
 	cc_auto_vendor_submit_run( (int) $order_id );
 }

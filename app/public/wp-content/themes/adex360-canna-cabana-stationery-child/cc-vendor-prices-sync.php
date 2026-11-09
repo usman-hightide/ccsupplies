@@ -10,6 +10,10 @@ define( 'CC_VENDOR_PRICES_SYNC_LOCK', 'cc_vendor_prices_sync_lock' );
 define( 'CC_VENDOR_PRICES_SYNC_LOG', 'cc_vendor_prices_sync_log' );
 define( 'CC_VENDOR_PRICES_BATCH', 15 );
 define( 'CC_VENDOR_PRICES_HOOK', 'cc_vendor_prices_hourly_sync' );
+define( 'CC_VENDOR_PRICES_CONTINUE_HOOK', 'cc_vendor_prices_sync_continue' );
+define( 'CC_VENDOR_PRICES_ATTEMPTS', 'cc_vendor_prices_attempts' );
+define( 'CC_VENDOR_PRICES_FRESH', 55 * MINUTE_IN_SECONDS ); // Younger than this: already done this hour.
+define( 'CC_VENDOR_PRICES_JOB_SECONDS', 20 ); // Stop starting new products after this, so a job can't time out.
 
 /**
  * Map compare fetch result → upsert payload.
@@ -179,7 +183,7 @@ function cc_vendor_prices_product_ids( $limit = 50, $offset = 0 ) {
  * @param int $ttl Seconds.
  * @return bool
  */
-function cc_vendor_prices_acquire_lock( $ttl = 50 * MINUTE_IN_SECONDS ) {
+function cc_vendor_prices_acquire_lock( $ttl = 5 * MINUTE_IN_SECONDS ) {
 	if ( get_transient( CC_VENDOR_PRICES_SYNC_LOCK ) ) {
 		return false;
 	}
@@ -302,10 +306,104 @@ function cc_vendor_prices_run_sync( $batch_size = CC_VENDOR_PRICES_BATCH, $force
 }
 
 /**
- * Hourly sync callback.
+ * Products due a refresh, oldest first. A product whose last attempt died counts as tried,
+ * so one slow product can't hold up the rest.
+ *
+ * @return int[]
+ */
+function cc_vendor_prices_due_ids() {
+	global $wpdb;
+	$table = cc_vendor_prices_table();
+	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+	$rows     = $wpdb->get_results( "SELECT product_id, MIN(fetched_at) AS oldest FROM {$table} GROUP BY product_id", OBJECT_K );
+	$attempts = (array) get_option( CC_VENDOR_PRICES_ATTEMPTS, array() );
+	$cutoff   = time() - CC_VENDOR_PRICES_FRESH;
+	$due      = array();
+	foreach ( cc_vendor_prices_product_ids( 5000, 0 ) as $id ) {
+		$fetched = isset( $rows[ $id ] ) && $rows[ $id ]->oldest ? (int) strtotime( $rows[ $id ]->oldest . ' UTC' ) : 0;
+		$last    = max( $fetched, (int) ( $attempts[ $id ] ?? 0 ) );
+		if ( $last < $cutoff ) {
+			$due[ $id ] = $last;
+		}
+	}
+	asort( $due );
+	return array_keys( $due );
+}
+
+/**
+ * Queue the next job unless one is already waiting.
+ */
+function cc_vendor_prices_queue_next() {
+	if ( function_exists( 'as_schedule_single_action' ) ) {
+		// Pending only: a running job counts as "scheduled" and would stop itself queueing the next one.
+		$waiting = as_get_scheduled_actions(
+			array(
+				'hook'     => CC_VENDOR_PRICES_CONTINUE_HOOK,
+				'status'   => ActionScheduler_Store::STATUS_PENDING,
+				'per_page' => 1,
+			),
+			'ids'
+		);
+		if ( ! $waiting ) {
+			as_schedule_single_action( time() + 5, CC_VENDOR_PRICES_CONTINUE_HOOK, array(), 'cc-vendor-prices' );
+		}
+	} elseif ( ! wp_next_scheduled( CC_VENDOR_PRICES_CONTINUE_HOOK ) ) {
+		wp_schedule_single_event( time() + 5, CC_VENDOR_PRICES_CONTINUE_HOOK );
+	}
+}
+
+/**
+ * One short job: refresh the stalest products, then queue another until none are due.
+ * Vendor APIs can be slow and PHP can kill a long request, so progress is saved per product.
+ */
+function cc_vendor_prices_sync_next_group() {
+	if ( ! cc_vendor_prices_acquire_lock() ) {
+		return;
+	}
+	$started  = time();
+	$due      = cc_vendor_prices_due_ids();
+	$attempts = (array) get_option( CC_VENDOR_PRICES_ATTEMPTS, array() );
+	$synced   = 0;
+	$errors   = 0;
+	foreach ( $due as $pid ) {
+		if ( $synced >= CC_VENDOR_PRICES_BATCH || time() - $started >= CC_VENDOR_PRICES_JOB_SECONDS ) {
+			break;
+		}
+		// Saved before the vendor calls: if this request dies here, the next job moves on.
+		$attempts[ $pid ] = time();
+		update_option( CC_VENDOR_PRICES_ATTEMPTS, $attempts, false );
+		try {
+			$r = cc_vendor_prices_sync_product( $pid );
+			if ( ( $r['amazon'] ?? '' ) === 'error' || ( $r['gt'] ?? '' ) === 'error' ) {
+				$errors++;
+			}
+		} catch ( Throwable $e ) {
+			$errors++;
+		}
+		$synced++;
+	}
+	$remaining = count( $due ) - $synced;
+	cc_vendor_prices_write_log(
+		array(
+			'ok'         => true,
+			'message'    => sprintf( 'Synced %1$d products, %2$d still due this hour.', $synced, $remaining ),
+			'synced'     => $synced,
+			'errors'     => $errors,
+			'started_at' => gmdate( 'c', $started ),
+		)
+	);
+	cc_vendor_prices_release_lock();
+	if ( $remaining > 0 ) {
+		cc_vendor_prices_queue_next();
+	}
+}
+add_action( CC_VENDOR_PRICES_CONTINUE_HOOK, 'cc_vendor_prices_sync_next_group' );
+
+/**
+ * Hourly sync callback: every product gets a fresh price each hour.
  */
 function cc_vendor_prices_hourly_sync_cb() {
-	cc_vendor_prices_run_sync( CC_VENDOR_PRICES_BATCH, false );
+	cc_vendor_prices_sync_next_group();
 }
 add_action( CC_VENDOR_PRICES_HOOK, 'cc_vendor_prices_hourly_sync_cb' );
 
@@ -330,6 +428,21 @@ function cc_vendor_prices_schedule_cron() {
 	}
 }
 add_action( 'init', 'cc_vendor_prices_schedule_cron', 20 );
+
+/**
+ * Restart the sync if it stalled (a killed job, or scheduled jobs not running).
+ * Runs at most once every 10 minutes, on any page load.
+ */
+function cc_vendor_prices_restart_if_stalled() {
+	if ( wp_doing_cron() || wp_doing_ajax() || get_transient( 'cc_vendor_prices_stall_check' ) ) {
+		return;
+	}
+	set_transient( 'cc_vendor_prices_stall_check', 1, 10 * MINUTE_IN_SECONDS );
+	if ( ! get_transient( CC_VENDOR_PRICES_SYNC_LOCK ) && cc_vendor_prices_due_ids() ) {
+		cc_vendor_prices_queue_next();
+	}
+}
+add_action( 'init', 'cc_vendor_prices_restart_if_stalled', 30 );
 
 /**
  * Admin: Tools submenu.

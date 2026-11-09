@@ -37,8 +37,9 @@ class WCSS_REST_Stores {
                 'first_name' => ['required'=>true,  'sanitize_callback'=>'sanitize_text_field'],
                 'last_name'  => ['required'=>false, 'sanitize_callback'=>'sanitize_text_field'],
                 'email'      => ['required'=>true,  'sanitize_callback'=>'sanitize_email'],
-                // optional: if omitted, we’ll auto-generate a secure password
-                'password'   => ['required'=>false, 'sanitize_callback'=>'sanitize_text_field'],
+                // Optional: if omitted, a random password is set and the user is emailed a link to choose one.
+                // Not sanitized: that would quietly change the password the manager typed.
+                'password'   => ['required'=>false],
             ],
         ]);
         register_rest_route( self::NS, '/users/(?P<id>\d+)', [
@@ -48,6 +49,12 @@ class WCSS_REST_Stores {
         ]);
 
         // Removes portal ordering access; the WP account and its order history are kept.
+        register_rest_route( self::NS, '/users/(?P<id>\d+)/send-password-link', [
+            'methods'  => 'POST',
+            'permission_callback' => [ $this, 'can_manage' ],
+            'callback' => [ $this, 'send_password_link' ],
+        ]);
+
         register_rest_route( self::NS, '/users/(?P<id>\d+)/remove', [
             'methods'  => 'POST',
             'permission_callback' => [ $this, 'can_manage' ],
@@ -78,7 +85,7 @@ class WCSS_REST_Stores {
             'methods'=>'GET','permission_callback'=>[ $this,'can_manage' ],'callback'=>[ $this,'read' ],
         ]);
 
-        //  Create
+        //  Create — ship-to required in callback; monthly limits optional (policy defaults).
         register_rest_route( self::NS, '/stores', [
             'methods'=>'POST','permission_callback'=>[ $this,'can_manage' ],'callback'=>[ $this,'create' ],
             'args'=>[
@@ -86,16 +93,28 @@ class WCSS_REST_Stores {
                 'code'  => ['required'=>true, 'sanitize_callback'=>'sanitize_text_field'],
                 'city'  => ['required'=>false, 'sanitize_callback'=>'sanitize_text_field'],
                 'state' => ['required'=>false, 'sanitize_callback'=>'sanitize_text_field'],
+                'address' => ['required'=>false, 'sanitize_callback'=>'sanitize_textarea_field'],
+                'postcode' => ['required'=>false, 'sanitize_callback'=>'sanitize_text_field'],
+                'country' => ['required'=>false, 'sanitize_callback'=>'sanitize_text_field'],
+                'phone' => ['required'=>false, 'sanitize_callback'=>'sanitize_text_field'],
+                'open_hours' => ['required'=>false, 'sanitize_callback'=>'sanitize_text_field'],
                 'quota' => [
-                    'required'=>true,
-                    'validate_callback'=> function( $value ) { return $value === '' || is_numeric( $value ); },
+                    'required'=>false,
+                    'validate_callback'=> function( $value ) { return $value === null || $value === '' || is_numeric( $value ); },
                 ],
-                'budget'=> ['required'=>true, 'sanitize_callback'=>'wc_format_decimal'],
+                'budget'=> [
+                    'required'=>false,
+                    'sanitize_callback'=> function( $value ) {
+                        if ( $value === null || $value === '' ) {
+                            return '';
+                        }
+                        return wc_format_decimal( $value );
+                    },
+                ],
                 'user_id' => [
                     'required' => true,
                     'validate_callback' => [ $this, 'validate_user_id_required' ],
                 ],
-            
             ],
 
         ]);
@@ -288,16 +307,27 @@ class WCSS_REST_Stores {
             return new WP_Error('wcss_store_bad_budget','Budget must be a non-negative number.', [ 'status'=>400 ]);
         }
     
-        // ---- NEW: delivery/contact fields ----
-        $address = (string) $req->get_param('address');
-        $phone   = (string) $req->get_param('phone');
-        $hours   = (string) $req->get_param('open_hours');
+        // Ship-to / contact — required so checkout can lock the address.
+        $address  = trim( (string) $req->get_param('address') );
+        $phone    = trim( (string) $req->get_param('phone') );
+        $hours    = trim( (string) $req->get_param('open_hours') );
+        $postcode = trim( (string) $req->get_param('postcode') );
+        $country  = strtoupper( trim( (string) ( $req->get_param('country') ?: 'CA' ) ) );
+        if ( $country === '' ) {
+            $country = 'CA';
+        }
+
+        $addr_err = $this->validate_store_address_fields( $address, $city, $state, $postcode, $phone, $hours );
+        if ( is_wp_error( $addr_err ) ) {
+            return $addr_err;
+        }
+        $state = $this->normalize_store_province( $state );
     
         // ---- unique code check (unchanged) ----
         $exists = get_posts([
             'post_type'      => 'store_location',
             'post_status'    => 'any',
-            'meta_key'       => '_store_code',
+            'meta_key'       => WCSS_Store_CPT::META_CODE,
             'meta_value'     => $code,
             'fields'         => 'ids',
             'posts_per_page' => 1,
@@ -316,15 +346,16 @@ class WCSS_REST_Stores {
         ], true );
         if ( is_wp_error($post_id) ) return $post_id;
     
-        // Resolve meta keys from CPT (with safe fallbacks)
-        $META_CODE   = defined('WCSS_Store_CPT::META_CODE')   ? WCSS_Store_CPT::META_CODE   : '_store_code';
-        $META_CITY   = defined('WCSS_Store_CPT::META_CITY')   ? WCSS_Store_CPT::META_CITY   : '_store_city';
-        $META_STATE  = defined('WCSS_Store_CPT::META_STATE')  ? WCSS_Store_CPT::META_STATE  : '_store_state';
-        $META_QUOTA  = defined('WCSS_Store_CPT::META_QUOTA')  ? WCSS_Store_CPT::META_QUOTA  : '_store_quota';
-        $META_BUDGET = defined('WCSS_Store_CPT::META_BUDGET') ? WCSS_Store_CPT::META_BUDGET : '_store_budget';
-        $META_ADDR   = defined('WCSS_Store_CPT::META_ADDR')   ? WCSS_Store_CPT::META_ADDR   : '_wcss_store_address';
-        $META_PHONE  = defined('WCSS_Store_CPT::META_PHONE')  ? WCSS_Store_CPT::META_PHONE  : '_wcss_store_phone';
-        $META_HOURS  = defined('WCSS_Store_CPT::META_HOURS')  ? WCSS_Store_CPT::META_HOURS  : '_wcss_open_hours';
+        $META_CODE     = WCSS_Store_CPT::META_CODE;
+        $META_CITY     = WCSS_Store_CPT::META_CITY;
+        $META_STATE    = WCSS_Store_CPT::META_STATE;
+        $META_QUOTA    = WCSS_Store_CPT::META_QUOTA;
+        $META_BUDGET   = WCSS_Store_CPT::META_BUDGET;
+        $META_ADDR     = WCSS_Store_CPT::META_ADDR;
+        $META_PHONE    = WCSS_Store_CPT::META_PHONE;
+        $META_HOURS    = WCSS_Store_CPT::META_HOURS;
+        $META_POSTCODE = WCSS_Store_CPT::META_POSTCODE;
+        $META_COUNTRY  = WCSS_Store_CPT::META_COUNTRY;
     
         // base meta
         update_post_meta( $post_id, $META_CODE,  sanitize_text_field($code) );
@@ -333,10 +364,11 @@ class WCSS_REST_Stores {
         if ($quota  !== null && $quota  !== '') update_post_meta( $post_id, $META_QUOTA,  (int)$quota );
         if ($budget !== null && $budget !== '') update_post_meta( $post_id, $META_BUDGET, wc_format_decimal($budget) );
     
-        // NEW fields
-        if ($address !== '') update_post_meta( $post_id, $META_ADDR,  wp_kses_post($address) );
-        if ($phone   !== '') update_post_meta( $post_id, $META_PHONE, sanitize_text_field($phone) );
-        if ($hours   !== '') update_post_meta( $post_id, $META_HOURS, sanitize_textarea_field($hours) );
+        update_post_meta( $post_id, $META_ADDR,     wp_kses_post( $address ) );
+        update_post_meta( $post_id, $META_PHONE,    sanitize_text_field( $phone ) );
+        update_post_meta( $post_id, $META_HOURS,    sanitize_textarea_field( $hours ) );
+        update_post_meta( $post_id, $META_POSTCODE, sanitize_text_field( $postcode ) );
+        update_post_meta( $post_id, $META_COUNTRY,  sanitize_text_field( $country ) );
     
         // ---- user assignment (unchanged) ----
         $uid = (int) $req->get_param('user_id');
@@ -492,29 +524,48 @@ class WCSS_REST_Stores {
     
         if ( $name === '' )   return new WP_Error('wcss_store_name_required','Store name is required.',[ 'status'=>400 ]);
         if ( $user_id <= 0 )  return new WP_Error('wcss_store_user_required','A Store Employee must be assigned.',[ 'status'=>400 ]);
+
+        $address  = trim( (string) ( $body['address'] ?? get_post_meta( $id, WCSS_Store_CPT::META_ADDR, true ) ) );
+        $city     = trim( (string) ( $body['city'] ?? get_post_meta( $id, WCSS_Store_CPT::META_CITY, true ) ) );
+        $state    = trim( (string) ( $body['state'] ?? get_post_meta( $id, WCSS_Store_CPT::META_STATE, true ) ) );
+        $postcode = trim( (string) ( $body['postcode'] ?? get_post_meta( $id, WCSS_Store_CPT::META_POSTCODE, true ) ) );
+        $phone    = trim( (string) ( $body['phone'] ?? get_post_meta( $id, WCSS_Store_CPT::META_PHONE, true ) ) );
+        $hours    = trim( (string) ( $body['open_hours'] ?? get_post_meta( $id, WCSS_Store_CPT::META_HOURS, true ) ) );
+        $country  = strtoupper( trim( (string) ( $body['country'] ?? get_post_meta( $id, WCSS_Store_CPT::META_COUNTRY, true ) ?: 'CA' ) ) );
+        if ( $country === '' ) {
+            $country = 'CA';
+        }
+
+        $addr_err = $this->validate_store_address_fields( $address, $city, $state, $postcode, $phone, $hours );
+        if ( is_wp_error( $addr_err ) ) {
+            return $addr_err;
+        }
+        $state = $this->normalize_store_province( $state );
     
         wp_update_post([ 'ID'=>$id, 'post_title'=>$name ]);
     
-        // Resolve meta keys (same shims as in create)
-        $META_CODE   = defined('WCSS_Store_CPT::META_CODE')   ? WCSS_Store_CPT::META_CODE   : '_store_code';
-        $META_CITY   = defined('WCSS_Store_CPT::META_CITY')   ? WCSS_Store_CPT::META_CITY   : '_store_city';
-        $META_STATE  = defined('WCSS_Store_CPT::META_STATE')  ? WCSS_Store_CPT::META_STATE  : '_store_state';
-        $META_QUOTA  = defined('WCSS_Store_CPT::META_QUOTA')  ? WCSS_Store_CPT::META_QUOTA  : '_store_quota';
-        $META_BUDGET = defined('WCSS_Store_CPT::META_BUDGET') ? WCSS_Store_CPT::META_BUDGET : '_store_budget';
-        $META_ADDR   = defined('WCSS_Store_CPT::META_ADDR')   ? WCSS_Store_CPT::META_ADDR   : '_wcss_store_address';
-        $META_PHONE  = defined('WCSS_Store_CPT::META_PHONE')  ? WCSS_Store_CPT::META_PHONE  : '_wcss_store_phone';
-        $META_HOURS  = defined('WCSS_Store_CPT::META_HOURS')  ? WCSS_Store_CPT::META_HOURS  : '_wcss_open_hours';
+        $META_CODE     = WCSS_Store_CPT::META_CODE;
+        $META_CITY     = WCSS_Store_CPT::META_CITY;
+        $META_STATE    = WCSS_Store_CPT::META_STATE;
+        $META_QUOTA    = WCSS_Store_CPT::META_QUOTA;
+        $META_BUDGET   = WCSS_Store_CPT::META_BUDGET;
+        $META_ADDR     = WCSS_Store_CPT::META_ADDR;
+        $META_PHONE    = WCSS_Store_CPT::META_PHONE;
+        $META_HOURS    = WCSS_Store_CPT::META_HOURS;
+        $META_POSTCODE = WCSS_Store_CPT::META_POSTCODE;
+        $META_COUNTRY  = WCSS_Store_CPT::META_COUNTRY;
     
         if ( array_key_exists('code',   $body) ) update_post_meta( $id, $META_CODE,   sanitize_text_field((string)$body['code']) );
-        if ( array_key_exists('city',   $body) ) update_post_meta( $id, $META_CITY,   sanitize_text_field((string)$body['city']) );
-        if ( array_key_exists('state',  $body) ) update_post_meta( $id, $META_STATE,  sanitize_text_field((string)$body['state']) );
         if ( array_key_exists('quota',  $body) ) update_post_meta( $id, $META_QUOTA,  (int)$body['quota'] );
         if ( array_key_exists('budget', $body) ) update_post_meta( $id, $META_BUDGET, wc_format_decimal($body['budget']) );
-    
-        // NEW fields
-        if ( array_key_exists('address',    $body) ) update_post_meta( $id, $META_ADDR,  wp_kses_post((string)$body['address']) );
-        if ( array_key_exists('phone',      $body) ) update_post_meta( $id, $META_PHONE, sanitize_text_field((string)$body['phone']) );
-        if ( array_key_exists('open_hours', $body) ) update_post_meta( $id, $META_HOURS, sanitize_textarea_field((string)$body['open_hours']) );
+
+        update_post_meta( $id, $META_CITY,     sanitize_text_field( $city ) );
+        update_post_meta( $id, $META_STATE,    sanitize_text_field( $state ) );
+        update_post_meta( $id, $META_ADDR,     wp_kses_post( $address ) );
+        update_post_meta( $id, $META_PHONE,    sanitize_text_field( $phone ) );
+        update_post_meta( $id, $META_HOURS,    sanitize_textarea_field( $hours ) );
+        update_post_meta( $id, $META_POSTCODE, sanitize_text_field( $postcode ) );
+        update_post_meta( $id, $META_COUNTRY,  sanitize_text_field( $country ) );
     
         // one-store-per-user guard (unchanged)
         $existing_store = (int) get_user_meta( $user_id, '_wcss_store_id', true );
@@ -615,25 +666,66 @@ class WCSS_REST_Stores {
         ];
     }
 
+    /** Prefer 2-letter CA codes when a full province name is saved. */
+    private function normalize_store_province( string $state ): string {
+        if ( function_exists( 'wcss_amazon_checkout_normalize_province' ) ) {
+            $n = wcss_amazon_checkout_normalize_province( $state );
+            if ( $n !== '' ) {
+                return $n;
+            }
+        }
+        $raw = strtoupper( trim( $state ) );
+        if ( strlen( $raw ) === 2 ) {
+            return $raw;
+        }
+        $map = [
+            'ALBERTA' => 'AB', 'BRITISH COLUMBIA' => 'BC', 'MANITOBA' => 'MB',
+            'NEW BRUNSWICK' => 'NB', 'NEWFOUNDLAND AND LABRADOR' => 'NL', 'NEWFOUNDLAND' => 'NL',
+            'NOVA SCOTIA' => 'NS', 'NORTHWEST TERRITORIES' => 'NT', 'NUNAVUT' => 'NU',
+            'ONTARIO' => 'ON', 'PRINCE EDWARD ISLAND' => 'PE', 'QUEBEC' => 'QC',
+            'SASKATCHEWAN' => 'SK', 'YUKON' => 'YT', 'YUKON TERRITORY' => 'YT',
+        ];
+        return $map[ $raw ] ?? trim( $state );
+    }
+
+    /**
+     * Ship-to fields required for locked checkout (Aman 5 Nov 2026).
+     *
+     * @return true|WP_Error
+     */
+    private function validate_store_address_fields( $address, $city, $state, $postcode, $phone, $hours ) {
+        if ( trim( (string) $address ) === '' ) {
+            return new WP_Error( 'wcss_store_address_required', 'Street address is required (used as the checkout ship-to).', [ 'status' => 400 ] );
+        }
+        if ( trim( (string) $city ) === '' ) {
+            return new WP_Error( 'wcss_store_city_required', 'City is required.', [ 'status' => 400 ] );
+        }
+        if ( trim( (string) $state ) === '' ) {
+            return new WP_Error( 'wcss_store_state_required', 'Province is required.', [ 'status' => 400 ] );
+        }
+        if ( trim( (string) $postcode ) === '' ) {
+            return new WP_Error( 'wcss_store_postcode_required', 'Postal code is required.', [ 'status' => 400 ] );
+        }
+        if ( trim( (string) $phone ) === '' ) {
+            return new WP_Error( 'wcss_store_phone_required', 'Phone number is required.', [ 'status' => 400 ] );
+        }
+        if ( trim( (string) $hours ) === '' ) {
+            return new WP_Error( 'wcss_store_hours_required', 'Open hours are required.', [ 'status' => 400 ] );
+        }
+        return true;
+    }
+
     private function dto( WP_Post $p ): array {
-        // resolve keys
-        $META_CODE   = defined('WCSS_Store_CPT::META_CODE')   ? WCSS_Store_CPT::META_CODE   : '_store_code';
-        $META_CITY   = defined('WCSS_Store_CPT::META_CITY')   ? WCSS_Store_CPT::META_CITY   : '_store_city';
-        $META_STATE  = defined('WCSS_Store_CPT::META_STATE')  ? WCSS_Store_CPT::META_STATE  : '_store_state';
-        $META_QUOTA  = defined('WCSS_Store_CPT::META_QUOTA')  ? WCSS_Store_CPT::META_QUOTA  : '_store_quota';
-        $META_BUDGET = defined('WCSS_Store_CPT::META_BUDGET') ? WCSS_Store_CPT::META_BUDGET : '_store_budget';
-        $META_ADDR   = defined('WCSS_Store_CPT::META_ADDR')   ? WCSS_Store_CPT::META_ADDR   : '_wcss_store_address';
-        $META_PHONE  = defined('WCSS_Store_CPT::META_PHONE')  ? WCSS_Store_CPT::META_PHONE  : '_wcss_store_phone';
-        $META_HOURS  = defined('WCSS_Store_CPT::META_HOURS')  ? WCSS_Store_CPT::META_HOURS  : '_wcss_open_hours';
-    
-        $code   = get_post_meta( $p->ID, $META_CODE,   true );
-        $city   = get_post_meta( $p->ID, $META_CITY,   true );
-        $state  = get_post_meta( $p->ID, $META_STATE,  true );
-        $quota  = get_post_meta( $p->ID, $META_QUOTA,  true );
-        $budget = get_post_meta( $p->ID, $META_BUDGET, true );
-        $addr   = get_post_meta( $p->ID, $META_ADDR,   true );
-        $phone  = get_post_meta( $p->ID, $META_PHONE,  true );
-        $hours  = get_post_meta( $p->ID, $META_HOURS,  true );
+        $code     = get_post_meta( $p->ID, WCSS_Store_CPT::META_CODE, true );
+        $city     = get_post_meta( $p->ID, WCSS_Store_CPT::META_CITY, true );
+        $state    = get_post_meta( $p->ID, WCSS_Store_CPT::META_STATE, true );
+        $quota    = get_post_meta( $p->ID, WCSS_Store_CPT::META_QUOTA, true );
+        $budget   = get_post_meta( $p->ID, WCSS_Store_CPT::META_BUDGET, true );
+        $addr     = get_post_meta( $p->ID, WCSS_Store_CPT::META_ADDR, true );
+        $phone    = get_post_meta( $p->ID, WCSS_Store_CPT::META_PHONE, true );
+        $hours    = get_post_meta( $p->ID, WCSS_Store_CPT::META_HOURS, true );
+        $postcode = get_post_meta( $p->ID, WCSS_Store_CPT::META_POSTCODE, true );
+        $country  = get_post_meta( $p->ID, WCSS_Store_CPT::META_COUNTRY, true ) ?: 'CA';
     
         $assigned = get_users([
             'meta_key'   => '_wcss_store_id',
@@ -657,10 +749,14 @@ class WCSS_REST_Stores {
             'limits_default'   => WCSS_Store_CPT::get_field( (int) $p->ID, 'budget' ) === '' && WCSS_Store_CPT::get_field( (int) $p->ID, 'quota' ) === '',
             'quota_effective'  => class_exists( 'WCSS_Order_Policy' ) ? (int) WCSS_Order_Policy::store_limits( (int) $p->ID )['quota'] : (int) $quota,
             'budget_effective' => class_exists( 'WCSS_Order_Policy' ) ? (float) WCSS_Order_Policy::store_limits( (int) $p->ID )['budget'] : (float) $budget,
-            // NEW
             'address'   => (string) $addr,
+            'postcode'  => (string) $postcode,
+            'country'   => (string) $country,
             'phone'     => (string) $phone,
             'open_hours'=> (string) $hours,
+            'address_complete' => class_exists( 'WCSS_Checkout_Store_Lock' )
+                ? WCSS_Checkout_Store_Lock::store_address_complete( (int) $p->ID )
+                : false,
             // assignment
             'user_id'   => $user ? (int) $user->ID : 0,
             'user_name'      => $user ? ($user->display_name ?: $user->user_login) : '',
@@ -804,6 +900,21 @@ class WCSS_REST_Stores {
             return new WP_Error( 'wcss_email_exists', 'That email is already registered.', [ 'status' => 409 ] );
         }
 
+        // Blank keeps the current password. Checked first, so a refused password changes nothing.
+        $pass = (string) ( $body['password'] ?? '' );
+        if ( $pass !== '' ) {
+            if ( strlen( $pass ) < 8 ) {
+                return new WP_Error( 'wcss_weak_password', 'Password must be at least 8 characters.', [ 'status' => 400 ] );
+            }
+            if ( (int) $u->ID === get_current_user_id() ) {
+                return new WP_Error( 'wcss_self', 'You can’t change your own password here.', [ 'status' => 400 ] );
+            }
+            // A Supply Manager setting another manager's password could sign in as them.
+            if ( ! current_user_can( 'manage_options' ) && ! in_array( 'store_employee', (array) $u->roles, true ) ) {
+                return new WP_Error( 'wcss_forbidden', 'Only an administrator can change this user’s password.', [ 'status' => 403 ] );
+            }
+        }
+
         $parts = preg_split( '/\s+/', $name, 2 );
         $res = wp_update_user([
             'ID'           => $u->ID,
@@ -860,6 +971,12 @@ class WCSS_REST_Stores {
             }
         }
 
+        if ( $pass !== '' ) {
+            wp_set_password( $pass, $u->ID );
+            // Anyone signed in with the old password has to sign in again.
+            if ( class_exists( 'WP_Session_Tokens' ) ) WP_Session_Tokens::get_instance( $u->ID )->destroy_all();
+        }
+
         return rest_ensure_response([ 'ok' => true, 'id' => (int) $u->ID ]);
     }
 
@@ -869,6 +986,25 @@ class WCSS_REST_Stores {
         delete_user_meta( $u->ID, '_wcss_store_id' );
         $u->set_role( 'customer' );
         return rest_ensure_response([ 'ok' => true ]);
+    }
+
+    /** POST /users/{id}/send-password-link */
+    public function send_password_link( WP_REST_Request $req ) {
+        $user = get_userdata( (int) $req['id'] );
+        if ( ! $user ) {
+            return new WP_Error( 'not_found', 'User not found.', [ 'status' => 404 ] );
+        }
+        if ( get_user_meta( $user->ID, self::META_INACTIVE, true ) ) {
+            return new WP_Error( 'wcss_inactive', 'This user is inactive. Reactivate them first.', [ 'status' => 409 ] );
+        }
+        if ( user_can( $user, 'manage_options' ) && ! current_user_can( 'manage_options' ) ) {
+            return new WP_Error( 'forbidden', 'Only an administrator can do this for an administrator.', [ 'status' => 403 ] );
+        }
+        $sent = WCSS_Email_Center::send_password_link( $user );
+        if ( ! $sent['ok'] ) {
+            return new WP_Error( 'wcss_mail_failed', 'Couldn’t send the email: ' . $sent['error'], [ 'status' => 502 ] );
+        }
+        return rest_ensure_response( [ 'ok' => true, 'email' => $user->user_email ] );
     }
 
     public function create_user( WP_REST_Request $req ) {
@@ -894,7 +1030,12 @@ class WCSS_REST_Stores {
             $login = $base . $n++;
         }
 
-        if ( $pass === '' ) {
+        if ( $pass !== '' && strlen( $pass ) < 8 ) {
+            return new WP_Error( 'wcss_weak_password', 'Password must be at least 8 characters.', [ 'status' => 400 ] );
+        }
+
+        $generated = $pass === '';
+        if ( $generated ) {
             $pass = wp_generate_password( 20, true, true );
         }
 
@@ -912,11 +1053,15 @@ class WCSS_REST_Stores {
             return new WP_Error('wcss_user_create_failed', $user_id->get_error_message(), ['status'=>500]);
         }
 
+        // Nobody knows a generated password, so the employee needs a link to choose their own.
+        $link = $generated ? WCSS_Email_Center::send_password_link( get_userdata( $user_id ), true ) : null;
+
         // return in SAME shape as list_users() so the frontend can just append + select
         return rest_ensure_response([
             'id'    => (int) $user_id,
             'name'  => get_the_author_meta('display_name', $user_id),
             'email' => $email,
+            'password_email_sent' => $link ? $link['ok'] : null,
         ]);
     }
 

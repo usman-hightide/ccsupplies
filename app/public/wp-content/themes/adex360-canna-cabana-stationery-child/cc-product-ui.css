@@ -586,3 +586,14 @@ body.single-product .elementor-location-single .elementor-add-to-cart form.cart:
 body.single-product .elementor-location-single .elementor-add-to-cart form.cart::after {
   display: none !important;
 }
+
+/* Popup note: the cart was cleared because ink and stationery are ordered separately. */
+.cc-atc__note {
+  margin-top: 8px !important;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff4e0;
+  color: #8a5300;
+  font-size: 13px;
+  line-height: 1.4;
+}

@@ -7,7 +7,249 @@
     return (window.WCSSM && (WCSSM.home || WCSSM.manager_base)) || "/manager/";
   }
 
+  /* ---------- Vendor picker: one product → many vendors (checkbox list) ---------- */
+  var VP = (window.wcssVendorPicker = (function () {
+    var vendors = [];
+    var prices = { amazon: null, gt: null };
+    var rows = {};      // live price rows from the server: { amazon: {status, price, error, ago}, gt: {...} }
+    var cheapest = null; // { price, vendor } — what stores see
+    var LIVE = {
+      amazon: { dot: "is-amz", idLabel: "Amazon ASIN", idName: "amazon_asin", ph: "e.g. B074RFMST7" },
+      gt: { dot: "is-gt", idLabel: "Grand & Toy part ID", idName: "gt_part_id", ph: "Leave blank to use the SKU" },
+    };
+
+    function txt(s) { return $("<textarea>").html(s == null ? "" : String(s)).text(); }
+    function esc(s) {
+      return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+      });
+    }
+    function $list() { return $("#p-vendor-list"); }
+    function money(n) { return "$" + Number(n).toFixed(2); }
+
+    function sub(v) {
+      if (!v.key) return { t: "Manual vendor", tone: "" };
+      var r = rows[v.key];
+      if (r && r.status === "ok" && r.price != null) return { t: money(r.price) + " · checked " + (r.ago || "recently"), tone: "ok" };
+      if (r && r.excluded) return { t: "Not priced — tick to include", tone: "" };
+      if (r && r.status === "missing_id") return { t: "No ID yet — add it below and save", tone: "warn" };
+      if (r && r.status === "not_found") return { t: "Not found at this vendor" + (r.ago ? " · " + r.ago : ""), tone: "warn" };
+      if (r && (r.status === "error" || r.status === "unavailable")) {
+        // Vendor API errors are for the dev team; Supply Managers get a plain status.
+        if (window.WCSSM && WCSSM.is_admin) return { t: "Couldn’t fetch price" + (r.error ? " — " + r.error : ""), tone: "err" };
+        return { t: "Price unavailable right now. We’ll try again automatically.", tone: "warn" };
+      }
+      var p = prices[v.key];
+      return p != null ? { t: "Last price " + money(p), tone: "ok" } : { t: "Not checked yet — save or refresh prices", tone: "" };
+    }
+
+    function summary() {
+      var $s = $("#p-price-sum");
+      if (!$s.length) return;
+      if (!cheapest || cheapest.price == null) { $s.prop("hidden", true).empty(); return; }
+      var who = cheapest.vendor === "amazon" ? "Amazon" : cheapest.vendor === "gt" ? "Grand & Toy" : "the manual vendor";
+      $s.html("Stores see <b>" + money(cheapest.price) + "</b> <span>— lowest price, from " + esc(who) + "</span>").prop("hidden", false);
+    }
+
+    /** Refresh price lines only (checkbox state untouched). */
+    function setPrices(p) {
+      rows = p.vendor_prices || {};
+      cheapest = p.cheapest || null;
+      prices = { amazon: p.amazon_price != null ? +p.amazon_price : null, gt: p.gt_price != null ? +p.gt_price : null };
+      $list().find(".ccm-vpick-row").each(function () {
+        var v = { key: $(this).data("key") || "" };
+        var s2 = sub(v);
+        $(this).find(".ccm-vpick-sub").attr("class", "ccm-vpick-sub" + (s2.tone ? " is-" + s2.tone : "")).text(s2.t);
+        $(this).toggleClass("is-winner", !!(cheapest && v.key && cheapest.vendor === v.key));
+      });
+      summary();
+    }
+
+    function rowHtml(v, checked) {
+      var live = LIVE[v.key];
+      var h =
+        "<div class='ccm-vpick-row" + (live ? " is-live" : "") + "' data-id='" + v.id + "' data-key='" + esc(v.key || "") + "'>" +
+        "<label class='ccm-vpick-opt'>" +
+        "<input type='checkbox' value='" + v.id + "'" + (checked ? " checked" : "") + ">" +
+        "<span class='ccm-vdot " + (live ? live.dot : "is-oth") + "' aria-hidden='true'></span>" +
+        "<span class='ccm-pol-store-n'><b>" + esc(txt(v.name)) + "<em class='ccm-vpick-win'>Lowest</em></b><small class='ccm-vpick-sub'>" + esc(sub(v).t) + "</small></span>" +
+        "<span class='ccm-vpick-tag" + (live ? " is-live" : "") + "'>" + (live ? "Live price" : "Manual") + "</span>" +
+        "</label>";
+      if (live) {
+        h +=
+          "<div class='ccm-vpick-id'" + (checked ? "" : " hidden") + ">" +
+          "<label for='p-vid-" + v.key + "'>" + esc(live.idLabel) + "</label>" +
+          "<input class='input' type='text' id='p-vid-" + v.key + "' data-vid='" + live.idName + "' placeholder='" + esc(live.ph) + "' autocomplete='off'>" +
+          "</div>";
+      }
+      return h + "</div>";
+    }
+
+    function sorted(list) {
+      var rank = { amazon: 0, gt: 1 };
+      return list.slice().sort(function (a, b) {
+        var ra = a.key in rank ? rank[a.key] : 2, rb = b.key in rank ? rank[b.key] : 2;
+        return ra - rb || txt(a.name).localeCompare(txt(b.name));
+      });
+    }
+
+    function count() {
+      var n = $list().find("input[type=checkbox]:checked").length;
+      $("#p-vendor-count").html("<b>" + n + "</b> selected");
+    }
+    function err(msg) { $("#p-vendor-err").text(msg || "").prop("hidden", !msg); }
+
+    function render(list) {
+      vendors = (list || []).map(function (v) { return { id: +v.id, name: v.name, key: v.key || "" }; });
+      var keep = ids();
+      if (!vendors.length) {
+        $list().html("<div class='ccm-pol-empty'><b>No vendors yet</b>Add one in the Vendors tab.</div>");
+      } else {
+        $list().html(sorted(vendors).map(function (v) { return rowHtml(v, keep.indexOf(v.id) > -1); }).join(""));
+      }
+      count();
+    }
+
+    function ids() {
+      return $list().find("input[type=checkbox]:checked").map(function () { return +this.value; }).get();
+    }
+
+    /** Prefill from the product DTO. */
+    function set(p) {
+      var on = (p.assigned_vendor_ids || p.vendor_id || []).map(Number);
+      render(vendors);
+      $list().find("input[type=checkbox]").each(function () {
+        this.checked = on.indexOf(+this.value) > -1;
+        $(this).closest(".ccm-vpick-row").find(".ccm-vpick-id").prop("hidden", !this.checked);
+      });
+      $("#p-vid-amazon").val(p.amazon_asin || "");
+      $("#p-vid-gt").val(p.gt_part_id || "");
+      setPrices(p);
+      count();
+    }
+
+    /** Add a just-created vendor and tick it. */
+    function add(v) {
+      if (!v || !v.id) return;
+      if (!vendors.some(function (x) { return x.id === +v.id; })) {
+        vendors.push({ id: +v.id, name: v.name, key: v.key || "" });
+      }
+      var on = ids().concat([+v.id]);
+      var vals = { amazon: $("#p-vid-amazon").val(), gt: $("#p-vid-gt").val() };
+      render(vendors);
+      $list().find("input[type=checkbox]").each(function () {
+        this.checked = on.indexOf(+this.value) > -1;
+        $(this).closest(".ccm-vpick-row").find(".ccm-vpick-id").prop("hidden", !this.checked);
+      });
+      $("#p-vid-amazon").val(vals.amazon || "");
+      $("#p-vid-gt").val(vals.gt || "");
+      count();
+    }
+
+    /** Fields for the save payload. */
+    function payload() {
+      var out = { vendor_ids: ids() };
+      if ($("#p-vid-amazon").length) out.amazon_asin = $.trim($("#p-vid-amazon").val() || "");
+      if ($("#p-vid-gt").length) out.gt_part_id = $.trim($("#p-vid-gt").val() || "");
+      return out;
+    }
+
+    /** Every product must ship from a vendor; live vendors need an ID, manual vendors a price. */
+    function validate(sku, price) {
+      if (!$list().length) return true;
+      if (!ids().length) { err("Select at least one vendor. Every product must be supplied by a vendor."); return false; }
+      var $amz = $list().find(".ccm-vpick-row[data-key=amazon] input[type=checkbox]");
+      if ($amz.is(":checked") && !$.trim($("#p-vid-amazon").val() || "")) {
+        err("Amazon is ticked — enter the Amazon ASIN so the price can be fetched.");
+        $("#p-vid-amazon").trigger("focus");
+        return false;
+      }
+      var $gt = $list().find(".ccm-vpick-row[data-key=gt] input[type=checkbox]");
+      if ($gt.is(":checked") && !$.trim($("#p-vid-gt").val() || "") && !$.trim(sku || "")) {
+        err("Grand & Toy is ticked — enter the G&T part ID (or a SKU) so the price can be fetched.");
+        $("#p-vid-gt").trigger("focus");
+        return false;
+      }
+      var manual = $list().find(".ccm-vpick-row:not(.is-live) input[type=checkbox]:checked").length > 0;
+      if (manual && !(parseFloat(price) > 0)) {
+        err("A manual vendor is ticked — enter its price, because it has no live price feed.");
+        $("#p-price").trigger("focus");
+        return false;
+      }
+      err("");
+      return true;
+    }
+
+    $(document).on("change", "#p-vendor-list input[type=checkbox]", function () {
+      var $id = $(this).closest(".ccm-vpick-row").find(".ccm-vpick-id");
+      $id.prop("hidden", !this.checked);
+      if (this.checked) $id.find("input").trigger("focus");
+      err("");
+      count();
+    });
+
+    return { render: render, set: set, setPrices: setPrices, add: add, ids: ids, payload: payload, validate: validate };
+  })());
+
   /* Helpers */
+
+  /** One plain line about the price fetch that just ran. */
+  function priceSyncText(p) {
+    const sync = p.price_sync || {};
+    if (!sync.ran) return "Prices will update on the next hourly sync.";
+    const rows = p.vendor_prices || {};
+    const parts = [];
+    [["amazon", "Amazon"], ["gt", "Grand & Toy"]].forEach(function (k) {
+      const r = rows[k[0]];
+      if (!r || r.excluded) return; // vendor not ticked for this product
+      parts.push(k[1] + ": " + (r.status === "ok" && r.price != null ? "$" + Number(r.price).toFixed(2) : "price unavailable"));
+    });
+    const c = p.cheapest && p.cheapest.price != null ? " Stores now see $" + Number(p.cheapest.price).toFixed(2) + "." : "";
+    return (parts.length ? "Prices updated — " + parts.join(" · ") + "." : "Prices checked.") + c;
+  }
+
+  function thumbTile(url) {
+    return "<div class='ccm-pf-thumb'><img src='" + String(url || "").replace(/'/g, "%27") + "' alt=''></div>";
+  }
+  function emptyThumbs() {
+    const $p = $("#p-images-preview");
+    $p.find(".ccm-pf-thumbs-empty").remove();
+    if (!$p.children(".ccm-pf-thumb").length) {
+      $p.append("<div class='ccm-pf-thumbs-empty'>No images yet. Use “Choose images” to add one.</div>");
+    }
+  }
+
+  /** Categories as a checkbox list (parent → child order, children indented). */
+  function catCount() {
+    $("#p-cat-count").html("<b>" + $("#p-categories input:checked").length + "</b> selected");
+  }
+  function renderCategories(list) {
+    const $box = $("#p-categories");
+    if (!$box.length) return;
+    const on = $box.find("input:checked").map(function () { return +this.value; }).get();
+    const byParent = {};
+    list.forEach(function (c) { (byParent[c.parent || 0] = byParent[c.parent || 0] || []).push(c); });
+    const name = function (c) { return $("<textarea>").html(c.name).text(); };
+    const rows = [];
+    (function walk(pid, depth) {
+      (byParent[pid] || []).sort(function (a, b) { return name(a).localeCompare(name(b)); }).forEach(function (c) {
+        if (name(c).toLowerCase() === "uncategorized") return;
+        rows.push(
+          "<label class='ccm-pf-cat' style='padding-left:" + (14 + depth * 22) + "px'>" +
+          "<input type='checkbox' value='" + c.id + "'" + (on.indexOf(+c.id) > -1 ? " checked" : "") + ">" +
+          "<span>" + $("<div>").text(name(c)).html() + "</span>" +
+          (c.ink ? "<span class='ccm-vpick-tag is-live'>Ink</span>" : "") + "</label>"
+        );
+        walk(c.id, depth + 1);
+      });
+    })(0, 0);
+    $box.html(rows.length ? rows.join("") : "<div class='ccm-pol-empty'><b>No categories</b>Create product categories first.</div>");
+    catCount();
+  }
+  $(document).on("change", "#p-categories input[type=checkbox]", catCount);
+  $(document).on("input", "#p-name", function () {
+    if ($("#p-save").length) $("#pf-title").text($.trim(this.value) || "Edit product");
+  });
 
   function attachMediaPicker() {
     if (typeof wp === "undefined" || !wp.media) return;
@@ -33,10 +275,11 @@
               const id = att.get("id");
               const url = att.get("sizes")?.thumbnail?.url || att.get("url");
               if (id) ids.push(id);
-              if (url) $prev.append('<img src="' + url + '" alt="">');
+              if (url) $prev.append(thumbTile(url));
             });
 
             $("#p-images-ids").val(ids.join(","));
+            emptyThumbs();
           });
         }
         _mediaFrame.open();
@@ -44,8 +287,7 @@
   }
 
   function collectPayload() {
-    const catIds = ($("#p-categories").val() || []).map((v) => parseInt(v, 10));
-    const vendorIds = ($("#p-vendors").val() || []).map((v) => parseInt(v, 10));
+    const catIds = $("#p-categories input[type=checkbox]:checked").map(function () { return parseInt(this.value, 10); }).get();
 
     const imageIds = ($("#p-images-ids").val() || "")
       .toString()
@@ -53,22 +295,19 @@
       .map((v) => parseInt(v, 10) || null)
       .filter(Boolean);
 
-    return {
+    return $.extend({
       name: $("#p-name").val(),
       sku: $("#p-sku").val(),
       price: $("#p-price").val(),
       short_description: $("#p-short").val(),
       category_ids: catIds,
-      // keep these keys – your REST accepts both "vendor" (name) and "vendor_ids"
       brand: $("#p-brand").val(),
-      vendor: $("#p-vendor").val(),
-      vendor_ids: vendorIds,
       images: imageIds,
       manage_stock: $("#p-manage-stock").is(":checked"),
       stock: parseInt($("#p-stock").val() || 0, 10),
       stock_status: $("#p-stock-status").val(),
       status: $("#p-status").val(),
-    };
+    }, VP.payload()); // vendor_ids + amazon_asin + gt_part_id
   }
   function bindNewVendorButton() {
     $("#p-add-vendor")
@@ -88,12 +327,8 @@
           dataType: "json",
         })
           .done(function (t) {
-            // add & select
-            $("<option>")
-              .val(t.id)
-              .text(t.name)
-              .prop("selected", true)
-              .appendTo("#p-vendors");
+            // add & tick
+            VP.add(t);
           })
           .fail(function (x) {
             alert(
@@ -114,16 +349,9 @@
       headers: { "X-WP-Nonce": WCSSM.nonce },
       dataType: "json",
     }).then(function (meta) {
-      const $cats = $("#p-categories").empty();
-      (meta.categories || []).forEach((c) =>
-        $("<option>").val(c.id).html(c.name).appendTo($cats)
-      );
+      renderCategories(meta.categories || []);
 
-      const $vendors = $("#p-vendors").empty();
-      (meta.vendors || []).forEach((v) =>
-        // Term names can be stored HTML-encoded ("Grand &amp; Toy"); decode before showing.
-        $("<option>").val(v.id).text($("<textarea>").html(v.name).text()).appendTo($vendors)
-      );
+      VP.render(meta.vendors || []);
 
       return meta;
     });
@@ -170,7 +398,7 @@
     function render(items, meta) {
       const head = `
       <div class="row head">
-        <div>ID</div><div>Name</div><div>SKU</div><div>Vendor</div><div>Woo</div><div>Amazon</div><div>G&amp;T</div><div>Actions</div>
+        <div>ID</div><div>Name</div><div>SKU</div><div>Vendor</div><div>Amazon</div><div>G&amp;T</div><div>Actions</div>
       </div>`;
       const rows = (items || [])
         .map((p) => {
@@ -187,8 +415,6 @@
           const editUrl =
             p.id + (qsParts.length ? "?" + qsParts.join("&") : "");
 
-          const wooHtml =
-            p.woo_price_html || p.price_html || (p.price != null ? p.price : "—");
           const amazonHtml = p.amazon_price_html || "—";
           const gtHtml = p.gt_price_html || "—";
 
@@ -201,7 +427,6 @@
           /</g,
           "&lt;"
         )}</div>
-        <div class="price-cell">${wooHtml}</div>
         <div class="price-cell">${amazonHtml}</div>
         <div class="price-cell">${gtHtml}</div>
         <div class="actions">
@@ -439,6 +664,7 @@
 
     attachMediaPicker();
     bindNewVendorButton();
+    emptyThumbs();
 
     // ensure meta is loaded before enabling save
     loadProductMeta().then(function () {
@@ -455,13 +681,14 @@
             $msg.text("Please enter product name.");
             return;
           }
-          if (!payload.price) {
-            $msg.text("Please enter product price.");
+          if (!VP.validate(payload.sku, payload.price)) {
+            $msg.text("Please fix the vendors.");
             return;
           }
 
           busy = true;
-          $msg.text("Creating…");
+          $msg.removeClass("ok err").text("Creating product and fetching vendor prices…");
+          $("#p-create").prop("disabled", true);
 
           $.ajax({
             url: WCSSM.rest + "products",
@@ -474,10 +701,10 @@
             dataType: "json",
           })
             .done(function (p) {
-              $msg.text("Created #" + p.id + " — " + (p.name || ""));
-              // redirect to products list
+              $msg.addClass("ok").text("Created #" + p.id + " — " + (p.name || "") + ". Opening it…");
+              // Open the new product so the fetched vendor prices are visible.
               setTimeout(function () {
-                window.location.href = managerBase() + "products";
+                window.location.href = managerBase().replace(/\/+$/, "/") + "products/edit/" + p.id;
               }, 600);
             })
             .fail(function (x) {
@@ -487,6 +714,7 @@
             })
             .always(function () {
               busy = false;
+              $("#p-create").prop("disabled", false);
             });
         });
     });
@@ -526,19 +754,18 @@
 
       // Categories
       if (Array.isArray(p.category_ids)) {
-        $("#p-categories option").each(function () {
-          const v = parseInt($(this).val(), 10);
-          $(this).prop("selected", p.category_ids.includes(v));
+        $("#p-categories input[type=checkbox]").each(function () {
+          this.checked = p.category_ids.includes(parseInt(this.value, 10));
         });
+        catCount();
       }
 
-      // Vendors (multi)
-      if (Array.isArray(p.vendor_id)) {
-        $("#p-vendors option").each(function () {
-          const v = parseInt($(this).val(), 10);
-          $(this).prop("selected", p.vendor_id.includes(v));
-        });
-      }
+      // Page header
+      $("#pf-title").text(p.name || "Edit product");
+      $("#pf-sub").text("Product #" + p.id + (p.sku ? " · SKU " + p.sku : ""));
+
+      // Vendors (checkbox list, one product → many vendors)
+      VP.set(p);
 
       // Images: set hidden field + render thumbs via wp.media attachment fetch
       const ids = Array.isArray(p.images)
@@ -549,14 +776,18 @@
 
       if (window.wp && wp.media && ids.length) {
         ids.forEach(function (attId) {
+          // Placeholder first so the featured image stays first.
+          const $tile = $(thumbTile("")).appendTo($prev);
           const att = wp.media.attachment(attId);
           att.fetch().then(function () {
             const url =
               att.get("sizes")?.thumbnail?.url || att.get("url") || null;
-            if (url) $prev.append('<img src="' + url + '" alt="">');
+            if (url) $tile.find("img").attr("src", url);
+            else $tile.remove();
           });
         });
       }
+      emptyThumbs();
     }
 
     // Load meta first, then product, to avoid race
@@ -579,8 +810,13 @@
       .off("click.wcssm")
       .on("click.wcssm", function (e) {
         e.preventDefault();
-        toast("Saving…", true);
         const payload = collectPayload();
+        if (!VP.validate(payload.sku, payload.price)) {
+          toast("Please fix the vendors.", false);
+          return;
+        }
+        toast("Saving and fetching vendor prices…", true);
+        const $btn = $("#p-save").prop("disabled", true).text("Saving…");
 
         $.ajax({
           url: WCSSM.rest + "products/" + id,
@@ -592,28 +828,42 @@
           data: JSON.stringify(payload),
           dataType: "json",
         })
-          .done(function () {
-            toast("✅ Saved!", true);
-            const params = new URLSearchParams(window.location.search);
-            const backParts = [];
-            const pg = params.get("page");
-            const srch = params.get("search");
-
-            if (pg) backParts.push("page=" + encodeURIComponent(pg));
-            if (srch) backParts.push("search=" + encodeURIComponent(srch));
-
-            let backUrl = (WCSSM.manager_base || "/manager/") + "products";
-            if (backParts.length) {
-              backUrl += "?" + backParts.join("&");
-            }
-
-            setTimeout(function () {
-              // window.location.href = managerBase() + "products"
-              window.location.href = backUrl;
-            }, 500);
+          .done(function (p) {
+            VP.set(p);
+            $("#pf-title").text(p.name || "Edit product");
+            $("#pf-sub").text("Product #" + p.id + (p.sku ? " · SKU " + p.sku : ""));
+            toast("Saved. " + priceSyncText(p), true);
           })
           .fail(function (x) {
             toast("Error: " + (x.responseJSON?.message || x.statusText), false);
+          })
+          .always(function () {
+            $btn.prop("disabled", false).text("Save changes");
+          });
+      });
+
+    // Refresh prices (fetch Amazon / G&T now, no other changes)
+    $("#p-refresh-prices")
+      .off("click.wcssm")
+      .on("click.wcssm", function () {
+        const $b = $(this).prop("disabled", true).addClass("is-busy");
+        $b.find("span").text("Fetching prices…");
+        toast("Fetching Amazon and Grand & Toy prices…", true);
+        $.ajax({
+          url: WCSSM.rest + "products/" + id + "/refresh-prices",
+          method: "POST",
+          headers: { "X-WP-Nonce": WCSSM.nonce },
+          dataType: "json",
+        })
+          .done(function (p) {
+            VP.setPrices(p);
+            toast(priceSyncText(p), true);
+          })
+          .fail(function (x) {
+            toast("Couldn’t refresh prices: " + (x.responseJSON?.message || x.statusText), false);
+          })
+          .always(function () {
+            $b.prop("disabled", false).removeClass("is-busy").find("span").text("Refresh prices");
           });
       });
 
@@ -719,11 +969,7 @@
           return;
         }
 
-        const $sel = $("#p-vendors");
-        if ($sel.find(`option[value='${v.id}']`).length === 0) {
-          $("<option>").val(v.id).text(v.name).appendTo($sel);
-        }
-        $sel.find(`option[value='${v.id}']`).prop("selected", true);
+        if (window.wcssVendorPicker) window.wcssVendorPicker.add(v);
 
         vendorToast("Vendor created successfully!", true);
         var msg = "Vendor created successfully!";
@@ -923,88 +1169,86 @@
   // STORES – Create
   // -------------------------------------
 
-  // STORES – Create
+  // STORES – Create (CCM layout; full ship-to required for locked checkout)
   window.initStoreCreate = function () {
     const $msg = $("#s-msg");
+    const $err = $("#s-err");
     const $btn = $("#s-save");
 
-    function toast(t, ok = true) {
-      $msg
-        .removeClass("err ok")
-        .addClass(ok ? "ok" : "err")
-        .text(t)
-        .show();
+    function bar(t) {
+      $msg.text(t || "");
     }
-    function val(id) {
-      return ($("#" + id).val() || "").trim();
+    function err(m) {
+      if ($err.length) {
+        $err.text(m || "").prop("hidden", !m);
+        if (m) {
+          $("html, body").animate({ scrollTop: Math.max(0, $err.offset().top - 120) }, 200);
+        }
+      }
+      if (m) bar(m);
+    }
+    function v(sel) {
+      return ($(sel).val() || "").trim();
     }
 
-    // populate dropdown with store_employee users
     $.ajax({
       url: WCSSM.rest + "users",
       headers: { "X-WP-Nonce": WCSSM.nonce },
       dataType: "json",
     }).done(function (list) {
       var $u = $("#s-user").empty();
-      $u.append($("<option>").val("").text("Select a Store Employee"));
+      $u.append($("<option>").val("").text("Choose a store employee"));
       (list || []).forEach(function (u) {
         $u.append(
           $("<option>")
             .val(u.id)
-            .text(u.name + " — " + (u.email || ""))
+            .text((u.name || "User #" + u.id) + (u.email ? " — " + u.email : ""))
         );
       });
+      if (typeof window.dropdown === "function") window.dropdown($u[0]);
+    });
+
+    $("#sc-form").on("input change", "input, select, textarea", function () {
+      err("");
+      bar("You have unsaved changes");
+      $("#sc-bar").addClass("is-dirty");
     });
 
     $btn.off("click").on("click", function () {
-      console.log("btn clicked");
-
       const payload = {
-        name: $("#s-name").val(),
-        code: $("#s-code").val(),
-        city: $("#s-city").val(),
-        state: $("#s-state").val(),
-        address: $("#s-address").val(),
-        phone: $("#s-phone").val(),
-        open_hours: $("#s-hours").val(),
-        quota: parseInt($("#s-quota").val(), 10) || 0,
-        budget: parseFloat($("#s-budget").val()) || 0,
-        user_id: parseInt($("#s-user").val(), 10) || 0,
+        name: v("#s-name"),
+        code: v("#s-code"),
+        city: v("#s-city"),
+        state: v("#s-state"),
+        address: v("#s-address"),
+        postcode: v("#s-postcode"),
+        country: v("#s-country") || "CA",
+        phone: v("#s-phone"),
+        open_hours: v("#s-hours"),
+        quota: v("#s-quota") === "" ? "" : parseInt(v("#s-quota"), 10),
+        budget: v("#s-budget") === "" ? "" : parseFloat(v("#s-budget")),
+        user_id: parseInt(v("#s-user"), 10) || 0,
       };
 
-      console.log("step 1");
-      // Required fields (match server-side)
-      if (!payload.name) return toast("Name is required", false);
-      if (!payload.code) return toast("Code is required", false);
-      if (!payload.quota) return toast("Quota is required", false);
-      if (!payload.budget) return toast("Budget is required", false);
-      if (!payload.user_id) return toast("Select a Store Employee.", false);
-      if (!payload.address) return toast("Address is required", false);
-      if (!payload.phone) return toast("Phone number is required", false);
-      if (!payload.open_hours) return toast("Open hours are required", false);
-
-      // If you also want these required on the front end:
-      // if (!payload.city)  return toast("City is required", false);
-      // if (!payload.state) return toast("State/Province is required", false);
-
-      // Numeric validation when present
-      if (
-        payload.quota !== "" &&
-        (!/^\d+$/.test(payload.quota) || parseInt(payload.quota, 10) < 0)
-      ) {
-        return toast("Quota must be a non-negative integer.", false);
+      if (!payload.name) return err("Store name is required.");
+      if (!payload.code) return err("Store code is required.");
+      if (!payload.city) return err("City is required.");
+      if (!payload.state) return err("Province is required.");
+      if (!payload.address) return err("Street address is required.");
+      if (!payload.postcode) return err("Postal code is required.");
+      if (!payload.phone) return err("Phone number is required.");
+      if (!payload.open_hours) return err("Open hours are required.");
+      if (!payload.user_id) return err("Choose the store employee.");
+      if (payload.quota !== "" && (isNaN(payload.quota) || payload.quota < 0 || Math.floor(payload.quota) !== payload.quota)) {
+        return err("Orders per month must be a whole number, 0 or more.");
       }
-      if (
-        payload.budget !== "" &&
-        (isNaN(payload.budget) || parseFloat(payload.budget) < 0)
-      ) {
-        return toast("Budget must be a non-negative number.", false);
+      if (payload.budget !== "" && (isNaN(payload.budget) || payload.budget < 0)) {
+        return err("Monthly budget must be 0 or more.");
       }
 
-      console.log("step 3");
-
-      toast("Saving…");
-      $btn.prop("disabled", true);
+      err("");
+      bar("Creating store…");
+      $btn.prop("disabled", true).text("Creating…");
 
       $.ajax({
         url: WCSSM.rest + "stores",
@@ -1016,19 +1260,20 @@
         data: JSON.stringify(payload),
         dataType: "json",
       })
-        .done(function () {
-          toast("Created! Redirecting…", true);
+        .done(function (d) {
+          bar("Store created — opening it…");
+          var id = d && d.id ? d.id : "";
           setTimeout(function () {
-            window.location = (WCSSM.home || "/manager/") + "stores";
-          }, 800);
+            window.location = id
+              ? (WCSSM.home || "/manager/") + "stores/edit/" + id + "/"
+              : (WCSSM.home || "/manager/") + "stores";
+          }, 600);
         })
         .fail(function (x) {
           const msg =
-            x.responseJSON?.message || x.statusText || "Request failed";
-          toast(msg, false);
-        })
-        .always(function () {
-          $btn.prop("disabled", false);
+            (x.responseJSON && x.responseJSON.message) || x.statusText || "Couldn’t create this store.";
+          err(msg);
+          $btn.prop("disabled", false).text("Create store");
         });
     });
   };

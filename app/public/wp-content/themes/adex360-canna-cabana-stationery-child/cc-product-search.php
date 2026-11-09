@@ -106,7 +106,12 @@ function cc_product_search_find_exact_title_id( $term ) {
 		return 0;
 	}
 	$map = cc_product_search_title_map();
-	return isset( $map[ $needle ] ) ? (int) $map[ $needle ] : 0;
+	$id = isset( $map[ $needle ] ) ? (int) $map[ $needle ] : 0;
+	// Products of inactive vendors must not be found or redirected to.
+	if ( $id && class_exists( 'WCSS_Vendor_Status' ) && in_array( $id, WCSS_Vendor_Status::hidden_ids(), true ) ) {
+		return 0;
+	}
+	return $id;
 }
 
 /**

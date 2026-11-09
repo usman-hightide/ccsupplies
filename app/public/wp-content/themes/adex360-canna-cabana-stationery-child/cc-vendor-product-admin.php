@@ -17,7 +17,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @return string[]
  */
 function wcss_procurement_eligibility_values() {
-	return array( 'unset', 'amazon', 'gt', 'both' );
+	// none = only manual vendors (Supply Manager ticked neither Amazon nor Grand & Toy).
+	return array( 'unset', 'amazon', 'gt', 'both', 'none' );
 }
 
 /**
@@ -123,6 +124,7 @@ function wcss_render_product_vendor_fields() {
 				'amazon' => __( 'Amazon', 'adex360-canna-cabana-stationery-child' ),
 				'gt'     => __( 'Grand & Toy only', 'adex360-canna-cabana-stationery-child' ),
 				'both'   => __( 'Both Amazon and Grand & Toy', 'adex360-canna-cabana-stationery-child' ),
+				'none'   => __( 'Neither (manual vendor only)', 'adex360-canna-cabana-stationery-child' ),
 			),
 			'value'       => $eligibility,
 		)
@@ -172,3 +174,22 @@ function wcss_save_product_vendor_fields( $post_id ) {
 	}
 }
 add_action( 'woocommerce_process_product_meta', 'wcss_save_product_vendor_fields' );
+
+/**
+ * wp-admin product save: fetch this product's Amazon / G&T prices straight away
+ * (runs after the ASIN / eligibility above are saved) instead of waiting for the hourly cron.
+ *
+ * @param int $post_id Product ID.
+ */
+function wcss_refresh_vendor_prices_on_admin_save( $post_id ) {
+	$post_id = (int) $post_id;
+	if ( $post_id <= 0 || ! function_exists( 'cc_vendor_prices_sync_product' ) || wp_is_post_revision( $post_id ) ) {
+		return;
+	}
+	try {
+		cc_vendor_prices_sync_product( $post_id );
+	} catch ( Throwable $e ) {
+		// Soft-fail: the hourly cron will retry.
+	}
+}
+add_action( 'woocommerce_process_product_meta', 'wcss_refresh_vendor_prices_on_admin_save', 50 );

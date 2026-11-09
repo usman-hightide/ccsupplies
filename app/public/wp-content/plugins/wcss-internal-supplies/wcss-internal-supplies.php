@@ -36,6 +36,9 @@ require_once WCSS_DIR . 'includes/class-checkout-store-lock.php';
 require_once WCSS_DIR . 'includes/class-myaccount-customize.php';
 require_once WCSS_DIR . 'includes/class-order-quota.php';
 require_once WCSS_DIR . 'includes/class-order-policy.php';
+require_once WCSS_DIR . 'includes/class-week-reminder.php';
+require_once WCSS_DIR . 'includes/class-ink-order.php';
+require_once WCSS_DIR . 'includes/class-order-delete.php';
 require_once WCSS_DIR . 'includes/class-email-template.php';
 require_once WCSS_DIR . 'includes/class-email-center.php';
 require_once WCSS_DIR . 'includes/class-xlsx.php';
@@ -59,7 +62,24 @@ require_once WCSS_DIR . 'includes/class-wcss-ledger.php';
 require_once WCSS_DIR . 'includes/rest/class-rest-ledger.php';
 
 require_once WCSS_DIR . 'includes/class-wcss-vendors.php';
+require_once WCSS_DIR . 'includes/class-vendor-status.php';
 require_once WCSS_DIR . 'includes/rest/class-rest-vendors.php';
+require_once WCSS_DIR . 'includes/class-shipment.php';
+require_once WCSS_DIR . 'includes/class-vendor-connections.php';
+// Amazon buyer email and buying group typed in Vendor connections win over the theme's defaults
+// (the theme only defines these when they aren't defined yet, and it loads after this plugin).
+foreach ( [ 'user_email' => 'AMAZON_USER_EMAIL', 'group_id' => 'AMAZON_GROUP_ID' ] as $wcss_k => $wcss_c ) {
+    $wcss_s = WCSS_Vendor_Connections::all();
+    $wcss_v = (string) ( WCSS_Vendor_Connections::amazon_live() ? ( $wcss_s['amazon_live'][ $wcss_k ] ?? '' ) : '' );
+    if ( $wcss_v === '' ) $wcss_v = (string) ( $wcss_s['amazon'][ $wcss_k ] ?? '' ); // Live falls back to the Trial Mode value.
+    if ( $wcss_v !== '' && ! defined( $wcss_c ) ) define( $wcss_c, $wcss_v );
+}
+unset( $wcss_k, $wcss_c, $wcss_v, $wcss_s );
+require_once WCSS_DIR . 'includes/class-returns.php';
+require_once WCSS_DIR . 'includes/class-returns-account.php';
+require_once WCSS_DIR . 'includes/rest/class-rest-returns.php';
+require_once WCSS_DIR . 'includes/rest/class-rest-new-order.php';
+require_once WCSS_DIR . 'includes/rest/class-rest-order-edit.php';
 require_once WCSS_DIR . 'includes/rest/class-rest-reports.php';
 require_once WCSS_DIR . 'includes/class-email-logger.php';
 require_once WCSS_DIR . 'includes/class-email-log-admin.php';
@@ -72,6 +92,7 @@ require_once WCSS_DIR . 'includes/class-email-log-admin.php';
  * --------------------------------------------------------------- */
 register_activation_hook( __FILE__, ['WCSS_Activator', 'activate'] );
 register_deactivation_hook( __FILE__, ['WCSS_Activator', 'deactivate'] );
+register_deactivation_hook( __FILE__, function () { wp_clear_scheduled_hook( 'wcss_week_reminder_run' ); } );
 
 register_activation_hook( __FILE__, function () {
     global $wpdb;
@@ -139,6 +160,8 @@ function wcss_get_option( $key, $default = null ) {
         'order_window_start'     => 1,
         'order_window_end'       => 31,
         'limit_mode'             => 'review', // review = over-limit orders go to Supply Ops; block = refuse at checkout
+        // Parallel Ink order (class-ink-order.php) — empty = auto-discover categories whose name/slug contains "ink"
+        'ink_category_ids'       => [],
     ];
     $opts = wp_parse_args( get_option( 'wcss_settings', [] ), $defaults );
     return array_key_exists( $key, $opts ) ? $opts[ $key ] : $default;
@@ -171,6 +194,7 @@ add_action( 'plugins_loaded', function() {
 
     // Admin settings UI
     if ( is_admin() ) {
+        new WCSS_Vendor_Connections();
         new WCSS_Admin_Settings();
         new WCSS_Email_Log_Admin();
     }
@@ -196,6 +220,8 @@ add_action( 'wcss_bootstrap', function () {
     new WCSS_MyAccount_Customize();
     new WCSS_Order_Quota();
     new WCSS_Order_Policy();
+    new WCSS_Week_Reminder();
+    new WCSS_Ink_Order();
     new WCSS_Notifications();
     new WCSS_Email_Center();
     new WCSS_Reports();
@@ -212,6 +238,11 @@ add_action( 'wcss_bootstrap', function () {
     new WCSS_REST_Ledger();
     new WCSS_Vendors();
     new WCSS_REST_Vendors();
+    new WCSS_REST_New_Order();
+    new WCSS_REST_Order_Edit();
+    new WCSS_Returns();
+    new WCSS_Returns_Account();
+    new WCSS_REST_Returns();
     new WCSS_REST_Reports();
     new WCSS_Checkout_Guard();
 
@@ -256,6 +287,9 @@ add_action( 'init', function () {
 
 
 add_action( 'woocommerce_order_status_changed', function( $order_id, $old, $new, $order ){
+    // Ink orders don't use the stationery budget this ledger tracks.
+    if ( class_exists( 'WCSS_Ink_Order' ) && WCSS_Ink_Order::order_is_ink( $order ) ) return;
+
     // Which statuses count toward monthly usage
     $count_in   = apply_filters( 'wcss_ledger_count_in',   ['approved','processing','completed'] );
     $count_out  = apply_filters( 'wcss_ledger_count_out',  ['rejected','cancelled','refunded'] );
